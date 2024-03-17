@@ -1,6 +1,6 @@
 #[tauri::command]
 pub fn slider(channel: usize, value: u8) -> u8 {
-    let mut interface = lux::LuxDMX::new().unwrap();
+    let mut interface = enttecopendmx::EnttecOpenDMX::new().unwrap();
     interface.open().unwrap();
     interface.set_channel(1, 255);
     interface.set_channel(2, 255);

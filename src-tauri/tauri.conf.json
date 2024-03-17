@@ -55,13 +55,17 @@
     },
     "systemTray": {
       "iconPath": "icons/tray.png",
-      "iconAsTemplate": false
+      "iconAsTemplate": true
     },
     "windows": [
       {
         "fullscreen": false,
         "resizable": true,
-        "title": "lux"
+        "title": "lux",
+        "x": 0,
+        "y": 0,
+        "width": 1028,
+        "height": 645
       }
     ]
   }
