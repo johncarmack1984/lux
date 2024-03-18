@@ -1,17 +1,18 @@
 "use client";
 
 import Channel from "@/components/channel";
-import { type ChannelType, channels } from "@/lib/utils";
+import { type LuxChannel, channels } from "@/lib/utils";
 import { Table, TableBody, TableCaption } from "@/components/ui/table";
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { attachConsole } from "tauri-plugin-log-api";
+import { trace, attachConsole, info, debug } from "tauri-plugin-log-api";
 
 type LuxSystemStateEvent = {
   event: string;
   windowLabel: string;
   payload: {
     buffer: number[];
+    channels: LuxChannel[];
   };
   id: number;
 };
@@ -19,21 +20,12 @@ type LuxSystemStateEvent = {
 const detach = async () => await attachConsole();
 
 export default function ControlGrid() {
-  const [buffer, setBuffer] = useState<
-    LuxSystemStateEvent["payload"]["buffer"]
-  >(Array(channels.length).fill(0));
-
-  const bufferToSliders = useCallback(
-    (c: ChannelType, i: number) => ({
-      ...c,
-      value: buffer[i],
-    }),
-    [buffer]
-  );
+  const [luxChannels, setChannels] = useState<LuxChannel[]>(channels);
 
   const setupListeners = useCallback(async () => {
     await listen("system_state_update", ({ payload }: LuxSystemStateEvent) => {
-      setBuffer(payload.buffer);
+      debug(`system_state_update payload { ${JSON.stringify(payload)} }`);
+      setChannels(payload.channels);
     });
   }, []);
 
@@ -46,8 +38,7 @@ export default function ControlGrid() {
 
   return (
     <Table className=" caption-top">
-      <TableCaption>{JSON.stringify(buffer)}</TableCaption>
-      <TableBody>{channels.map(bufferToSliders).map(Channel)}</TableBody>
+      <TableBody>{luxChannels.map(Channel)}</TableBody>
     </Table>
   );
 }

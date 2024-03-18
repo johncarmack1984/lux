@@ -47,6 +47,7 @@
         "timestampUrl": ""
       }
     },
+    "macOSPrivateApi": true,
     "security": {
       "csp": null
     },
@@ -59,9 +60,32 @@
     },
     "windows": [
       {
+        "acceptFirstMouse": true,
+        "additionalBrowserArgs": null,
+        "alwaysOnTop": false,
+        "center": false,
+        "closable": true,
+        "contentProtected": false,
+        "fileDropEnabled": false,
+        "focus": false,
+        "hiddenTitle": false,
+        "label": "main",
+        "maximizable": true,
+        "maxHeight": null,
+        "maximized": false,
+        "maxWidth": null,
+        "minHeight": 0,
+        "minimizable": true,
+        "minWidth": 0,
+        "skipTaskbar": false,
+        "tabbingIdentifier": "main",
+        "titleBarStyle": "Visible",
         "fullscreen": false,
         "resizable": true,
         "title": "lux",
+        "visible": true,
+        "decorations": true,
+        "transparent": true,
         "x": 0,
         "y": 0,
         "width": 1028,

@@ -1,3 +1,5 @@
+use lux::BUFFER_SIZE;
+use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
@@ -6,14 +8,15 @@ use crate::LuxState;
 use enttecopendmx;
 
 #[tauri::command]
-pub fn update(
-    channel: usize,
+pub fn update_channel_value(
+    channel_number: usize,
     value: u8,
     window: tauri::Window,
     state_mutex: State<'_, Arc<Mutex<LuxState>>>,
 ) -> Result<LuxState, String> {
     let mut state = state_mutex.lock().unwrap();
-    state.buffer[channel - 1] = value;
+    state.buffer[channel_number - 1] = value;
+    state.channels[channel_number - 1].value = value;
     window.emit("system_state_update", state.clone()).unwrap();
 
     let mut temp_buffer = [0; 513];
@@ -35,6 +38,17 @@ pub fn full_bright(
 ) -> Result<LuxState, String> {
     let mut state = state_mutex.lock().unwrap();
     state.buffer = [255; lux::BUFFER_SIZE];
+    let channels_vec: Vec<lux::LuxChannel> = state
+        .channels
+        .iter()
+        .map(|c| {
+            let mut new_c = c.clone();
+            new_c.value = 255;
+            new_c
+        })
+        .collect();
+    let channels: Result<[lux::LuxChannel; BUFFER_SIZE], _> = channels_vec.try_into();
+    state.channels = channels.unwrap();
     window.emit("system_state_update", state.clone()).unwrap();
     let mut temp_buffer = [0; 513];
     temp_buffer[1..7].copy_from_slice(&state.buffer);
@@ -54,6 +68,19 @@ pub fn blackout(
 ) -> Result<LuxState, String> {
     let mut state = state_mutex.lock().unwrap();
     state.buffer = [0; lux::BUFFER_SIZE];
+
+    let channels_vec: Vec<lux::LuxChannel> = state
+        .channels
+        .iter()
+        .map(|c| {
+            let mut new_c = c.clone();
+            new_c.value = 0;
+            new_c
+        })
+        .collect();
+    let channels: Result<[lux::LuxChannel; BUFFER_SIZE], _> = channels_vec.try_into();
+    state.channels = channels.unwrap();
+
     window.emit("system_state_update", state.clone()).unwrap();
     let mut temp_buffer = [0; 513];
     temp_buffer[1..7].copy_from_slice(&state.buffer);
