@@ -1,11 +1,18 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use strum::{AsRefStr, EnumIter, EnumProperty, IntoEnumIterator};
 use tauri_plugin_log::LogTarget;
 
+// mod devices;
+// use enttecopendmx::EnttecOpenDMX;
+// use crate::devices::enttec_open_dmx_usb::EnttecOpenDMX;
+
+mod devices;
+use crate::devices::enttec_open_dmx_usb::EnttecOpenDMX;
+
 pub const BUFFER_SIZE: usize = 6;
 
-#[derive(Debug, Serialize, Clone, AsRefStr, EnumIter, EnumProperty)]
+#[derive(Debug, Deserialize, Serialize, Clone, AsRefStr, EnumIter, EnumProperty)]
 pub enum LuxLabelColor {
     Red,
     Green,
@@ -15,7 +22,7 @@ pub enum LuxLabelColor {
     Brightness,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LuxChannel {
     pub disabled: bool,
     pub channel_number: usize,
@@ -64,28 +71,84 @@ impl Default for LuxChannel {
     }
 }
 
-#[derive(Debug, Serialize, Clone)]
+// #[derive(Debug, Clone)]
+// struct Devices([EnttecOpenDMX; 1]);
+
+// impl Devices {
+//     fn new() -> Self {
+//         Self([EnttecOpenDMX::new().unwrap()])
+//     }
+// }
+
+// impl Default for Devices {
+//     fn default() -> Self {
+//         Self::new()
+//     }
+// }
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LuxState {
     pub buffer: [u8; BUFFER_SIZE],
     pub channels: [LuxChannel; BUFFER_SIZE],
+    // #[serde(skip)]
+    // pub device: EnttecOpenDMX,
 }
 
 impl LuxState {
     pub fn set_buffer(&mut self, buffer: [u8; BUFFER_SIZE]) {
+        let mut temp_buffer = [0; 513];
+
+        temp_buffer[1..BUFFER_SIZE + 1].copy_from_slice(&buffer);
+        let mut interface = EnttecOpenDMX::new().unwrap();
+        interface.open().unwrap();
+        interface.set_buffer(temp_buffer);
+        interface.render().unwrap();
+        interface.close().unwrap();
         self.buffer = buffer;
     }
 
     pub fn set_channel(&mut self, channel_number: usize, value: u8) -> Result<(), &'static str> {
         if channel_number <= BUFFER_SIZE {
             self.channels[channel_number - 1].value = value;
+            let mut buffer = self.buffer.clone();
+            buffer[channel_number - 1] = value;
+            self.set_buffer(buffer);
             Ok(())
         } else {
             Err("Channel number exceeds DMX universe")
         }
     }
 
-    pub fn set_channels(&mut self, channels: [LuxChannel; BUFFER_SIZE]) {
-        self.channels = channels;
+    pub fn full_bright(&mut self) -> Result<(), String> {
+        let buffer = [255; BUFFER_SIZE];
+        self.set_buffer(buffer);
+        let channels_vec: Vec<LuxChannel> = self
+            .channels
+            .iter()
+            .map(|c| {
+                let mut new_c = c.clone();
+                new_c.value = 255;
+                new_c
+            })
+            .collect();
+        self.channels = channels_vec.try_into().unwrap();
+        Ok(())
+    }
+
+    pub fn blackout(&mut self) -> Result<(), String> {
+        let buffer = [0; BUFFER_SIZE];
+        self.set_buffer(buffer);
+        let channels_vec: Vec<LuxChannel> = self
+            .channels
+            .iter()
+            .map(|c| {
+                let mut new_c = c.clone();
+                new_c.value = 0;
+                new_c
+            })
+            .collect();
+        self.channels = channels_vec.try_into().unwrap();
+        Ok(())
     }
 }
 
@@ -105,9 +168,11 @@ impl Default for LuxState {
             channels.push(channel.to_owned());
         }
         let channels: Result<[LuxChannel; 6], _> = channels.try_into();
+        // let device = EnttecOpenDMX::new().unwrap();
         Self {
             buffer,
             channels: channels.unwrap(),
+            // device,
         }
     }
 }

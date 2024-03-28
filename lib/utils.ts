@@ -62,6 +62,6 @@ export const channels: LuxChannel[] = [
     channel_number: 6,
     label: "Brightness",
     label_color: "Brightness",
-    value: 21,
+    value: 85,
   },
 ];
