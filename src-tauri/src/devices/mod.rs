@@ -15,3 +15,18 @@ pub mod fftd2xx;
 //         Self::new()
 //     }
 // }
+
+// #[derive(Debug, Clone)]
+// struct Devices([EnttecOpenDMX; 1]);
+
+// impl Devices {
+//     fn new() -> Self {
+//         Self([EnttecOpenDMX::new().unwrap()])
+//     }
+// }
+
+// impl Default for Devices {
+//     fn default() -> Self {
+//         Self::new()
+//     }
+// }

@@ -5,10 +5,12 @@ import { Label } from "./ui/label";
 import { Button } from "./ui/button";
 import { LuxChannel, LuxLabelColor, cn } from "@/lib/utils";
 import { TableCell, TableRow } from "./ui/table";
-import { debug, trace } from "tauri-plugin-log-api";
-import { invoke } from "@tauri-apps/api/tauri";
-import { useEffect, useState } from "react";
+// import { debug, trace } from "tauri-plugin-log-api";
+// import { useEffect, useState } from "react";
 import { cva } from "class-variance-authority";
+// import { useBuffer } from "@/context-providers/buffer-provider";
+// import { emit } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 
 const lightColor = cva(
   "size-8 border-border border-[1px] flex items-center justify-center rounded-full",
@@ -26,23 +28,39 @@ const lightColor = cva(
   }
 );
 
-function Channel({ label, channel_number, label_color, value }: LuxChannel) {
+function Channel({
+  label,
+  channel_number,
+  label_color,
+  value,
+}: LuxChannel & { value: number[] }) {
   const id = `channel-${channel_number}-${label}-slider`;
 
-  const [values, setValues] = useState([value]);
+  // useEffect(() => {
+  // debug(`channel ${channel_number} useEffect: value to to ${values[0]}`);
+  // emit("update_channel_value", {
+  // channelNumber: channel_number,
+  // value: values[0],
+  // });
+  // }, [values, channel_number]);
 
-  useEffect(() => {
-    debug(`channel ${channel_number} useEffect: value to to ${values[0]}`);
+  const handleValueChange = (newValue: number[]) => {
+    // debug(`channel ${channel_number} value change to ${newValue}`);
     invoke("update_channel_value", {
-      channelNumber: channel_number,
-      value: values[0],
+      channel_number,
+      value: newValue[0],
     });
-  }, [values, channel_number]);
+  };
 
   const toggle = () => {
-    debug(`togggle ${channel_number}`);
-    setValues([value > 0 ? 0 : 255]);
+    // debug(`togggle ${channel_number}`);
+    //   setValues([value > 0 ? 0 : 255]);
+    invoke("update_channel_value", {
+      channel_number,
+      value: value[0] > 0 ? 0 : 255,
+    });
   };
+  // emit("update_channel_value", { channel_number, value: value[0] })
 
   return (
     <TableRow key={`${label}-${label_color}-${channel_number}`}>
@@ -52,14 +70,14 @@ function Channel({ label, channel_number, label_color, value }: LuxChannel) {
       <TableCell className=" w-fit">{label}</TableCell>
       <TableCell className="w-14">
         <Button onClick={toggle} variant="outline" size="sm">
-          {value.toString().padStart(3, "0")}
+          {value?.toString().padStart(3, "0")}
         </Button>
       </TableCell>
       <TableCell className="w-full">
         <Slider
           id={id}
-          value={[value]}
-          onValueChange={setValues}
+          value={value}
+          onValueChange={handleValueChange}
           max={255}
           step={1}
         />

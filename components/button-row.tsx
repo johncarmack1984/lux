@@ -1,12 +1,18 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { invoke } from "@tauri-apps/api/tauri";
+import { invoke } from "@tauri-apps/api/core";
+// import { emit } from "@tauri-apps/api/event";
+import { debug } from "@tauri-apps/plugin-log";
 
 function BlackoutButton() {
   return (
     <Button
-      onClick={() => invoke("blackout")}
+      // onClick={() => invoke("blackout")}
+      onClick={() => {
+        debug("blackout");
+        invoke("full_bright");
+      }}
       className=""
       variant="ghost"
       size="sm"
@@ -19,7 +25,10 @@ function BlackoutButton() {
 function FullBrightButton() {
   return (
     <Button
-      onClick={() => invoke("full_bright")}
+      onClick={() => {
+        debug("full_bright");
+        invoke("full_bright");
+      }}
       className=""
       variant="ghost"
       size="sm"
@@ -32,11 +41,13 @@ function FullBrightButton() {
 function RgbChaseButton() {
   return (
     <Button
-      onClick={() => invoke("rgb_chase")}
+      onClick={() => {
+        debug("rgb_chase");
+        // emit("rgb_chase")
+      }}
       className=""
       variant="ghost"
       size="sm"
-      disabled
     >
       🌈 RGB Chase
     </Button>

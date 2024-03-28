@@ -1,60 +1,11 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/schema.json",
-  "build": {
-    "beforeBuildCommand": "bun run build",
-    "beforeDevCommand": "bun dev",
-    "devPath": "http://localhost:3000",
-    "distDir": "../out"
-  },
-  "package": {
-    "productName": "lux",
-    "version": "0.1.0"
-  },
-  "tauri": {
-    "allowlist": {
-      "all": false
-    },
-    "bundle": {
-      "active": true,
-      "category": "DeveloperTool",
-      "copyright": "",
-      "deb": {
-        "depends": []
-      },
-      "externalBin": [],
-      "icon": [
-        "icons/32x32.png",
-        "icons/128x128.png",
-        "icons/128x128@2x.png",
-        "icons/icon.icns",
-        "icons/icon.ico"
-      ],
-      "identifier": "com.lux.dev",
-      "longDescription": "",
-      "macOS": {
-        "entitlements": null,
-        "exceptionDomain": "",
-        "frameworks": [],
-        "providerShortName": null,
-        "signingIdentity": null
-      },
-      "resources": [],
-      "shortDescription": "",
-      "targets": "all",
-      "windows": {
-        "certificateThumbprint": null,
-        "digestAlgorithm": "sha256",
-        "timestampUrl": ""
-      }
-    },
+  "app": {
     "macOSPrivateApi": true,
     "security": {
       "csp": null
     },
-    "updater": {
-      "active": false
-    },
-    "systemTray": {
+    "trayIcon": {
       "iconPath": "icons/tray.png",
       "iconAsTemplate": true
     },
@@ -79,18 +30,97 @@
         "minWidth": 0,
         "skipTaskbar": false,
         "tabbingIdentifier": "main",
-        "titleBarStyle": "Visible",
+        "titleBarStyle": "Overlay",
         "fullscreen": false,
         "resizable": true,
-        "title": "lux",
+        "title": "💡lux",
         "visible": true,
         "decorations": true,
         "transparent": true,
-        "x": 0,
-        "y": 0,
-        "width": 1028,
-        "height": 645
+        "x": 1280,
+        "y": 1095,
+        "width": 1280,
+        "height": 1070
       }
-    ]
-  }
+    ],
+    "withGlobalTauri": false
+  },
+  "build": {
+    "beforeBuildCommand": "bun run build",
+    "beforeDevCommand": "bun dev",
+    "frontendDist": "../out",
+    "devUrl": "http://localhost:3000"
+  },
+  "bundle": {
+    "active": true,
+    "category": "DeveloperTool",
+    "copyright": "",
+    "targets": "all",
+    "externalBin": [],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    },
+    "longDescription": "",
+    "macOS": {
+      "entitlements": null,
+      "exceptionDomain": "",
+      "frameworks": [],
+      "providerShortName": null,
+      "signingIdentity": null
+    },
+    "resources": [],
+    "shortDescription": "",
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    }
+  },
+  "identifier": "com.lux.dev",
+  "plugins": {
+    "cli": {
+      "description": "Lux CLI",
+      "args": [
+        { "short": "v", "name": "verbose", "description": "Verbositoy level" }
+      ],
+      "subcommands": {
+        "dev": {
+          "description": "Start the development server",
+          "args": []
+        },
+        "build": {
+          "description": "Build the app",
+          "args": []
+        },
+        "run": {
+          "description": "Run the application",
+          "args": [
+            {
+              "name": "debug",
+              "description": "Run application in debug mode"
+            },
+            {
+              "name": "release",
+              "description": "Run application in release mode"
+            }
+          ]
+        }
+      }
+    },
+    "http": {},
+    "log": {
+      "level": "debug"
+    }
+  },
+  "productName": "lux",
+  "version": "0.1.0"
 }

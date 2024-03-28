@@ -1,36 +1,3 @@
-//! Rust bindings for the [Enttec Open DMX USB] and its FTDI D2XX Chip.
-//!
-//! #Usage
-//!
-//! Simply add this crate as a dependency in your `Cargo.toml`.
-//!
-//! ```toml
-//! [dependencies]
-//! enttecopendmx = "0.1.0"
-//! ```
-//!
-//! Further the corresponding driver for the Interface needs to be installed on the system. For further informations
-//! check the information's provided by [Enttec] and the
-//! documentation for the [libftd2xx] crate this one is based on.
-//!
-//! The most stripped down way to generate an output signal is to just send the maximum value `255` on Channel one:
-//!
-//! ```no_run
-//! use enttecopendmx;
-//!
-//! let mut interface = enttecopendmx::EnttecOpenDMX::new();
-//! interface.open();
-//! interface.set_channel(1 as usize, 255 as u8);
-//! interface.render();
-//! ```
-//!
-//!
-//!
-//! [Enttec]: https://www.enttec.com/product/lighting-communication-protocols/dmx512/open-dmx-usb
-//! [Enttec Open DMX USB]: https://www.enttec.com/product/lighting-communication-protocols/dmx512/open-dmx-usb
-//! [libftd2xx]: https://crates.io/crates/libftd2xx
-//!
-
 // use crate::devices::fftd2xx::{DeviceInfoDef, DeviceStatusDef, FtdiDef};
 use libftd2xx::DeviceInfo;
 use libftd2xx::FtStatus;
@@ -38,8 +5,7 @@ use libftd2xx::{DeviceStatus, Ftdi, FtdiCommon, StopBits};
 // use serde::ser::Serializer;
 use serde::ser::SerializeTuple;
 use serde::{Serialize, Serializer};
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 //Code structure inspired by C# example code
@@ -47,13 +13,18 @@ use std::time::Duration;
 //      - found at Enttecs website: https://www.enttec.com.au/product/lighting-communication-protocols/open-dmx-usb/
 
 // constants
-
 const BUF_SIZE: usize = 513;
+#[allow(dead_code)]
 const BAUDRATE: u32 = 250000;
+#[allow(dead_code)]
 const BITS_8: libftd2xx::BitsPerWord = libftd2xx::BitsPerWord::Bits8;
+#[allow(dead_code)]
 const STOP_BITS_2: libftd2xx::StopBits = StopBits::Bits2;
+#[allow(dead_code)]
 const PARITY_NONE: libftd2xx::Parity = libftd2xx::Parity::No;
+#[allow(dead_code)]
 const READ_TIMEOUT: Duration = Duration::from_millis(1000);
+#[allow(dead_code)]
 const WRITE_TIMEOUT: Duration = Duration::from_millis(1000);
 
 // use serde::ser::{Serialize, SerializeTuple, Serializer};
@@ -123,7 +94,7 @@ impl EnttecOpenDMX {
     }
 
     /// Opens the connection with the Interface.
-    ///
+    #[allow(dead_code)]
     pub fn open(&mut self) -> Result<(), FtStatus> {
         let mut ftdi = self.ftdi.lock().unwrap();
         ftdi.reset()?;
@@ -147,6 +118,7 @@ impl EnttecOpenDMX {
     }
 
     /// Allows too set the whole state of the universe at once.
+    #[allow(dead_code)]
     pub fn set_buffer(&mut self, buf: [u8; BUF_SIZE]) {
         self.buffer = Buffer(buf);
     }
@@ -157,6 +129,7 @@ impl EnttecOpenDMX {
     }
 
     /// Renders the current buffer
+    #[allow(dead_code)]
     pub fn render(&mut self) -> Result<(), FtStatus> {
         let mut ftdi = self.ftdi.lock().unwrap();
         ftdi.set_break_on()?;
@@ -166,6 +139,7 @@ impl EnttecOpenDMX {
     }
 
     /// Closes an open connection.
+    #[allow(dead_code)]
     pub fn close(&mut self) -> Result<(), FtStatus> {
         let mut ftdi = self.ftdi.lock().unwrap();
         ftdi.close()?;
