@@ -1,6 +1,18 @@
 {
+  "files.exclude": {},
+  "search.exclude": {
+    "**/.git": true,
+    "**/.DS_Store": true,
+    "**/node_modules": true,
+    "**/.dev": true,
+    "**/.next": true,
+    "**/out": true,
+    "**/src-tauri/target": true,
+    "**/bower_components": true
+  },
   "tailwindCSS.experimental.classRegex": [
     ["cva\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"],
     ["cx\\(([^)]*)\\)", "(?:'|\"|`)([^']*)(?:'|\"|`)"]
-  ]
+  ],
+  "rust-analyzer.linkedProjects": ["./src-tauri/Cargo.toml"]
 }
