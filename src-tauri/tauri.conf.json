@@ -7,7 +7,7 @@
       "pattern": {
         "use": "isolation",
         "options": {
-          "dir": "../isolation-dist/"
+          "dir": "../out-isolation/"
         }
       },
       "csp": {
