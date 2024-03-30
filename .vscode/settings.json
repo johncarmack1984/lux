@@ -14,5 +14,6 @@
     ["cva\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"],
     ["cx\\(([^)]*)\\)", "(?:'|\"|`)([^']*)(?:'|\"|`)"]
   ],
-  "rust-analyzer.linkedProjects": ["./src-tauri/Cargo.toml"]
+  "rust-analyzer.linkedProjects": ["./src-tauri/Cargo.toml"],
+  "rust-analyzer.showUnlinkedFileNotification": false
 }
