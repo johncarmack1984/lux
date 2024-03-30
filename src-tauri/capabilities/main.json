@@ -1,11 +1,9 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "main-capability",
+  "identifier": "default",
   "description": "Capability for the main window",
-  "local": true,
-  "windows": [
-    "main"
-  ],
+  "windows": ["main"],
+  "platforms": ["linux", "macOS", "windows"],
   "permissions": [
     "allow-set-buffer",
     "allow-sync-channels",
@@ -26,6 +24,8 @@
     "webview:default",
     "window:default",
     "websocket:default",
-    "http:default"
+    "http:default",
+    "shell:allow-open",
+    "shell:allow-stdin-write"
   ]
 }
