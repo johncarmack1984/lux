@@ -1,9 +1,22 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/schema.json",
+  "productName": "lux",
   "app": {
     "macOSPrivateApi": true,
     "security": {
-      "csp": null
+      "pattern": {
+        "use": "isolation",
+        "options": {
+          "dir": "../isolation-dist/"
+        }
+      },
+      "csp": {
+        "default-src": "'self' customprotocol: asset:",
+        "connect-src": "ipc: http://ipc.localhost",
+        "font-src": ["https://fonts.gstatic.com"],
+        "img-src": "'self' asset: http://asset.localhost blob: data:",
+        "style-src": "'unsafe-inline' 'self' https://fonts.googleapis.com"
+      }
     },
     "trayIcon": {
       "iconPath": "icons/tray.png",
@@ -37,22 +50,25 @@
         "visible": true,
         "decorations": true,
         "transparent": true,
-        "x": 1280,
-        "y": 1095,
+        "x": 0,
+        "y": 0,
         "width": 1280,
-        "height": 1070
+        "height": 1065
       }
     ],
     "withGlobalTauri": false
   },
   "build": {
     "beforeBuildCommand": "bun run build",
-    "beforeDevCommand": "bun dev",
+    "beforeDevCommand": "bun run dev",
     "frontendDist": "../out",
     "devUrl": "http://localhost:3000"
   },
   "bundle": {
     "active": true,
+    "android": {
+      "minSdkVersion": 24
+    },
     "category": "DeveloperTool",
     "copyright": "",
     "targets": "all",
@@ -65,6 +81,7 @@
       "icons/icon.ico"
     ],
     "windows": {
+      "allowDowngrades": true,
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
       "timestampUrl": ""
@@ -75,10 +92,16 @@
       "exceptionDomain": "",
       "frameworks": [],
       "providerShortName": null,
-      "signingIdentity": null
+      "signingIdentity": null,
+      "files": {},
+      "minimumSystemVersion": "10.13"
+    },
+    "iOS": {
+      "developmentTeam": null
     },
     "resources": [],
     "shortDescription": "",
+
     "linux": {
       "deb": {
         "depends": []
@@ -90,7 +113,7 @@
     "cli": {
       "description": "Lux CLI",
       "args": [
-        { "short": "v", "name": "verbose", "description": "Verbositoy level" }
+        { "short": "v", "name": "verbose", "description": "Verbosity level" }
       ],
       "subcommands": {
         "dev": {
@@ -115,12 +138,7 @@
           ]
         }
       }
-    },
-    "http": {},
-    "log": {
-      "level": "debug"
     }
   },
-  "productName": "lux",
   "version": "0.1.0"
 }
