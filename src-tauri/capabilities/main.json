@@ -3,7 +3,9 @@
   "identifier": "main-capability",
   "description": "Capability for the main window",
   "local": true,
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "allow-set-buffer",
     "allow-sync-channels",
@@ -23,6 +25,7 @@
     "tray:default",
     "webview:default",
     "window:default",
-    "websocket:default"
+    "websocket:default",
+    "http:default"
   ]
 }
