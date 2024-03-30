@@ -32,6 +32,7 @@ tiny_http = "0.12.0"
 tauri-plugin-http = "^2.0.0-beta"
 tauri-plugin-websocket = "2.0.0-beta"
 array-init = "2.1.0"
+tauri-plugin-shell = "2.0.0-beta.3"
 
 [dependencies.tauri]
 version = "^2.0.0-beta"
