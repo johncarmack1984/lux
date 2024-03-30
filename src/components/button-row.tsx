@@ -19,9 +19,9 @@ const buttons = [
     children: "💡 Full Bright",
     onClick: () => setBuffer([255, 255, 255, 255, 255, 255]),
   },
-  { children: "🌈 RGB Chase", 
-    onClick: () => invoke("rgb_chase") 
-  },
+  // { children: "🌈 RGB Chase", 
+  //   onClick: () => invoke("rgb_chase") 
+  // },
   {
     children: "✅ Default",
     onClick: () => setBuffer([121, 255, 255, 0, 0, 42]),
@@ -48,7 +48,7 @@ function ControlButton({
       key={children}
       onClick={handleClick}
       className=""
-      variant="ghost"
+      variant="link"
       size="sm"
     >
       {children}
@@ -57,7 +57,11 @@ function ControlButton({
 }
 
 function ButtonRow() {
-  return <div className="flex gap-3">{buttons.map(ControlButton)}</div>;
+  return (
+    <div className="grid grid-flow-row sm:grid-flow-col">
+      {buttons.map(ControlButton)}
+    </div>
+  );
 }
 
 export default ButtonRow;

@@ -23,5 +23,5 @@ pub fn sync_channels(app_handle: &AppHandle) {
 pub fn sync_state(app_handle: &AppHandle) {
     sync_buffer(app_handle);
     sync_channels(app_handle);
-    log::debug!("state synced");
+    log::trace!("state synced");
 }

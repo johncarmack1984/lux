@@ -2,7 +2,7 @@ mod buffer;
 mod channel;
 mod cmd;
 mod colors;
-// mod db;
+mod db;
 mod devices;
 mod logger;
 mod state;
@@ -20,7 +20,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(logger::logger().build())
         .plugin(tauri_plugin_cli::init())
-        // .plugin(db::builder().build())
+        .plugin(db::builder().build())
         .invoke_handler(tauri::generate_handler![
             cmd::update_channel_value,
             cmd::set_buffer,

@@ -14,10 +14,6 @@ import useChannelData from "@/hooks/useChannelData";
 import GridCaption from "./grid-caption";
 import { invoke } from "@tauri-apps/api/core";
 import { cva } from "class-variance-authority";
-import {
-  GridOrientationProvider,
-  GridOrietationMenu,
-} from "../../../.dev/orientation-menu";
 
 const controlGridVariants = cva("", {
   variants: {
@@ -54,11 +50,9 @@ export default function ControlGrid() {
   );
 
   return (
-    <GridOrientationProvider>
-      <Table className="caption-top">
-        <GridCaption />
-        <GridBody buffer={buffer} />
-      </Table>
-    </GridOrientationProvider>
+    <Table className="caption-top">
+      <GridCaption />
+      <GridBody buffer={buffer} />
+    </Table>
   );
 }
