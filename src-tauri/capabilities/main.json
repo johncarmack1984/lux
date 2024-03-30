@@ -17,6 +17,7 @@
     "log:default",
     "menu:default",
     "path:default",
+    "positioner:default",
     "resources:default",
     "sql:default",
     "tray:default",
@@ -24,6 +25,7 @@
     "window:default",
     "http:default",
     "shell:allow-open",
-    "shell:allow-stdin-write"
+    "shell:allow-stdin-write",
+    "positioner:default"
   ]
 }

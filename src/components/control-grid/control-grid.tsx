@@ -5,6 +5,7 @@ import Database from "@tauri-apps/plugin-sql";
 import { Channel } from "@/components/control-grid/channel";
 import { Table, TableBody } from "@/components/ui/table";
 import { useCallback, useEffect } from "react";
+import { moveWindow, Position } from "@tauri-apps/plugin-positioner";
 
 import useBuffer from "@/hooks/useBuffer";
 import useChannelData from "@/hooks/useChannelData";
@@ -22,6 +23,7 @@ export default function ControlGrid() {
   useEffect(() => {
     db();
     invoke("sync_state");
+    moveWindow(Position.TopLeft);
   }, [db]);
 
   const GridBody = useCallback(
