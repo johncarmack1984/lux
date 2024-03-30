@@ -269,17 +269,24 @@
           ]
         },
         {
-          "description": "allow-log-operation -> Enables the log_operation command without any pre-configured scope.",
+          "description": "allow-set-buffer -> Enables the set_buffer command without any pre-configured scope.",
           "type": "string",
           "enum": [
-            "allow-log-operation"
+            "allow-set-buffer"
           ]
         },
         {
-          "description": "allow-perform-request -> Enables the perform_request command without any pre-configured scope.",
+          "description": "allow-sync-channels -> Enables the sync_channels command without any pre-configured scope.",
           "type": "string",
           "enum": [
-            "allow-perform-request"
+            "allow-sync-channels"
+          ]
+        },
+        {
+          "description": "allow-sync-state -> Enables the sync_state command without any pre-configured scope.",
+          "type": "string",
+          "enum": [
+            "allow-sync-state"
           ]
         },
         {
@@ -290,17 +297,24 @@
           ]
         },
         {
-          "description": "deny-log-operation -> Denies the log_operation command without any pre-configured scope.",
+          "description": "deny-set-buffer -> Denies the set_buffer command without any pre-configured scope.",
           "type": "string",
           "enum": [
-            "deny-log-operation"
+            "deny-set-buffer"
           ]
         },
         {
-          "description": "deny-perform-request -> Denies the perform_request command without any pre-configured scope.",
+          "description": "deny-sync-channels -> Denies the sync_channels command without any pre-configured scope.",
           "type": "string",
           "enum": [
-            "deny-perform-request"
+            "deny-sync-channels"
+          ]
+        },
+        {
+          "description": "deny-sync-state -> Denies the sync_state command without any pre-configured scope.",
+          "type": "string",
+          "enum": [
+            "deny-sync-state"
           ]
         },
         {
@@ -385,40 +399,6 @@
           "type": "string",
           "enum": [
             "app:deny-version"
-          ]
-        },
-        {
-          "type": "string",
-          "enum": [
-            "app-menu:default"
-          ]
-        },
-        {
-          "description": "app-menu:allow-popup -> Enables the popup command without any pre-configured scope.",
-          "type": "string",
-          "enum": [
-            "app-menu:allow-popup"
-          ]
-        },
-        {
-          "description": "app-menu:allow-toggle -> Enables the toggle command without any pre-configured scope.",
-          "type": "string",
-          "enum": [
-            "app-menu:allow-toggle"
-          ]
-        },
-        {
-          "description": "app-menu:deny-popup -> Denies the popup command without any pre-configured scope.",
-          "type": "string",
-          "enum": [
-            "app-menu:deny-popup"
-          ]
-        },
-        {
-          "description": "app-menu:deny-toggle -> Denies the toggle command without any pre-configured scope.",
-          "type": "string",
-          "enum": [
-            "app-menu:deny-toggle"
           ]
         },
         {
@@ -1391,6 +1371,41 @@
           "type": "string",
           "enum": [
             "tray:deny-set-visible"
+          ]
+        },
+        {
+          "description": "websocket:default -> Allows connecting and sending data to a WebSocket server",
+          "type": "string",
+          "enum": [
+            "websocket:default"
+          ]
+        },
+        {
+          "description": "websocket:allow-connect -> Enables the connect command without any pre-configured scope.",
+          "type": "string",
+          "enum": [
+            "websocket:allow-connect"
+          ]
+        },
+        {
+          "description": "websocket:allow-send -> Enables the send command without any pre-configured scope.",
+          "type": "string",
+          "enum": [
+            "websocket:allow-send"
+          ]
+        },
+        {
+          "description": "websocket:deny-connect -> Denies the connect command without any pre-configured scope.",
+          "type": "string",
+          "enum": [
+            "websocket:deny-connect"
+          ]
+        },
+        {
+          "description": "websocket:deny-send -> Denies the send command without any pre-configured scope.",
+          "type": "string",
+          "enum": [
+            "websocket:deny-send"
           ]
         },
         {
