@@ -1,10 +1,6 @@
 use crate::{
     buffer::{LuxBuffer, BUFFER_SIZE},
-    channel::{
-        // LuxChannel,
-        LuxChannelData,
-        LuxChannels,
-    },
+    channel::{LuxChannelData, LuxChannels},
     colors::LuxLabelColor,
     devices::enttec_open_dmx_usb::EnttecOpenDMX,
 };

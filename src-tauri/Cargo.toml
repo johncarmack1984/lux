@@ -23,6 +23,7 @@ serde = { version = "1.0", features = ["derive"] }
 enttecopendmx = "0.1.0"
 log = "^0.4"
 thiserror = "1.0.58"
+sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite"] }
 strum = { version = "0.26.2", features = ["derive"] }
 strum_macros = "0.26.2"
 tauri-plugin-log = "^2.0.0-beta"
@@ -64,6 +65,9 @@ branch = "v2"
 # If you use cargo directly instead of tauri's cli you can use this feature flag to switch between tauri's `dev` and `build` modes.
 # DO NOT REMOVE!!
 prod = ["tauri/custom-protocol"]
+
+[profile.dev.package.sqlx-macros]
+opt-level = 3
 
 # default to small, optimized release binaries
 [profile.release]

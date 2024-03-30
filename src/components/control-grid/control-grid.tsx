@@ -1,36 +1,28 @@
 "use client";
 
+import Database from "@tauri-apps/plugin-sql";
+
 import { Channel } from "@/components/control-grid/channel";
-import {
-  Table,
-  TableBody,
-  TableHead,
-  TableHeader,
-} from "@/components/ui/table";
+import { Table, TableBody } from "@/components/ui/table";
 import { useCallback, useEffect } from "react";
 
 import useBuffer from "@/hooks/useBuffer";
 import useChannelData from "@/hooks/useChannelData";
 import GridCaption from "./grid-caption";
 import { invoke } from "@tauri-apps/api/core";
-import { cva } from "class-variance-authority";
 
-const controlGridVariants = cva("", {
-  variants: {
-    orientation: {
-      vertical: "flex-col",
-      horizontal: "flex-row",
-    },
-  },
-});
+// sqlite. The path is relative to `tauri::api::path::BaseDirectory::App`.
 
 export default function ControlGrid() {
   const luxChannels = useChannelData();
   const buffer = useBuffer();
 
+  let db = useCallback(async () => await Database.load("sqlite:test.db"), []);
+
   useEffect(() => {
+    db();
     invoke("sync_state");
-  }, []);
+  }, [db]);
 
   const GridBody = useCallback(
     ({ buffer }: { buffer: number[] | null }) => (
