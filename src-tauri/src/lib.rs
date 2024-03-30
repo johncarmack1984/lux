@@ -12,10 +12,16 @@ mod sync;
 
 use crate::state::LuxState;
 
-use tauri::{App, AppHandle, RunEvent};
+use tauri::{App, AppHandle, Manager, RunEvent};
 
 pub type SetupHook = Box<dyn FnOnce(&mut App) -> Result<(), Box<dyn std::error::Error>> + Send>;
 pub type OnEvent = Box<dyn FnMut(&AppHandle, RunEvent)>;
+
+#[derive(Clone, serde::Serialize)]
+struct Payload {
+    args: Vec<String>,
+    cwd: String,
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -27,6 +33,12 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(db::builder().build())
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            println!("{}, {argv:?}, {cwd}", app.package_info().name);
+
+            app.emit("single-instance", Payload { args: argv, cwd })
+                .unwrap();
+        }))
         .manage(LuxState::default().mutex())
         .invoke_handler(tauri::generate_handler![
             cmd::update_channel_value,
