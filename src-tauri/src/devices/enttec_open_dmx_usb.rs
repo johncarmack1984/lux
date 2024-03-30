@@ -1,18 +1,11 @@
-// use crate::devices::fftd2xx::{DeviceInfoDef, DeviceStatusDef, FtdiDef};
 use libftd2xx::DeviceInfo;
 use libftd2xx::FtStatus;
 use libftd2xx::{DeviceStatus, Ftdi, FtdiCommon, StopBits};
-// use serde::ser::Serializer;
 use serde::ser::SerializeTuple;
 use serde::{Serialize, Serializer};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-//Code structure inspired by C# example code
-// -> Class that interfaces with the OPEN DMX USB
-//      - found at Enttecs website: https://www.enttec.com.au/product/lighting-communication-protocols/open-dmx-usb/
-
-// constants
 const BUF_SIZE: usize = 513;
 #[allow(dead_code)]
 const BAUDRATE: u32 = 250000;
@@ -27,7 +20,6 @@ const READ_TIMEOUT: Duration = Duration::from_millis(1000);
 #[allow(dead_code)]
 const WRITE_TIMEOUT: Duration = Duration::from_millis(1000);
 
-// use serde::ser::{Serialize, SerializeTuple, Serializer};
 #[derive(Debug, Clone)]
 struct Buffer([u8; BUF_SIZE]);
 
