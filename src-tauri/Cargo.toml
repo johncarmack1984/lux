@@ -2,9 +2,8 @@
 name = "lux"
 version = "0.1.0"
 description = "A DMX lighting control system for Enttec Open DMX USB devices."
-edition = "2021"
-rust-version = "1.70"
 authors = ["John Carmack"]
+edition = "2021"
 repository = "https://github.com/johncarmack1984/lux"
 license = "GNU GPLv3"
 readme = "../README.md"
@@ -12,6 +11,12 @@ readme = "../README.md"
 [lib]
 name = "lux_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "^2.0.0-beta", features = ["isolation", "codegen"] }
+
+[dev-dependencies]
+tauri = { version = "^2.0.0-beta", features = ["devtools", "test", "tracing"] }
 
 [dependencies]
 array-init = "2.1.0"
@@ -27,7 +32,6 @@ tauri = { version = "^2.0.0-beta", features = [
     "isolation",
     "image-ico",
     "image-png",
-    "macos-private-api",
     "tray-icon",
 ] }
 tauri-plugin-cli = "^2.0.0-beta"
@@ -37,19 +41,9 @@ tauri-plugin-positioner = { version = "^2.0.0-beta", features = ["tray-icon"] }
 tauri-plugin-shell = "^2.0.0-beta"
 tauri-plugin-single-instance = "^2.0.0-beta"
 tauri-plugin-sql = { version = "^2.0.0-beta", features = ["sqlite"] }
+tauri-plugin-window-state = "^2.0.0-beta"
 thiserror = "1.0.58"
-
-[build-dependencies]
-tauri-build = { version = "^2.0.0-beta", features = ["isolation", "codegen"] }
-
-[dev-dependencies]
-tauri = { version = "^2.0.0-beta", features = ["devtools", "test", "tracing"] }
-
-[features]
-# this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.
-# If you use cargo directly instead of tauri's cli you can use this feature flag to switch between tauri's `dev` and `build` modes.
-# DO NOT REMOVE!!
-prod = ["tauri/custom-protocol"]
+tauri-plugin-notification = "2.0.0-beta.3"
 
 [profile.dev.package.sqlx-macros]
 opt-level = 3
@@ -61,3 +55,9 @@ codegen-units = 1
 lto = true
 incremental = false
 opt-level = "s"
+
+[features]
+# this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.
+# If you use cargo directly instead of tauri's cli you can use this feature flag to switch between tauri's `dev` and `build` modes.
+# DO NOT REMOVE!!
+prod = ["tauri/custom-protocol"]

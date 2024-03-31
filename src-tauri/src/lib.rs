@@ -26,6 +26,7 @@ struct Payload {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_cli::init())
         .plugin(logger::logger().build())
         .plugin(tauri_plugin_positioner::init())
@@ -35,17 +36,16 @@ pub fn run() {
         .plugin(db::builder().build())
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             println!("{}, {argv:?}, {cwd}", app.package_info().name);
-
             app.emit("single-instance", Payload { args: argv, cwd })
                 .unwrap();
         }))
         .manage(LuxState::default().mutex())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             cmd::update_channel_value,
             cmd::set_buffer,
             cmd::sync_state
         ])
-        .build(tauri::tauri_build_context!())
-        .expect("error while building tauri application")
-        .run(move |_app_handle, _event| ())
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application")
 }

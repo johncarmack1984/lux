@@ -1,4 +1,4 @@
-use crate::LuxState;
+use crate::state::LuxState;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, State};
 

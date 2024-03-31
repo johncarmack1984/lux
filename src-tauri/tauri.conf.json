@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/schema.json",
   "productName": "lux",
   "version": "0.1.0",
-  "identifier": "com.lux.dev",
+  "identifier": "com.johncarmack.lux",
   "build": {
     "beforeBuildCommand": "bun run build",
     "beforeDevCommand": "bun run dev",
@@ -10,41 +10,29 @@
     "devUrl": "http://localhost:3000"
   },
   "app": {
-    "withGlobalTauri": true,
-    "macOSPrivateApi": true,
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "title": "💡lux",
+        "width": 1280,
+        "height": 1065,
+        "acceptFirstMouse": true,
+        "titleBarStyle": "Transparent"
+      }
+    ],
     "security": {
+      "csp": null,
       "pattern": {
         "use": "isolation",
         "options": {
           "dir": "../out-isolation/"
         }
-      },
-      "csp": {
-        "default-src": "'self' customprotocol: asset:",
-        "connect-src": "ipc: http://ipc.localhost",
-        "font-src": ["https://fonts.gstatic.com"],
-        "img-src": "'self' asset: http://asset.localhost blob: data:",
-        "style-src": "'unsafe-inline' 'self' https://fonts.googleapis.com"
       }
     },
     "trayIcon": {
       "iconPath": "icons/tray.png",
       "iconAsTemplate": true
-    },
-    "windows": [
-      {
-        "acceptFirstMouse": true,
-        "fileDropEnabled": false,
-        "label": "main",
-        "titleBarStyle": "Overlay",
-        "title": "💡lux",
-        "transparent": true,
-        "x": 0,
-        "y": 0,
-        "width": 1280,
-        "height": 1065
-      }
-    ]
+    }
   },
   "bundle": {
     "active": true,
@@ -55,7 +43,24 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "entitlements": null,
+      "exceptionDomain": "",
+      "frameworks": [],
+      "providerShortName": null,
+      "signingIdentity": null,
+      "files": {},
+      "minimumSystemVersion": "10.13"
+    },
+    "iOS": {
+      "developmentTeam": null
+    },
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    }
   },
   "plugins": {
     "cli": {

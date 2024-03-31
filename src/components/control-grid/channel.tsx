@@ -1,8 +1,8 @@
 "use client";
 
-import { Slider } from "../ui/slider";
-import { Button } from "../ui/button";
-import { TableCell, TableRow } from "../ui/table";
+import { Slider } from "@/components/ui/slider";
+import { Button } from "@/components/ui/button";
+import { TableCell, TableRow } from "@/components/ui/table";
 import { debug } from "@tauri-apps/plugin-log";
 import { invoke } from "@tauri-apps/api/core";
 import type { ChannelProps } from "@/global";
