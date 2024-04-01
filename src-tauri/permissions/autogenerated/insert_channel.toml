@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-insert-channel"
+description = "Enables the insert_channel command without any pre-configured scope."
+commands.allow = ["insert_channel"]
+
+[[permission]]
+identifier = "deny-insert-channel"
+description = "Denies the insert_channel command without any pre-configured scope."
+commands.deny = ["insert_channel"]
