@@ -1,6 +1,6 @@
 use crate::{
     buffer::{LuxBuffer, BUFFER_SIZE},
-    channel::{LuxChannelData, LuxChannels},
+    channel::{LuxChannel, LuxChannelData, LuxChannels},
     colors::LuxLabelColor,
     devices::enttec_open_dmx_usb::EnttecOpenDMX,
 };
@@ -11,6 +11,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tauri::Manager;
+use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LuxState {
@@ -58,18 +59,19 @@ impl LuxState {
         self.set_buffer(LuxBuffer::from(buffer), app)
     }
 
-    pub fn _set_channel_label(
+    pub fn set_channel_metadata(
         &mut self,
-        channel_number: usize,
-        label: String,
+        id: Uuid,
+        new_metadata: LuxChannelData,
         app: tauri::AppHandle,
-    ) -> Result<String, String> {
-        let mut channel = self.channels.get()[channel_number - 1].get();
-        channel.label = label;
-        self.channels.get()[channel_number - 1].set(channel);
+    ) -> Result<LuxChannel, String> {
+        let channel = self
+            .channels
+            .get_by_id(id)
+            .insert(LuxChannel::from(new_metadata))
+            .to_owned();
         app.emit("channel_data_set", self.channels.clone()).unwrap();
-
-        Ok(self.channels.get()[channel_number - 1].get().label.clone())
+        Ok(channel)
     }
 
     pub fn set_channels(
@@ -81,6 +83,20 @@ impl LuxState {
         app.emit("channel_data_set", self.channels.clone()).unwrap();
 
         Ok(self.channels.clone())
+    }
+
+    pub fn _disable_channel(
+        &mut self,
+        channel_number: usize,
+        app: tauri::AppHandle,
+    ) -> Result<(), String> {
+        let _channel = self
+            .channels
+            ._get_by_channel_number(channel_number)
+            .unwrap()
+            ._disable(true);
+        app.emit("channel_data_set", self.channels.clone()).unwrap();
+        Ok(())
     }
 
     pub fn mutex(&self) -> Arc<Mutex<Self>> {
@@ -100,36 +116,42 @@ impl Default for LuxState {
 
         let channels: LuxChannels = LuxChannels::from([
             LuxChannelData {
+                id: uuid::Uuid::new_v4(),
                 disabled: false,
                 channel_number: 1,
                 label: "Red".to_owned(),
                 label_color: LuxLabelColor::Red,
             },
             LuxChannelData {
+                id: uuid::Uuid::new_v4(),
                 disabled: false,
                 channel_number: 2,
                 label: "Green".to_owned(),
                 label_color: LuxLabelColor::Green,
             },
             LuxChannelData {
+                id: uuid::Uuid::new_v4(),
                 disabled: false,
                 channel_number: 3,
                 label: "Blue".to_owned(),
                 label_color: LuxLabelColor::Blue,
             },
             LuxChannelData {
+                id: uuid::Uuid::new_v4(),
                 disabled: false,
                 channel_number: 4,
                 label: "Amber".to_owned(),
                 label_color: LuxLabelColor::Amber,
             },
             LuxChannelData {
+                id: uuid::Uuid::new_v4(),
                 disabled: false,
                 channel_number: 5,
                 label: "White".to_owned(),
                 label_color: LuxLabelColor::White,
             },
             LuxChannelData {
+                id: uuid::Uuid::new_v4(),
                 disabled: false,
                 channel_number: 6,
                 label: "Brightness".to_owned(),

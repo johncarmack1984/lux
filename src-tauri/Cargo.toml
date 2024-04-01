@@ -20,15 +20,17 @@ tauri = { version = "^2.0.0-beta", features = ["devtools", "test", "tracing"] }
 
 [dependencies]
 array-init = "2.1.0"
+dotenvy = "0.15.7"
 enttecopendmx = "0.1.0"
 libftd2xx = { version = "0.32.4", features = ["static"] }
+libsql = { git = "https://github.com/tursodatabase/libsql" }
 log = "^0.4"
+reqwest = { version = "0.12.2", features = ["json", "blocking"] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite"] }
 strum = { version = "0.26.2", features = ["derive"] }
 strum_macros = "0.26.2"
-tauri = { version = "^2.0.0-beta", features = [
+tauri = { version = "^2.0.0-beta.13", features = [
     "isolation",
     "image-ico",
     "image-png",
@@ -36,14 +38,22 @@ tauri = { version = "^2.0.0-beta", features = [
 ] }
 tauri-plugin-cli = "^2.0.0-beta"
 tauri-plugin-log = "^2.0.0-beta"
-tauri-plugin-http = "^2.0.0-beta"
+tauri-plugin-notification = "2.0.0-beta"
 tauri-plugin-positioner = { version = "^2.0.0-beta", features = ["tray-icon"] }
 tauri-plugin-shell = "^2.0.0-beta"
-tauri-plugin-single-instance = "^2.0.0-beta"
-tauri-plugin-sql = { version = "^2.0.0-beta", features = ["sqlite"] }
 tauri-plugin-window-state = "^2.0.0-beta"
 thiserror = "1.0.58"
-tauri-plugin-notification = "2.0.0-beta.3"
+tokio = { version = "1", features = ["full"] }
+taurpc = "0.3.0-alpha.1"
+specta = { version = "2.0.0-rc.7", features = ["export"] }
+uuid = { version = "1.4.1", features = [
+    "v4",                # Lets you generate random UUIDs
+    "fast-rng",          # Use a faster (but still sufficiently random) RNG
+    "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+] }
+
+[patch.crates-io]
+sqlite3-parser = { git = "https://github.com/LucioFranco/lemon-rs" }
 
 [profile.dev.package.sqlx-macros]
 opt-level = 3

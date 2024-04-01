@@ -14,8 +14,10 @@
     "windows": [
       {
         "title": "💡lux",
-        "width": 1280,
-        "height": 1065,
+        "x": 0,
+        "y": 0,
+        "width": 960,
+        "height": 1020,
         "acceptFirstMouse": true,
         "titleBarStyle": "Transparent"
       }
@@ -63,6 +65,9 @@
     }
   },
   "plugins": {
+    "shell": {
+      "open": true
+    },
     "cli": {
       "description": "Lux CLI",
       "args": [

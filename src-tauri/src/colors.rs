@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, EnumIter, EnumProperty};
 
@@ -9,4 +11,20 @@ pub enum LuxLabelColor {
     Amber,
     White,
     Brightness,
+}
+
+impl FromStr for LuxLabelColor {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Red" => Ok(LuxLabelColor::Red),
+            "Green" => Ok(LuxLabelColor::Green),
+            "Blue" => Ok(LuxLabelColor::Blue),
+            "Amber" => Ok(LuxLabelColor::Amber),
+            "White" => Ok(LuxLabelColor::White),
+            "Brightness" => Ok(LuxLabelColor::Brightness),
+            _ => Err("Invalid color"),
+        }
+    }
 }
