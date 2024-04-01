@@ -19,7 +19,7 @@ const lightColorVariants = cva(
   {
     variants: {
       label_color: {
-        Red: "bg-red-500",
+        Red: "bg-red-500 text-white",
         Green: "bg-green-500",
         Blue: "bg-blue-500",
         Amber: "bg-amber-200 text-amber-800",

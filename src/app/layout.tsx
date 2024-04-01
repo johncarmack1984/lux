@@ -18,7 +18,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.className} dark`}>
-        <Providers>{children}</Providers>
+        <Providers>
+          <main className="flex min-h-screen flex-col items-center justify-start py-[7.5%] sm:px-12">
+            {children}
+          </main>
+        </Providers>
       </body>
     </html>
   );
