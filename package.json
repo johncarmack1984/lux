@@ -26,7 +26,7 @@
     "@tauri-apps/plugin-window-state": ">=2.0.0-beta.2",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
-    "lucide-react": "^0.363.0",
+    "lucide-react": "^0.364.0",
     "next": "14.1.4",
     "next-themes": "^0.3.0",
     "react": "^18",
