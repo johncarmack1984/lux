@@ -3,6 +3,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { attachConsole, debug, trace } from "@tauri-apps/plugin-log";
 import { useState, useEffect, useCallback } from "react";
+import { toast } from "sonner";
 
 const detach = async () => await attachConsole();
 
@@ -13,7 +14,7 @@ function useBuffer() {
     await listen<number[]>("buffer_set", ({ payload }) => {
       trace(`useBuffer listen buffer_set [${payload}]`);
       setBuffer(payload);
-    });
+    }).catch(toast.error);
   }, []);
 
   useEffect(() => {

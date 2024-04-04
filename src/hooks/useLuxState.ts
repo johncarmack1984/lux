@@ -3,15 +3,19 @@
 import { useEffect, useMemo, useReducer } from "react";
 
 import useBuffer from "@/hooks/useBuffer";
-import useChannelData from "@/hooks/useChannelData";
+import useChannelsMetadata from "@/hooks/useChannelsMetaData";
 import { invoke } from "@tauri-apps/api/core";
+import { toast } from "sonner";
+import type { LuxBuffer } from "@/global";
 
 const useLuxState = () => {
   useEffect(() => {
-    invoke("sync_state");
+    invoke<LuxBuffer | string>("sync_state")
+      .then(toast.success)
+      .catch(toast.error);
   }, []);
 
-  const luxChannels = useChannelData();
+  const luxChannels = useChannelsMetadata();
   const buffer = useBuffer();
 
   return useMemo(() => {

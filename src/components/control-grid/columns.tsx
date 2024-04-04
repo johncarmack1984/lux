@@ -21,53 +21,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { setChannelMetadata, setChannelValue } from "@/app/actions";
 import { invoke } from "@tauri-apps/api/core";
+import { toast } from "sonner";
 
 const columnHelper = createColumnHelper<ChannelProps>();
-
-const labelColorOptions: LuxLabelColor[] = [
-  "Red",
-  "Green",
-  "Blue",
-  "Amber",
-  "White",
-  "Brightness",
-];
-
-const ChannelNumber = ({ row }: CellContext<ChannelProps, unknown>) => {
-  const { channel_number, label_color } = row.original;
-  const key = `channel-number-${row.original.id}`;
-  return (
-    <TableCell className="w-5" id={key} key={key}>
-      <DropdownMenu>
-        <DropdownMenuTrigger>
-          <div className={cn(lightColorVariants({ label_color }))}>
-            {channel_number}
-          </div>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent className=" w-40" align="end">
-          {labelColorOptions.map((label_color) => {
-            const firstLetter = label_color[0].toUpperCase();
-            return (
-              <DropdownMenuItem
-                className="flex justify-end gap-4 w-full text-right"
-                key={`${label_color}-dropdown-item`}
-                // onClick={async () => await setChannelMetadata({})}
-              >
-                {label_color}
-                <Button
-                  className={cn(lightColorVariants({ label_color }))}
-                  size="icon"
-                >
-                  {firstLetter}
-                </Button>
-              </DropdownMenuItem>
-            );
-          })}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </TableCell>
-  );
-};
 
 const ChannelLabel = ({ row }: CellContext<ChannelProps, unknown>) => {
   const { label, id } = row.original;
@@ -83,16 +39,62 @@ const ChannelLabel = ({ row }: CellContext<ChannelProps, unknown>) => {
   );
 };
 
+const labelColorOptions: LuxLabelColor[] = [
+  "Red",
+  "Green",
+  "Blue",
+  "Amber",
+  "White",
+  "Brightness",
+];
+
+const ColorOption = (label_color: LuxLabelColor) => {
+  const firstLetter = label_color[0].toUpperCase();
+  return (
+    <DropdownMenuItem
+      className="flex justify-end gap-4 w-full text-right"
+      key={`${label_color}-dropdown-item`}
+    >
+      {label_color}
+      <Button className={cn(lightColorVariants({ label_color }))} size="icon">
+        {firstLetter}
+      </Button>
+    </DropdownMenuItem>
+  );
+};
+
+const ChannelNumber = ({ row }: CellContext<ChannelProps, unknown>) => {
+  const { channel_number, label_color } = row.original;
+  const key = `channel-number-${row.original.id}`;
+  return (
+    <TableCell className="w-5" id={key} key={key}>
+      <DropdownMenu>
+        <DropdownMenuTrigger>
+          <div className={cn(lightColorVariants({ label_color }))}>
+            {channel_number}
+          </div>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className=" w-40" align="end">
+          {labelColorOptions.map(ColorOption)}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </TableCell>
+  );
+};
+
 const ChannelValue = ({ row }: CellContext<ChannelProps, unknown>) => {
   const { id, value } = row.original;
   const key = `channel-value-${id}`;
+  const toggle = async () => {
+    const newValue = value === 0 ? 255 : 0;
+    await setChannelValue({
+      channelNumber: row.original.channel_number,
+      value: newValue,
+    }).catch(toast.error);
+  };
   return (
     <TableCell className="w-14" key={key} id={key}>
-      <Button
-        // onClick={toggle}
-        variant="outline"
-        size="sm"
-      >
+      <Button onClick={toggle} variant="outline" size="sm">
         {value.toString().padStart(3, "0")}
       </Button>
     </TableCell>
@@ -101,14 +103,15 @@ const ChannelValue = ({ row }: CellContext<ChannelProps, unknown>) => {
 
 const ChannelSlider = ({ row }: CellContext<ChannelProps, unknown>) => {
   const { id, channel_number: channelNumber, value } = row.original;
-  const [values, setValues] = useState<number[]>([value]);
-  useEffect(() => {
-    setValues([value]);
-  }, [value]);
+  const [values, setValues] = useState([value]);
   const dragSlider = async (newValues: number[]) => {
     setValues(newValues);
     await setChannelValue({ channelNumber, value: newValues[0] });
   };
+  useEffect(() => {
+    setValues([value]);
+  }, [value]);
+
   const key = `value-slider-${id}`;
   return (
     <TableCell className="w-full" id={key} key={key}>

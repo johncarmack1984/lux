@@ -1,6 +1,7 @@
 import type { LuxChannel } from "@/global";
 import { invoke } from "@tauri-apps/api/core";
 import { trace } from "@tauri-apps/plugin-log";
+import { toast } from "sonner";
 
 const editChannel = async (channelId: string, newMetadata: LuxChannel) => {
   trace(`frontend sending editChannel ${channelId}`);
@@ -22,7 +23,7 @@ async function setChannelValue({
   return await invoke("update_channel_value", {
     channelNumber,
     value,
-  });
+  }).catch(toast.error);
 }
 
 async function setChannelMetadata({
@@ -35,7 +36,7 @@ async function setChannelMetadata({
   return await invoke("update_channel_metadata", {
     channelId,
     newMetadata,
-  });
+  }).catch(toast.error);
 }
 
 export { editChannel, deleteChannel, setChannelValue, setChannelMetadata };

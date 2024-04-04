@@ -7081,8 +7081,3 @@ dependencies = [
  "quote",
  "syn 1.0.109",
 ]
-
-[[patch.unused]]
-name = "sqlite3-parser"
-version = "0.11.0"
-source = "git+https://github.com/LucioFranco/lemon-rs#0ffcb2708727014f091c0c686e864d48ad788919"

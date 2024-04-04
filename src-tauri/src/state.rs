@@ -4,7 +4,6 @@ use crate::{
     colors::LuxLabelColor,
     devices::enttec_open_dmx_usb::EnttecOpenDMX,
 };
-use libftd2xx::FtStatus;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::{self, Display, Formatter},
@@ -24,26 +23,31 @@ impl LuxState {
         &mut self,
         buffer: LuxBuffer,
         app: tauri::AppHandle,
-    ) -> Result<LuxBuffer, FtStatus> {
+    ) -> Result<LuxBuffer, String> {
         let mut temp_buffer = [0; 513];
 
         temp_buffer[1..BUFFER_SIZE + 1].copy_from_slice(&buffer.get());
 
-        let mut interface = match EnttecOpenDMX::new() {
-            Ok(interface) => interface,
-            Err(e) => return Err(e),
-        };
+        let mut interface = EnttecOpenDMX::new()
+            .map_err(|e| format!("Enttec OpenDMX USB initialization failed: {}", e))?;
 
-        interface.open()?;
+        interface
+            .open()
+            .map_err(|e| format!("Enttec OpenDMX USB failed to open: {}", e))?;
 
         interface.set_buffer(temp_buffer);
 
-        interface.render()?;
-        interface.close()?;
+        interface
+            .render()
+            .map_err(|e| format!("Enttec OpenDMX USB failed to render: {}", e))?;
+        interface
+            .close()
+            .map_err(|e| format!("Enttec OpenDMX USB failed to close: {}", e))?;
 
         self.buffer.set(buffer.get());
 
-        app.emit("buffer_set", buffer).unwrap();
+        app.emit("buffer_set", buffer)
+            .map_err(|e| format!("Failed to emit buffer_set event: {}", e))?;
 
         Ok(self.buffer.clone())
     }
@@ -53,7 +57,7 @@ impl LuxState {
         channel_number: usize,
         value: u8,
         app: tauri::AppHandle,
-    ) -> Result<LuxBuffer, FtStatus> {
+    ) -> Result<LuxBuffer, String> {
         let mut buffer = self.buffer.get();
         buffer[channel_number - 1] = value;
         self.set_buffer(LuxBuffer::from(buffer), app)

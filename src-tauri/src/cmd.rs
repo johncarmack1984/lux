@@ -1,10 +1,9 @@
 use crate::{
     buffer::LuxBuffer,
     channel::{LuxChannel, LuxChannelData},
+    state::LuxState,
 };
 use std::sync::{Arc, Mutex};
-
-use crate::state::LuxState;
 use tauri::{command, State};
 
 #[command]
@@ -16,7 +15,7 @@ pub fn set_buffer(
     log::trace!("received buffer {:?}", buffer);
     let mut state = state_mutex.lock().unwrap();
 
-    Ok(state.set_buffer(buffer, app).unwrap())
+    state.set_buffer(buffer, app)
 }
 
 #[command]
@@ -29,7 +28,7 @@ pub fn update_channel_value(
     log::trace!("received channel {} to {}", channel_number, value);
     let mut state = state_mutex.lock().unwrap();
 
-    Ok(state.set_channel_value(channel_number, value, app).unwrap())
+    state.set_channel_value(channel_number, value, app)
 }
 
 #[command]
@@ -42,13 +41,11 @@ pub fn update_channel_metadata(
     log::trace!("received channel {:?}", new_metadata);
     let mut state = state_mutex.lock().unwrap();
 
-    Ok(state
-        .set_channel_metadata(channel_id, new_metadata, app)
-        .unwrap())
+    state.set_channel_metadata(channel_id, new_metadata, app)
 }
 
 #[command]
-pub fn sync_state(app: tauri::AppHandle) {
+pub fn sync_state(app: tauri::AppHandle) -> Result<String, String> {
     log::trace!("sync_state");
-    crate::sync::sync_state(&app.clone());
+    crate::sync::sync_state(&app.clone())
 }

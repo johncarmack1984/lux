@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { debug, error, trace } from "@tauri-apps/plugin-log";
+import { toast } from "sonner";
 
 function setBuffer(buffer: number[]) {
   invoke("set_buffer", { buffer });
