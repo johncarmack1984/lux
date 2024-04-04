@@ -1,6 +1,9 @@
 import { deleteChannel, editChannel } from "./app/actions";
+// import { createTauRPCProxy } from "./app/bindings";
 
-type LuxLabelColor =
+// export type LuxClient = Awaited<ReturnType<typeof createTauRPCProxy>>;
+
+export type LuxLabelColor =
   | "Red"
   | "Green"
   | "Blue"
