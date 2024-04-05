@@ -2,12 +2,13 @@
 
 import { Button } from "@/components/ui/button";
 import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
-import { debug, error, trace } from "@tauri-apps/plugin-log";
+import { error, trace } from "@tauri-apps/plugin-log";
 import { toast } from "sonner";
 
 function setBuffer(buffer: number[]) {
-  invoke("set_buffer", { buffer });
+  invoke("set_buffer", { buffer })
+    .then((res) => toast.info(JSON.stringify(res)))
+    .catch(toast.error);
 }
 
 async function getInitialState() {
@@ -32,9 +33,11 @@ const buttons = [
     children: "💡 Full Bright",
     onClick: () => setBuffer([255, 255, 255, 255, 255, 255]),
   },
+  // Planned feature
   // { children: "🌈 RGB Chase",
   //   onClick: () => invoke("rgb_chase")
   // },
+  // Debug functions
   // {
   //   children: "🔄 Sync",
   //   onClick: () => invoke("sync_state"),

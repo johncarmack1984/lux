@@ -24,11 +24,8 @@
     "tray:default",
     "shell:allow-open",
     "log:default",
-    "positioner:default",
     "webview:default",
-    "cli:default",
     "shell:default",
-    "window-state:default",
-    "notification:default"
+    "http:default"
   ]
 }

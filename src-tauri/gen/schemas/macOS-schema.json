@@ -142,6 +142,129 @@
                 "identifier": {
                   "oneOf": [
                     {
+                      "description": "http:default -> Allows all fetch operations",
+                      "type": "string",
+                      "enum": [
+                        "http:default"
+                      ]
+                    },
+                    {
+                      "description": "http:allow-fetch -> Enables the fetch command without any pre-configured scope.",
+                      "type": "string",
+                      "enum": [
+                        "http:allow-fetch"
+                      ]
+                    },
+                    {
+                      "description": "http:allow-fetch-cancel -> Enables the fetch_cancel command without any pre-configured scope.",
+                      "type": "string",
+                      "enum": [
+                        "http:allow-fetch-cancel"
+                      ]
+                    },
+                    {
+                      "description": "http:allow-fetch-read-body -> Enables the fetch_read_body command without any pre-configured scope.",
+                      "type": "string",
+                      "enum": [
+                        "http:allow-fetch-read-body"
+                      ]
+                    },
+                    {
+                      "description": "http:allow-fetch-send -> Enables the fetch_send command without any pre-configured scope.",
+                      "type": "string",
+                      "enum": [
+                        "http:allow-fetch-send"
+                      ]
+                    },
+                    {
+                      "description": "http:deny-fetch -> Denies the fetch command without any pre-configured scope.",
+                      "type": "string",
+                      "enum": [
+                        "http:deny-fetch"
+                      ]
+                    },
+                    {
+                      "description": "http:deny-fetch-cancel -> Denies the fetch_cancel command without any pre-configured scope.",
+                      "type": "string",
+                      "enum": [
+                        "http:deny-fetch-cancel"
+                      ]
+                    },
+                    {
+                      "description": "http:deny-fetch-read-body -> Denies the fetch_read_body command without any pre-configured scope.",
+                      "type": "string",
+                      "enum": [
+                        "http:deny-fetch-read-body"
+                      ]
+                    },
+                    {
+                      "description": "http:deny-fetch-send -> Denies the fetch_send command without any pre-configured scope.",
+                      "type": "string",
+                      "enum": [
+                        "http:deny-fetch-send"
+                      ]
+                    }
+                  ]
+                },
+                "allow": {
+                  "items": {
+                    "title": "HttpScopeEntry",
+                    "description": "HTTP scope entry.",
+                    "anyOf": [
+                      {
+                        "description": "A URL that can be accessed by the webview when using the HTTP APIs. Wildcards can be used following the URL pattern standard.\n\nSee [the URL Pattern spec](https://urlpattern.spec.whatwg.org/) for more information.\n\nExamples:\n\n- \"https://*\" : allows all HTTPS origin on port 443\n\n- \"https://*:*\" : allows all HTTPS origin on any port\n\n- \"https://*.github.com/tauri-apps/tauri\": allows any subdomain of \"github.com\" with the \"tauri-apps/api\" path\n\n- \"https://myapi.service.com/users/*\": allows access to any URLs that begins with \"https://myapi.service.com/users/\"",
+                        "type": "string"
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "url"
+                        ],
+                        "properties": {
+                          "url": {
+                            "description": "A URL that can be accessed by the webview when using the HTTP APIs. Wildcards can be used following the URL pattern standard.\n\nSee [the URL Pattern spec](https://urlpattern.spec.whatwg.org/) for more information.\n\nExamples:\n\n- \"https://*\" : allows all HTTPS origin on port 443\n\n- \"https://*:*\" : allows all HTTPS origin on any port\n\n- \"https://*.github.com/tauri-apps/tauri\": allows any subdomain of \"github.com\" with the \"tauri-apps/api\" path\n\n- \"https://myapi.service.com/users/*\": allows access to any URLs that begins with \"https://myapi.service.com/users/\"",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                "deny": {
+                  "items": {
+                    "title": "HttpScopeEntry",
+                    "description": "HTTP scope entry.",
+                    "anyOf": [
+                      {
+                        "description": "A URL that can be accessed by the webview when using the HTTP APIs. Wildcards can be used following the URL pattern standard.\n\nSee [the URL Pattern spec](https://urlpattern.spec.whatwg.org/) for more information.\n\nExamples:\n\n- \"https://*\" : allows all HTTPS origin on port 443\n\n- \"https://*:*\" : allows all HTTPS origin on any port\n\n- \"https://*.github.com/tauri-apps/tauri\": allows any subdomain of \"github.com\" with the \"tauri-apps/api\" path\n\n- \"https://myapi.service.com/users/*\": allows access to any URLs that begins with \"https://myapi.service.com/users/\"",
+                        "type": "string"
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "url"
+                        ],
+                        "properties": {
+                          "url": {
+                            "description": "A URL that can be accessed by the webview when using the HTTP APIs. Wildcards can be used following the URL pattern standard.\n\nSee [the URL Pattern spec](https://urlpattern.spec.whatwg.org/) for more information.\n\nExamples:\n\n- \"https://*\" : allows all HTTPS origin on port 443\n\n- \"https://*:*\" : allows all HTTPS origin on any port\n\n- \"https://*.github.com/tauri-apps/tauri\": allows any subdomain of \"github.com\" with the \"tauri-apps/api\" path\n\n- \"https://myapi.service.com/users/*\": allows access to any URLs that begins with \"https://myapi.service.com/users/\"",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "identifier"
+              ],
+              "properties": {
+                "identifier": {
+                  "oneOf": [
+                    {
                       "type": "string",
                       "enum": [
                         "shell:default"
@@ -479,27 +602,6 @@
           ]
         },
         {
-          "description": "cli:default -> Allows reading the CLI matches",
-          "type": "string",
-          "enum": [
-            "cli:default"
-          ]
-        },
-        {
-          "description": "cli:allow-cli-matches -> Enables the cli_matches command without any pre-configured scope.",
-          "type": "string",
-          "enum": [
-            "cli:allow-cli-matches"
-          ]
-        },
-        {
-          "description": "cli:deny-cli-matches -> Denies the cli_matches command without any pre-configured scope.",
-          "type": "string",
-          "enum": [
-            "cli:deny-cli-matches"
-          ]
-        },
-        {
           "description": "event:default -> Default permissions for the plugin.",
           "type": "string",
           "enum": [
@@ -560,6 +662,69 @@
           "type": "string",
           "enum": [
             "event:deny-unlisten"
+          ]
+        },
+        {
+          "description": "http:default -> Allows all fetch operations",
+          "type": "string",
+          "enum": [
+            "http:default"
+          ]
+        },
+        {
+          "description": "http:allow-fetch -> Enables the fetch command without any pre-configured scope.",
+          "type": "string",
+          "enum": [
+            "http:allow-fetch"
+          ]
+        },
+        {
+          "description": "http:allow-fetch-cancel -> Enables the fetch_cancel command without any pre-configured scope.",
+          "type": "string",
+          "enum": [
+            "http:allow-fetch-cancel"
+          ]
+        },
+        {
+          "description": "http:allow-fetch-read-body -> Enables the fetch_read_body command without any pre-configured scope.",
+          "type": "string",
+          "enum": [
+            "http:allow-fetch-read-body"
+          ]
+        },
+        {
+          "description": "http:allow-fetch-send -> Enables the fetch_send command without any pre-configured scope.",
+          "type": "string",
+          "enum": [
+            "http:allow-fetch-send"
+          ]
+        },
+        {
+          "description": "http:deny-fetch -> Denies the fetch command without any pre-configured scope.",
+          "type": "string",
+          "enum": [
+            "http:deny-fetch"
+          ]
+        },
+        {
+          "description": "http:deny-fetch-cancel -> Denies the fetch_cancel command without any pre-configured scope.",
+          "type": "string",
+          "enum": [
+            "http:deny-fetch-cancel"
+          ]
+        },
+        {
+          "description": "http:deny-fetch-read-body -> Denies the fetch_read_body command without any pre-configured scope.",
+          "type": "string",
+          "enum": [
+            "http:deny-fetch-read-body"
+          ]
+        },
+        {
+          "description": "http:deny-fetch-send -> Denies the fetch_send command without any pre-configured scope.",
+          "type": "string",
+          "enum": [
+            "http:deny-fetch-send"
           ]
         },
         {
@@ -976,55 +1141,6 @@
           ]
         },
         {
-          "description": "notification:default -> Allows requesting permission, checking permission state and sending notifications",
-          "type": "string",
-          "enum": [
-            "notification:default"
-          ]
-        },
-        {
-          "description": "notification:allow-is-permission-granted -> Enables the is_permission_granted command without any pre-configured scope.",
-          "type": "string",
-          "enum": [
-            "notification:allow-is-permission-granted"
-          ]
-        },
-        {
-          "description": "notification:allow-notify -> Enables the notify command without any pre-configured scope.",
-          "type": "string",
-          "enum": [
-            "notification:allow-notify"
-          ]
-        },
-        {
-          "description": "notification:allow-request-permission -> Enables the request_permission command without any pre-configured scope.",
-          "type": "string",
-          "enum": [
-            "notification:allow-request-permission"
-          ]
-        },
-        {
-          "description": "notification:deny-is-permission-granted -> Denies the is_permission_granted command without any pre-configured scope.",
-          "type": "string",
-          "enum": [
-            "notification:deny-is-permission-granted"
-          ]
-        },
-        {
-          "description": "notification:deny-notify -> Denies the notify command without any pre-configured scope.",
-          "type": "string",
-          "enum": [
-            "notification:deny-notify"
-          ]
-        },
-        {
-          "description": "notification:deny-request-permission -> Denies the request_permission command without any pre-configured scope.",
-          "type": "string",
-          "enum": [
-            "notification:deny-request-permission"
-          ]
-        },
-        {
           "description": "path:default -> Default permissions for the plugin.",
           "type": "string",
           "enum": [
@@ -1141,27 +1257,6 @@
           "type": "string",
           "enum": [
             "path:deny-resolve-directory"
-          ]
-        },
-        {
-          "description": "positioner:default -> Allows the move_window command",
-          "type": "string",
-          "enum": [
-            "positioner:default"
-          ]
-        },
-        {
-          "description": "positioner:allow-move-window -> Enables the move_window command without any pre-configured scope.",
-          "type": "string",
-          "enum": [
-            "positioner:allow-move-window"
-          ]
-        },
-        {
-          "description": "positioner:deny-move-window -> Denies the move_window command without any pre-configured scope.",
-          "type": "string",
-          "enum": [
-            "positioner:deny-move-window"
           ]
         },
         {
@@ -2414,40 +2509,6 @@
           "type": "string",
           "enum": [
             "window:deny-unminimize"
-          ]
-        },
-        {
-          "type": "string",
-          "enum": [
-            "window-state:default"
-          ]
-        },
-        {
-          "description": "window-state:allow-restore-window-state -> Enables the restore_window_state command without any pre-configured scope.",
-          "type": "string",
-          "enum": [
-            "window-state:allow-restore-window-state"
-          ]
-        },
-        {
-          "description": "window-state:allow-save-window-state -> Enables the save_window_state command without any pre-configured scope.",
-          "type": "string",
-          "enum": [
-            "window-state:allow-save-window-state"
-          ]
-        },
-        {
-          "description": "window-state:deny-restore-window-state -> Denies the restore_window_state command without any pre-configured scope.",
-          "type": "string",
-          "enum": [
-            "window-state:deny-restore-window-state"
-          ]
-        },
-        {
-          "description": "window-state:deny-save-window-state -> Denies the save_window_state command without any pre-configured scope.",
-          "type": "string",
-          "enum": [
-            "window-state:deny-save-window-state"
           ]
         }
       ]

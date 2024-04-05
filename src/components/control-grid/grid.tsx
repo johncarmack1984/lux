@@ -4,7 +4,7 @@ import { type ChannelProps } from "@/global";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 
 import GridFooter from "./footer";
-import columns from "./columns";
+import columns from "./channel-row/columns";
 import {
   getCoreRowModel,
   useReactTable,
@@ -13,6 +13,7 @@ import {
 import { deleteChannel, editChannel } from "@/app/actions";
 import GridRow from "./row";
 import useLuxState from "@/hooks/useLuxState";
+import useIncomingApiRequest from "@/hooks/useIncomingApiRequest";
 
 function EmptyGrid() {
   const key = "no-rows-present-row";
@@ -40,7 +41,7 @@ function GridBody({ table }: { table: TableType<ChannelProps> }) {
 
 export default function ControlGrid() {
   const data = useLuxState();
-
+  useIncomingApiRequest();
   const table = useReactTable({
     data,
     columns,

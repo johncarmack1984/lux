@@ -17,7 +17,7 @@
         "x": 0,
         "y": 0,
         "width": 960,
-        "height": 1020,
+        "height": 1035,
         "acceptFirstMouse": true,
         "titleBarStyle": "Transparent"
       }
@@ -38,64 +38,17 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ],
-    "macOS": {
-      "entitlements": null,
-      "exceptionDomain": "",
-      "frameworks": [],
-      "providerShortName": null,
-      "signingIdentity": null,
-      "files": {},
-      "minimumSystemVersion": "10.13"
-    },
-    "iOS": {
-      "developmentTeam": null
-    },
-    "linux": {
-      "deb": {
-        "depends": []
-      }
-    }
+    ]
   },
   "plugins": {
     "shell": {
       "open": true
-    },
-    "cli": {
-      "description": "Lux CLI",
-      "args": [
-        { "short": "v", "name": "verbose", "description": "Verbosity level" }
-      ],
-      "subcommands": {
-        "dev": {
-          "description": "Start the development server",
-          "args": []
-        },
-        "build": {
-          "description": "Build the app",
-          "args": []
-        },
-        "run": {
-          "description": "Run the application",
-          "args": [
-            {
-              "name": "debug",
-              "description": "Run application in debug mode"
-            },
-            {
-              "name": "release",
-              "description": "Run application in release mode"
-            }
-          ]
-        }
-      }
     }
   }
 }

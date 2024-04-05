@@ -7,12 +7,15 @@ import useChannelsMetadata from "@/hooks/useChannelsMetaData";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import type { LuxBuffer } from "@/global";
+import { trace } from "@tauri-apps/plugin-log";
 
 const useLuxState = () => {
   useEffect(() => {
+    trace("frontend invoking sync_state");
     invoke<LuxBuffer | string>("sync_state")
       .then(toast.success)
-      .catch(toast.error);
+      .catch(toast.error)
+      .finally(() => trace("frontend invoked sync_state"));
   }, []);
 
   const luxChannels = useChannelsMetadata();
