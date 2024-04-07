@@ -18,6 +18,7 @@ use axum::Json;
 use axum::{extract::ConnectInfo, routing::get, Router};
 use buffer::{Buffer, LuxBuffer};
 use channels::LuxChannels;
+use http::secure_tunnel;
 use hyper::StatusCode;
 use ngrok::prelude::*;
 use ngrok::Tunnel;
@@ -52,37 +53,7 @@ pub async fn run() {
         .manage(LuxChannels::default())
         .plugin(tauri_plugin_http::init())
         .setup(|app| {
-            let app_handle = Arc::new(app.handle().clone());
-            tokio::spawn(async move {
-                tauri::async_runtime::spawn(async move {
-                    use dotenvy::dotenv;
-                    dotenv().expect(".env file not found");
-                    let state = Arc::new(app_handle.state::<LuxBuffer>().get());
-                    let router: Router = Router::new().route(
-                        "/",
-                        get("hello").post(move |body| set_buffer(body, app_handle, state)),
-                    );
-                    let sess = ngrok::Session::builder()
-                        .authtoken_from_env()
-                        .connect()
-                        .await
-                        .unwrap();
-
-                    let tun = sess
-                        .http_endpoint()
-                        .domain(get_ngrok_domain())
-                        .listen_and_forward("http://0.0.0.0:3003".parse().unwrap())
-                        .await
-                        .unwrap();
-
-                    log::info!("Listener started on URL: {:?}", tun.url());
-
-                    axum::Server::bind(&"0.0.0.0:3003".parse().unwrap())
-                        .serve(router.into_make_service())
-                        .await
-                        .unwrap();
-                });
-            });
+            secure_tunnel(app);
             Ok(())
         })
         // .plugin(tauri_plugin_notification::init())
@@ -98,12 +69,9 @@ pub async fn run() {
         .expect("error while running tauri application")
 }
 
-async fn set_buffer(
-    Json(body): Json<Buffer>,
-    app: Arc<AppHandle>,
-    state: Arc<LuxBuffer>,
-) -> impl IntoResponse {
+async fn set_buffer(Json(body): Json<Buffer>, app: Arc<AppHandle>) -> impl IntoResponse {
     log::debug!("body {:?}", body);
+    let state = Arc::new(app.state::<LuxBuffer>().get());
     log::debug!("state {:?}", state);
     app.emit("incoming_api_request", body.clone()).unwrap();
     let app_handle = app.app_handle().clone();
