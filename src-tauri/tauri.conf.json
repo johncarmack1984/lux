@@ -27,7 +27,7 @@
       "pattern": {
         "use": "isolation",
         "options": {
-          "dir": "../out-isolation/"
+          "dir": "../dist-isolation/"
         }
       }
     },

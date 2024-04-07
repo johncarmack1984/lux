@@ -78,7 +78,9 @@ function ControlButton({
 
 function ButtonRow() {
   return (
-    <div className="grid-cols-3 py-8 grid">{buttons.map(ControlButton)}</div>
+    <div className="grid-cols-1 sm:grid-cols-3 py-8 grid">
+      {buttons.map(ControlButton)}
+    </div>
   );
 }
 
