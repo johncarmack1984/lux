@@ -8,15 +8,12 @@ function useIncomingApiRequest() {
     const toastId = toast("Incoming API Request");
     trace(`useIncomingApiRequest useEffect`);
 
-    const unlisten = listen<{ buffer: number[] }>(
-      "incoming_api_request",
-      ({ payload }) => {
-        trace(`useIncomingApiRequest listen ${payload}`);
-        toast.success(`Buffer received: [${payload.buffer}]`, {
-          id: toastId,
-        });
-      }
-    );
+    const unlisten = listen<number[]>("incoming_api_request", ({ payload }) => {
+      trace(`useIncomingApiRequest listen ${payload}`);
+      toast.success(`Buffer received: [${payload}]`, {
+        id: toastId,
+      });
+    });
 
     return () => {
       trace(`useChannel return`);

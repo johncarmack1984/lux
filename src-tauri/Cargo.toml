@@ -19,13 +19,16 @@ tauri-build = { version = "^2.0.0-beta", features = ["isolation", "codegen"] }
 tauri = { version = "^2.0.0-beta", features = ["devtools", "test", "tracing"] }
 
 [dependencies]
+# ngrok = { git = "https://github.com/johncarmack1984/ngrok-rust.git", branch = "main" }
+ngrok = { git = "https://github.com/ngrok/ngrok-rust.git", branch = "main" }
+hyper = { version = "0.14.23", features = ["full"] }
 array-init = "2.1.0"
-# dotenvy = "0.15.7"
+async-trait = "0.1.59"
+dotenvy = "0.15.7"
 enttecopendmx = "0.1.0"
 libftd2xx = { version = "0.32.4", features = ["static"] }
-# libsql = { git = "https://github.com/tursodatabase/libsql" }
 log = "^0.4"
-# reqwest = { version = "0.12.2", features = ["json", "blocking"] }
+axum = { version = "0.6.20", features = ["tokio"] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 strum = { version = "0.26.2", features = ["derive"] }
@@ -44,23 +47,17 @@ tauri-plugin-log = "^2.0.0-beta"
 tauri-plugin-shell = "^2.0.0-beta"
 # tauri-plugin-window-state = "^2.0.0-beta"
 thiserror = "1.0.58"
-# tokio = { version = "1", features = ["full"] }
-# taurpc = "0.3.0-alpha.1"
-# specta = { version = "2.0.0-rc.7", features = ["export"] }
+tokio = { version = "1", features = ["full"] }
 uuid = { version = "1.4.1", features = [
     "v4", # Lets you generate random UUIDs
     # "fast-rng",          # Use a faster (but still sufficiently random) RNG
     # "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
     "serde", # Enable serialization/deserialization of UUIDs
 ] }
-tiny_http = "0.12.0"
 tauri-plugin-http = "2.0.0-beta.4"
-
-# [patch.crates-io]
-# sqlite3-parser = { git = "https://github.com/LucioFranco/lemon-rs" }
-
-# [profile.dev.package.sqlx-macros]
-# opt-level = 3
+anyhow = "1.0.81"
+tower = "0.4.13"
+# futures = "0.3.30"
 
 # default to small, optimized release binaries
 [profile.release]
