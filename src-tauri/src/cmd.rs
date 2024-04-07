@@ -28,10 +28,6 @@ pub fn update_channel_value(
     state: State<'_, LuxBuffer>,
 ) -> Result<LuxBuffer, String> {
     log::debug!("received channel {} to {}", channel_number, value);
-    // let buffer = state.buffer.lock().unwrap();
-    // buffer.set_channel(channel_number, value, app)
-    // log::info!("buffer: {:?}", buffer);
-    // Ok(LuxBuffer::from(*buffer))
     let mut state = state.inner().clone();
     state.set_channel(channel_number, value, app)
 }

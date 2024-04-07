@@ -44,37 +44,7 @@ impl From<Buffer> for LuxBuffer {
     }
 }
 
-// impl From<&mut [u8; BUFFER_SIZE]> for LuxBuffer {
-//     fn from(value: &mut [u8; BUFFER_SIZE]) -> Self {
-//         LuxBuffer {
-//             buffer: Arc::new(Mutex::new(*value)),
-//         }
-//     }
-// }
-
-// impl From<Vec<u8>> for LuxBuffer {
-//     fn from(value: Vec<u8>) -> Self {
-//         let mut buffer = [0; BUFFER_SIZE];
-//         buffer[..value.len()].copy_from_slice(&value);
-//         LuxBuffer::from(buffer)
-//     }
-// }
-
-// impl Default for LuxBuffer {
-//     fn default() -> Self {
-//         LuxBuffer::from([121, 255, 255, 0, 0, 42])
-//     }
-// }
-
 impl LuxBuffer {
-    // pub fn get(&self) -> Buffer {
-    //     // log::debug!("get buffer");
-    //     // log::debug!("self {:?}", self);
-    //     // let buffer = self.buffer.lock().unwrap();
-    //     // LuxBuffer::from(*buffer)
-    //     self
-    // }
-
     pub fn set<R: Runtime>(
         &mut self,
         incoming_buffer: Buffer,
