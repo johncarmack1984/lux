@@ -8,18 +8,19 @@ use std::sync::Arc;
 use tauri::Manager;
 
 pub fn secure_tunnel(app: &mut tauri::App) {
-    let app_handle = Arc::new(app.handle().clone());
+    let app_handle = app.handle().clone();
+    let app_handle_clone = app_handle.clone();
     tokio::spawn(async move {
         tauri::async_runtime::spawn(async move {
             use dotenvy::dotenv;
             dotenv().expect(".env file not found");
-            let state = Arc::new(app_handle.state::<LuxBuffer>().get());
+            let state = app_handle.state::<LuxBuffer>();
             let router: Router = Router::new()
                 .route(
-                    "/",
-                    get(get_buffer).post(move |body| set_buffer(body, app_handle)),
+                    "/buffer",
+                    get(get_buffer).post(move |body| set_buffer(body, app_handle_clone)),
                 )
-                .with_state(state);
+                .with_state(Arc::new(state.inner().clone()));
             let sess = ngrok::Session::builder()
                 .authtoken_from_env()
                 .connect()
@@ -54,18 +55,18 @@ pub fn get_ngrok_domain() -> String {
 async fn get_buffer(
     axum::extract::State(state): axum::extract::State<Arc<LuxBuffer>>,
 ) -> impl IntoResponse {
-    let buffer = state.get().get();
+    let buffer = state.buffer.lock().as_deref().unwrap().clone();
     let msg = format!("buffer: {:?}", buffer);
     (StatusCode::OK, Json(msg))
 }
 
-async fn set_buffer(Json(body): Json<Buffer>, app: Arc<tauri::AppHandle>) -> impl IntoResponse {
+async fn set_buffer(Json(body): Json<Buffer>, app: tauri::AppHandle) -> impl IntoResponse {
     log::debug!("body {:?}", body);
-    let state = Arc::new(app.state::<LuxBuffer>().get());
+    let mut state = app.state::<LuxBuffer>().inner().clone();
     log::debug!("state {:?}", state);
     app.emit("incoming_api_request", body.clone()).unwrap();
     let app_handle = app.app_handle().clone();
-    state.get().set(body, app_handle).unwrap();
+    state.set(body, app_handle).unwrap();
     let msg = format!("buffer: {:?}", body);
     (StatusCode::OK, Json(msg))
 }

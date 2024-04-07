@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { error, trace } from "@tauri-apps/plugin-log";
 import { toast } from "sonner";
 
-function setBuffer(buffer: number[]) {
+export function setBuffer(buffer: number[]) {
   invoke("set_buffer", { buffer })
     .then((res) => toast.info(JSON.stringify(res)))
     .catch(toast.error);

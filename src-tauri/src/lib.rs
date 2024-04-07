@@ -46,11 +46,14 @@ pub async fn run() {
     // #[cfg(debug_assertions)]
     // let builder = builder.plugin(devtools);
 
+    let default_buffer = LuxBuffer::from([121, 255, 255, 0, 0, 42]);
+    let default_channels = LuxChannels::default();
+
     builder
         .plugin(tauri_plugin_shell::init())
         .plugin(logger::logger().build())
-        .manage(LuxBuffer::default())
-        .manage(LuxChannels::default())
+        .manage(default_buffer)
+        .manage(default_channels)
         .plugin(tauri_plugin_http::init())
         .setup(|app| {
             secure_tunnel(app);
@@ -58,7 +61,6 @@ pub async fn run() {
         })
         // .plugin(tauri_plugin_notification::init())
         // .plugin(tauri_plugin_cli::init())
-        // .setup(|app| crate::http::setup_http(app))
         .invoke_handler(tauri::generate_handler![
             cmd::update_channel_value,
             cmd::set_buffer,

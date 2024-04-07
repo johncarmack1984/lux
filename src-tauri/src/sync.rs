@@ -3,12 +3,13 @@ use crate::{
     channels::LuxChannels,
 };
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, State};
 
 pub fn sync_buffer(app_handle: &AppHandle) -> Result<LuxBuffer, String> {
     log::trace!("sync_buffer");
-    let mut state: LuxBuffer = app_handle.state::<LuxBuffer>().get();
-    state.set(Buffer::from(&state), app_handle.clone())
+    let mut state = app_handle.state::<LuxBuffer>().inner().clone();
+    let buffer = state.buffer.lock().as_deref().unwrap().clone();
+    state.set(buffer, app_handle.clone())
 }
 
 pub fn sync_channels(app_handle: &AppHandle) -> Result<LuxChannels, String> {

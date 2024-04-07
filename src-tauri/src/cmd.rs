@@ -3,7 +3,10 @@ use crate::{
     channel::LuxChannel,
     channels::LuxChannels,
 };
-use std::sync::{Arc, Mutex};
+use std::{
+    ops::Deref,
+    sync::{Arc, Mutex},
+};
 use tauri::{command, State};
 
 #[command]
@@ -13,7 +16,8 @@ pub fn set_buffer(
     state: State<'_, LuxBuffer>,
 ) -> Result<LuxBuffer, String> {
     log::trace!("received buffer {:?}", buffer);
-    state.get().set(buffer, app)
+    let mut state = state.inner().clone();
+    state.set(buffer, app)
 }
 
 #[command]
@@ -23,8 +27,13 @@ pub fn update_channel_value(
     app: tauri::AppHandle,
     state: State<'_, LuxBuffer>,
 ) -> Result<LuxBuffer, String> {
-    log::trace!("received channel {} to {}", channel_number, value);
-    state.get().set_channel(channel_number, value, app)
+    log::debug!("received channel {} to {}", channel_number, value);
+    // let buffer = state.buffer.lock().unwrap();
+    // buffer.set_channel(channel_number, value, app)
+    // log::info!("buffer: {:?}", buffer);
+    // Ok(LuxBuffer::from(*buffer))
+    let mut state = state.inner().clone();
+    state.set_channel(channel_number, value, app)
 }
 
 #[command]
