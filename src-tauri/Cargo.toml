@@ -19,7 +19,6 @@ tauri-build = { version = "^2.0.0-beta", features = ["isolation", "codegen"] }
 tauri = { version = "^2.0.0-beta", features = ["devtools", "test", "tracing"] }
 
 [dependencies]
-# ngrok = { git = "https://github.com/johncarmack1984/ngrok-rust.git", branch = "main" }
 ngrok = { git = "https://github.com/ngrok/ngrok-rust.git", branch = "main" }
 hyper = { version = "0.14.23", features = ["full"] }
 array-init = "2.1.0"
@@ -39,13 +38,8 @@ tauri = { version = "^2.0.0-beta.13", features = [
     "image-png",
     "tray-icon",
 ] }
-# tauri-plugin-cli = "^2.0.0-beta"
-# tauri-plugin-devtools = { git = "https://github.com/crabnebula-dev/devtools" }
 tauri-plugin-log = "^2.0.0-beta"
-# tauri-plugin-notification = "2.0.0-beta"
-# tauri-plugin-positioner = { version = "^2.0.0-beta", features = ["tray-icon"] }
 tauri-plugin-shell = "^2.0.0-beta"
-# tauri-plugin-window-state = "^2.0.0-beta"
 thiserror = "1.0.58"
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1.4.1", features = [
@@ -55,9 +49,13 @@ uuid = { version = "1.4.1", features = [
     "serde", # Enable serialization/deserialization of UUIDs
 ] }
 tauri-plugin-http = "2.0.0-beta.4"
+# tauri-plugin-devtools = { git = "https://github.com/crabnebula-dev/devtools" }
+# tauri-plugin-cli = "^2.0.0-beta"
+# tauri-plugin-notification = "2.0.0-beta"
+# tauri-plugin-positioner = { version = "^2.0.0-beta", features = ["tray-icon"] }
+# tauri-plugin-window-state = "^2.0.0-beta"
 anyhow = "1.0.81"
 tower = "0.4.13"
-# futures = "0.3.30"
 
 # default to small, optimized release binaries
 [profile.release]
