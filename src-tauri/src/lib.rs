@@ -69,17 +69,6 @@ pub async fn run() {
         .expect("error while running tauri application")
 }
 
-async fn set_buffer(Json(body): Json<Buffer>, app: Arc<AppHandle>) -> impl IntoResponse {
-    log::debug!("body {:?}", body);
-    let state = Arc::new(app.state::<LuxBuffer>().get());
-    log::debug!("state {:?}", state);
-    app.emit("incoming_api_request", body.clone()).unwrap();
-    let app_handle = app.app_handle().clone();
-    state.get().set(body, app_handle).unwrap();
-    let msg = format!("buffer: {:?}", body);
-    (StatusCode::OK, Json(msg))
-}
-
 async fn async_process_model(
     mut input_rx: mpsc::Receiver<String>,
     output_tx: mpsc::Sender<String>,
