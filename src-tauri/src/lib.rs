@@ -13,12 +13,18 @@ mod logger;
 mod sync;
 
 use crate::http::get_ngrok_domain;
+use axum::response::IntoResponse;
+use axum::Json;
 use axum::{extract::ConnectInfo, routing::get, Router};
-use buffer::LuxBuffer;
+use buffer::{Buffer, LuxBuffer};
 use channels::LuxChannels;
+use hyper::StatusCode;
 use ngrok::prelude::*;
 use ngrok::Tunnel;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use tauri::AppHandle;
+use tauri::Manager;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 
@@ -30,50 +36,6 @@ struct AsyncProcInputTx {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
     tauri::async_runtime::set(tokio::runtime::Handle::current());
-
-    #[allow(unused_variables)]
-    let (async_proc_input_tx, async_proc_input_rx) = mpsc::channel(1);
-    #[allow(unused_mut)]
-    let (async_proc_output_tx, mut async_proc_output_rx) = mpsc::channel(1);
-
-    tokio::spawn(
-        async move { async_process_model(async_proc_input_rx, async_proc_output_tx).await },
-    );
-
-    // tokio::spawn(async move {
-    //     // let app_handle = app.handle();
-    //     // let app_handle_clone = app_handle.clone();
-    //     // let async_proc_input_tx_clone = async_proc_input_tx.clone();
-    //     tauri::async_runtime::spawn(async move {
-    //         use dotenvy::dotenv;
-    //         dotenv().expect(".env file not found");
-    //         let router: Router = Router::new().route(
-    //             "/",
-    //             get("hello"), // .post(move |body| set_buffer(body, app_handle, state)),
-    //         );
-    //         let sess = ngrok::Session::builder()
-    //             .authtoken_from_env()
-    //             .connect()
-    //             .await
-    //             .unwrap();
-
-    //         let tun = sess
-    //             .http_endpoint()
-    //             .domain(get_ngrok_domain())
-    //             .listen_and_forward("http://0.0.0.0:3003".parse().unwrap())
-    //             .await
-    //             .unwrap();
-
-    //         log::info!("Listener started on URL: {:?}", tun.url());
-
-    //         axum::Server::bind(&"0.0.0.0:3003".parse().unwrap())
-    //             .serve(router.into_make_service())
-    //             .await
-    //             .unwrap();
-    //         // axum::Server::builder(start_tunnel().await.unwrap())
-    //         // async_setup_http(app_handle_clone, async_proc_input_tx_clone).await
-    //     });
-    // });
 
     // #[cfg(debug_assertions)] // only enable instrumentation in development builds
     // let devtools = tauri_plugin_devtools::init();
@@ -90,16 +52,15 @@ pub async fn run() {
         .manage(LuxChannels::default())
         .plugin(tauri_plugin_http::init())
         .setup(|app| {
+            let app_handle = Arc::new(app.handle().clone());
             tokio::spawn(async move {
-                // let app_handle = app.handle();
-                // let app_handle_clone = app_handle.clone();
-                // let async_proc_input_tx_clone = async_proc_input_tx.clone();
                 tauri::async_runtime::spawn(async move {
                     use dotenvy::dotenv;
                     dotenv().expect(".env file not found");
+                    let state = Arc::new(app_handle.state::<LuxBuffer>().get());
                     let router: Router = Router::new().route(
                         "/",
-                        get("hello"), // .post(move |body| set_buffer(body, app_handle, state)),
+                        get("hello").post(move |body| set_buffer(body, app_handle, state)),
                     );
                     let sess = ngrok::Session::builder()
                         .authtoken_from_env()
@@ -120,8 +81,6 @@ pub async fn run() {
                         .serve(router.into_make_service())
                         .await
                         .unwrap();
-                    // axum::Server::builder(start_tunnel().await.unwrap())
-                    // async_setup_http(app_handle_clone, async_proc_input_tx_clone).await
                 });
             });
             Ok(())
@@ -137,6 +96,20 @@ pub async fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application")
+}
+
+async fn set_buffer(
+    Json(body): Json<Buffer>,
+    app: Arc<AppHandle>,
+    state: Arc<LuxBuffer>,
+) -> impl IntoResponse {
+    log::debug!("body {:?}", body);
+    log::debug!("state {:?}", state);
+    app.emit("incoming_api_request", body.clone()).unwrap();
+    let app_handle = app.app_handle().clone();
+    state.get().set(body, app_handle).unwrap();
+    let msg = format!("buffer: {:?}", body);
+    (StatusCode::OK, Json(msg))
 }
 
 async fn async_process_model(

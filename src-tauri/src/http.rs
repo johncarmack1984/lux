@@ -121,40 +121,6 @@ pub fn get_ngrok_domain() -> String {
         .unwrap()
 }
 
-// fn unwrap_infallible<T>(result: Result<T, Infallible>) -> T {
-//     match result {
-//         Ok(value) => value,
-//         Err(err) => match err {},
-//     }
-// }
-
-// pub async fn lux_tunnel(_addr: &str) -> anyhow::Result<impl Tunnel> {
-//     use dotenvy::dotenv;
-//     dotenv().expect(".env file not found");
-//     let domain = env::var("NGROK_TUNNEL_DOMAIN")
-//         .map_err(Error::from)
-//         .unwrap();
-
-//     let sess = ngrok::Session::builder()
-//         .authtoken_from_env()
-//         .connect()
-//         .await?;
-
-//     let tun = sess
-//         // .tcp_endpoint()
-//         .http_endpoint()
-//         // .scheme(Scheme::HTTP)
-//         .domain(domain)
-//         // .forwards_to("3003")
-//         // .oauth(OauthOptions::new("google").allow_email("johncarmack@me.com"))
-//         .listen()
-//         .await?;
-
-//     log::debug!("Listening on URL: {:?}", tun.url());
-
-//     Ok(tun)
-// }
-
 // async fn get_buffer(// app: Arc<AppHandle>,
 //     // state: Arc<LuxBuffer>,
 // ) -> impl IntoResponse {
