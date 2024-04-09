@@ -15,7 +15,7 @@ function ColorTrigger({
   const backgroundColor = `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a})`;
   return (
     <PopoverTrigger className={cn(className)} asChild>
-      <Button variant="default" className={cn("gap-3", className)}>
+      <Button variant="ghost" className={cn("gap-3", className)}>
         Fixture Color
         <div
           className="rounded-full size-7 border-[1px] border-border/50 "

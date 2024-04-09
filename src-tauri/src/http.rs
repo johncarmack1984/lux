@@ -60,13 +60,19 @@ async fn get_buffer(
     (StatusCode::OK, Json(msg))
 }
 
-async fn set_buffer(Json(body): Json<Buffer>, app: tauri::AppHandle) -> impl IntoResponse {
-    log::debug!("body {:?}", body);
+#[derive(serde::Deserialize)]
+struct JsonBuffer {
+    buffer: Buffer,
+}
+
+async fn set_buffer(Json(body): Json<JsonBuffer>, app: tauri::AppHandle) -> impl IntoResponse {
+    log::debug!("body {:?}", body.buffer);
     let mut state = app.state::<LuxBuffer>().inner().clone();
     log::debug!("state {:?}", state);
-    app.emit("incoming_api_request", body.clone()).unwrap();
+    app.emit("incoming_api_request", body.buffer.clone())
+        .unwrap();
     let app_handle = app.app_handle().clone();
-    state.set(body, app_handle).unwrap();
-    let msg = format!("buffer: {:?}", body);
+    state.set(body.buffer, app_handle).unwrap();
+    let msg = format!("buffer: {:?}", body.buffer);
     (StatusCode::OK, Json(msg))
 }
