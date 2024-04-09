@@ -14,12 +14,24 @@
     "windows": [
       {
         "title": "💡lux",
+        "label": "control-grid",
+        "url": "control-grid",
         "x": 0,
         "y": 0,
         "width": 960,
         "height": 1035,
         "acceptFirstMouse": true,
         "titleBarStyle": "Transparent"
+      },
+      {
+        "title": "Welcome",
+        "url": "welcome",
+        "label": "setup-wizard",
+        "width": 320,
+        "height": 480,
+        "x": 961,
+        "y": 0,
+        "titleBarStyle": "Visible"
       }
     ],
     "security": {

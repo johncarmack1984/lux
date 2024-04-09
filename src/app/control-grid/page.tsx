@@ -4,11 +4,5 @@ import Greeting from "@/components/greeting";
 import ColorPicker from "@/components/color-picker/picker";
 
 export default function Home() {
-  return (
-    <>
-      <Greeting />
-      <ButtonRow />
-      <ControlGrid />
-    </>
-  );
+  return <ControlGrid />;
 }

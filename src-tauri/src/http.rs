@@ -13,7 +13,7 @@ pub fn secure_tunnel(app: &mut tauri::App) {
     tokio::spawn(async move {
         tauri::async_runtime::spawn(async move {
             use dotenvy::dotenv;
-            dotenv().expect(".env file not found");
+            dotenv().unwrap();
             let state = app_handle.state::<LuxBuffer>();
             let router: Router = Router::new()
                 .route(

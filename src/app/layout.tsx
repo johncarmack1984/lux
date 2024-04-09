@@ -1,8 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import "./globals.css";
-import ColorPicker from "@/components/color-picker/picker";
+import "@/app/globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -19,10 +18,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.className} dark`}>
-        <ColorPicker className="absolute top-3 right-5" />
-        <main className="flex min-h-screen flex-col items-center justify-start py-[7.5%] sm:px-12">
+        <div className="min-h-screen flex flex-col justify-center sm:px-12">
           {children}
-        </main>
+        </div>
         <Toaster closeButton={true} />
       </body>
     </html>
