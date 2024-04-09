@@ -8,19 +8,26 @@ cargo tauri dev
 
 - ✅ Controls channels of 1-6 an [Enttec OpenDMX USB](https://www.enttec.com/product/dmx-usb-interfaces/open-dmx-usb/), assuming one RGBAW fixture.
 - ✅ Accepts buffer commands via http
-- ✅ `cargo tauri build` binary works on macOS
+- ✅ `cargo tauri dev` works
+- ✅ Commands via Discord bot
 
 ### Planned
 
-- [ ] Support for custom fixtures using all 512 channels
-- [ ] Commands via Discord bot
 - [ ] User accounts synced via Turso
-- [ ] Binary Distribution
-- [ ] iOS Build
-- [ ] Android Build
-- [ ] Raspberry Pi Build
+- [ ] Support for custom fixtures
+  - ...using all 512 channels
+- [ ] Binary Distribution (in order)
+  1. [ ] mac
+  1. [ ] iOS
+  1. [ ] Raspberry Pi
+  1. [ ] Windows
+  1. [ ] Android
 - [ ] Client/Server modes for shared home use
 - [ ] CLI for remote control
+
+### v0.0.3
+
+![Tauri v0.0.3](.github/lux-window-v0.0.3.png?raw=true)
 
 ### v0.0.2
 
