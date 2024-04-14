@@ -3,10 +3,7 @@ use crate::{
     channel::LuxChannel,
     channels::LuxChannels,
 };
-use std::{
-    ops::Deref,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 use tauri::{command, State};
 
 #[command]

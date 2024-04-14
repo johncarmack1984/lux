@@ -1,9 +1,6 @@
-use crate::{
-    buffer::{Buffer, LuxBuffer},
-    channels::LuxChannels,
-};
+use crate::{buffer::LuxBuffer, channels::LuxChannels};
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 
 pub fn sync_buffer(app_handle: &AppHandle) -> Result<LuxBuffer, String> {
     log::trace!("sync_buffer");
