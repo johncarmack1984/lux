@@ -2,10 +2,7 @@
 
 import { type ChannelProps } from "@/global";
 import { TableRow } from "@/components/ui/table";
-import { z } from "zod";
 import { flexRender, type Row } from "@tanstack/react-table";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Fragment } from "react";
 
 function GridRow(row: Row<ChannelProps>) {
   const key = `row-channel-${row.original.channel_number}`;
