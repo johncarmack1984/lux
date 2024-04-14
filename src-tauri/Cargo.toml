@@ -19,10 +19,7 @@ tauri-build = { version = "^2.0.0-beta", features = ["isolation", "codegen"] }
 tauri = { version = "^2.0.0-beta", features = ["devtools", "test", "tracing"] }
 
 [dependencies]
-ngrok = { git = "https://github.com/ngrok/ngrok-rust.git", branch = "main" }
-hyper = { version = "0.14.23", features = ["full"] }
 array-init = "2.1.0"
-async-trait = "0.1.59"
 dotenvy = "0.15.7"
 enttecopendmx = "0.1.0"
 libftd2xx = { version = "0.32.4", features = ["static"] }
