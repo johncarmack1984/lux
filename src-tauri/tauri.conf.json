@@ -1,5 +1,4 @@
 {
-  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
   "productName": "lux",
   "version": "0.1.0",
   "identifier": "com.johncarmack.lux",
@@ -22,16 +21,6 @@
         "height": 1035,
         "acceptFirstMouse": true,
         "titleBarStyle": "Transparent"
-      },
-      {
-        "title": "Welcome",
-        "url": "welcome",
-        "label": "setup-wizard",
-        "width": 320,
-        "height": 480,
-        "x": 961,
-        "y": 0,
-        "titleBarStyle": "Visible"
       }
     ],
     "security": {
