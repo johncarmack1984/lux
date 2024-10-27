@@ -13,7 +13,7 @@ name = "lux_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "^2.0.0-beta", features = ["isolation", "codegen"] }
+tauri-build = { version = "2.0.0-rc.0", features = ["isolation", "codegen"] }
 
 [dev-dependencies]
 tauri = { version = "^2.0.0-beta", features = ["devtools", "test", "tracing"] }
@@ -29,14 +29,14 @@ serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 strum = { version = "0.26.2", features = ["derive"] }
 strum_macros = "0.26.2"
-tauri = { version = "^2.0.0-beta.13", features = [
+tauri = { version = "2.0.0-rc.0", features = [
     "isolation",
     "image-ico",
     "image-png",
     "tray-icon",
 ] }
-tauri-plugin-log = "^2.0.0-beta"
-tauri-plugin-shell = "^2.0.0-beta"
+tauri-plugin-log = "2.0.0-rc.0"
+tauri-plugin-shell = "2.0.0-rc.0"
 thiserror = "1.0.58"
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1.4.1", features = [
@@ -45,7 +45,7 @@ uuid = { version = "1.4.1", features = [
     # "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
     "serde", # Enable serialization/deserialization of UUIDs
 ] }
-tauri-plugin-http = "2.0.0-beta.4"
+tauri-plugin-http = "2.0.0-rc.0"
 # tauri-plugin-devtools = { git = "https://github.com/crabnebula-dev/devtools" }
 # tauri-plugin-cli = "^2.0.0-beta"
 # tauri-plugin-notification = "2.0.0-beta"

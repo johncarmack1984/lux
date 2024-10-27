@@ -1,10 +1,11 @@
 use crate::devices::enttec_open_dmx_usb::EnttecOpenDMX;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
-use tauri::{Manager, Runtime};
+use tauri::{Emitter, Runtime};
 
 pub const BUFFER_SIZE: usize = 6;
 
+#[allow(dead_code)]
 pub trait ConvertFromVec {
     fn convert_from_vec(value: Vec<u8>) -> Self;
 }

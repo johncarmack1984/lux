@@ -4,7 +4,7 @@ use crate::colors::LuxLabelColor;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display, Formatter};
 use std::sync::{Arc, Mutex, MutexGuard};
-use tauri::Manager;
+use tauri::Emitter;
 
 pub type Channels = [LuxChannel; BUFFER_SIZE];
 
