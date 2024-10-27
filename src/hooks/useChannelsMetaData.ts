@@ -19,7 +19,6 @@ function useChannelData() {
     };
   }, []);
   return channelData;
-  return [];
 }
 
 export default useChannelData;
