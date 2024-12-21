@@ -40,3 +40,4 @@ next-env.d.ts
 .cargo/
 /gen
 /target/
+dist
