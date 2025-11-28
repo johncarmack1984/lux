@@ -1,18 +1,17 @@
 import type { LuxChannel } from "@/global";
-import { invoke } from "@tauri-apps/api/core";
 import { trace } from "@tauri-apps/plugin-log";
+import { createTauRPCProxy } from "@/bindings";
 
-const editChannel = async (channelId: string, newMetadata: LuxChannel) => {
+const editChannel = async (channelId: number, newMetadata: LuxChannel) => {
   trace(`frontend sending editChannel ${channelId}`);
-  return await invoke<LuxChannel>("edit_channel", {
-    channelId,
-    newMetadata,
-  });
+  const taurpc = createTauRPCProxy();
+  return await taurpc.cmd.update_channel_metadata(channelId, newMetadata);
 };
 
-const deleteChannel = async (channelId: string) => {
+const deleteChannel = async (channelId: number) => {
   trace(`frontend sending deleteChannel ${channelId}`);
-  return await invoke<void>("delete_channel", { channelId });
+  const taurpc = createTauRPCProxy();
+  return await taurpc.cmd.delete_channel(channelId);
 };
 
 async function setChannelValue({
@@ -22,23 +21,19 @@ async function setChannelValue({
   channelNumber: number;
   value: number;
 }) {
-  return await invoke("update_channel_value", {
-    channelNumber,
-    value,
-  });
+  const taurpc = createTauRPCProxy();
+  return await taurpc.cmd.update_channel_value(channelNumber, value);
 }
 
 async function setChannelMetadata({
   channelId,
   newMetadata,
 }: {
-  channelId: string;
+  channelId: number;
   newMetadata: LuxChannel;
 }) {
-  return await invoke("update_channel_metadata", {
-    channelId,
-    newMetadata,
-  });
+  const taurpc = createTauRPCProxy();
+  return await taurpc.cmd.update_channel_metadata(channelId, newMetadata);
 }
 
 export { editChannel, deleteChannel, setChannelValue, setChannelMetadata };

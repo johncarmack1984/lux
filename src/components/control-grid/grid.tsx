@@ -41,7 +41,7 @@ function GridBody({ table }: { table: TableType<ChannelProps> }) {
 
 export default function ControlGrid() {
   const data = useLuxState();
-  useIncomingApiRequest();
+  // useIncomingApiRequest();
   const table = useReactTable({
     data,
     columns,

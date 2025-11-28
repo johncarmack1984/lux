@@ -1,23 +1,21 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { invoke } from "@tauri-apps/api/core";
 import { error, trace } from "@tauri-apps/plugin-log";
+import { createTauRPCProxy } from "@/bindings";
 import { toast } from "sonner";
 
-export function setBuffer(buffer: number[]) {
-  invoke("set_buffer", { buffer })
-    .then((res) => toast.info(JSON.stringify(res)))
-    .catch(toast.error);
-}
-
-async function getInitialState() {
-  return await invoke("get_initial_state")
-    .then((state) => {
-      trace(`frontend received ${JSON.stringify(state)}`);
-      return state;
+export function setBuffer(
+  buffer: [number, number, number, number, number, number]
+) {
+  const taurpc = createTauRPCProxy();
+  taurpc.cmd
+    .set_buffer(buffer)
+    .then((res) => {
+      if (process.env.NODE_ENV === "development")
+        toast.info(JSON.stringify({ buffer }));
     })
-    .catch(error);
+    .catch(toast.error);
 }
 
 const buttons = [

@@ -2,9 +2,12 @@ use std::sync::{Arc, Mutex};
 
 use crate::colors::LuxLabelColor;
 use serde::{Deserialize, Serialize};
+use specta::Type;
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct Channel {
+    #[specta(type = String)]
     pub id: uuid::Uuid,
     pub disabled: bool,
     pub channel_number: usize,
@@ -12,7 +15,7 @@ pub struct Channel {
     pub label_color: LuxLabelColor,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Type)]
 pub struct LuxChannel(Arc<Mutex<Channel>>);
 
 impl LuxChannel {
@@ -23,6 +26,10 @@ impl LuxChannel {
     pub fn get(&self) -> LuxChannel {
         let data = self;
         (*data).clone()
+    }
+
+    pub fn get_channel_number(&self) -> usize {
+        self.0.lock().unwrap().channel_number
     }
 
     // pub fn _set(&self, data: LuxChannelData) {

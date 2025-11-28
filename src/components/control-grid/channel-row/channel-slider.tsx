@@ -8,7 +8,7 @@ import { TableCell } from "../../ui/table";
 import { setChannelValue } from "@/app/actions";
 
 const ChannelSlider = ({ row }: CellContext<ChannelProps, unknown>) => {
-  const { id, channel_number: channelNumber, value } = row.original;
+  const { id, channelNumber, value } = row.original;
   const [values, setValues] = useState([value]);
   const dragSlider = async (newValues: number[]) => {
     setValues(newValues);

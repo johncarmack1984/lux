@@ -1,9 +1,9 @@
 "use client";
 
-import { listen } from "@tauri-apps/api/event";
 import { attachConsole, debug, trace } from "@tauri-apps/plugin-log";
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
+import { createTauRPCProxy } from "@/bindings";
 
 const detach = async () => await attachConsole();
 
@@ -11,10 +11,13 @@ function useBuffer() {
   const [buffer, setBuffer] = useState<number[] | null>(null);
 
   const setupListeners = useCallback(async () => {
-    await listen<number[]>("buffer_set", ({ payload }) => {
-      trace(`useBuffer listen buffer_set [${payload}]`);
-      setBuffer(payload);
-    }).catch(toast.error);
+    const taurpc = createTauRPCProxy();
+    await taurpc.sync.buffer_set
+      .on((buffer) => {
+        trace(`useBuffer listen buffer_set [${buffer}]`);
+        setBuffer(buffer);
+      })
+      .catch(toast.error);
   }, []);
 
   useEffect(() => {

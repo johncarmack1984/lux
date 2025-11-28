@@ -5,20 +5,22 @@ import {
   TableFooter,
   TableRow,
 } from "@/components/ui/table";
-import { invoke } from "@tauri-apps/api/core";
-import { Button } from "../ui/button";
+import { createTauRPCProxy } from "@/bindings";
+import { Button } from "@/components/ui/button";
 import { PlusIcon } from "lucide-react";
 import useBuffer from "@/hooks/useBuffer";
 
 function GridFooter() {
   const buffer = useBuffer();
   const nextChannelNumber = (buffer?.length ?? 0) + 1;
-  const handleClick = () => {
-    invoke("insert_channel", {
+  const handleClick = async () => {
+    const taurpc = createTauRPCProxy();
+    await taurpc.cmd.insert_channel({
+      id: crypto.randomUUID(),
       disabled: false,
       channelNumber: nextChannelNumber,
       label: "Channel",
-      labelColor: "Brightness",
+      labelColor: "White",
     });
   };
   return (
@@ -30,8 +32,6 @@ function GridFooter() {
             onClick={handleClick}
             variant="outline"
             className="mx-auto m-5 p-5"
-            disabled={true}
-            aria-disabled={true}
           >
             <PlusIcon size={12} className="size-4 mr-2" />
             Channel {nextChannelNumber}

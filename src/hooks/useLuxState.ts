@@ -4,18 +4,12 @@ import { useEffect, useMemo, useReducer } from "react";
 
 import useBuffer from "@/hooks/useBuffer";
 import useChannelsMetadata from "@/hooks/useChannelsMetaData";
-import { invoke } from "@tauri-apps/api/core";
-import { toast } from "sonner";
-import type { LuxBuffer } from "@/global";
-import { trace } from "@tauri-apps/plugin-log";
+import { createTauRPCProxy } from "@/bindings";
 
 const useLuxState = () => {
   useEffect(() => {
-    trace("frontend invoking sync_state");
-    invoke<LuxBuffer | string>("sync_state")
-      .then(toast.success)
-      .catch(toast.error)
-      .finally(() => trace("frontend invoked sync_state"));
+    const taurpc = createTauRPCProxy();
+    taurpc.cmd.sync_state();
   }, []);
 
   const luxChannels = useChannelsMetadata();
@@ -26,7 +20,7 @@ const useLuxState = () => {
     if (!buffer) return [];
     return luxChannels?.map((channel) => ({
       ...channel,
-      value: buffer?.[channel.channel_number - 1],
+      value: buffer?.[channel.channelNumber - 1],
     }));
   }, [buffer, luxChannels]);
 };

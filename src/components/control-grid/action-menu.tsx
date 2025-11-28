@@ -16,8 +16,8 @@ import { TableCell } from "../ui/table";
 const ActionsMenu = ({ row, table }: CellContext<ChannelProps, unknown>) => {
   if (!table.options.meta) return null;
   const { deleteChannel, editChannel } = table.options.meta;
-  const { id, channel_number } = row.original;
-  const key = `actions-menu-${channel_number}`;
+  const { channelNumber } = row.original;
+  const key = `actions-menu-${channelNumber}`;
 
   return (
     <TableCell id={key}>
@@ -33,7 +33,7 @@ const ActionsMenu = ({ row, table }: CellContext<ChannelProps, unknown>) => {
             className="flex justify-between w-full"
             disabled={true}
             aria-disabled={true}
-            onClick={async () => await deleteChannel(id)}
+            onClick={async () => await deleteChannel(channelNumber)}
             asChild
           >
             <Button variant="destructive" className="">

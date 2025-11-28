@@ -13,7 +13,7 @@ const ChannelValue = ({ row }: CellContext<ChannelProps, unknown>) => {
   const toggle = async () => {
     const newValue = value === 0 ? 255 : 0;
     await setChannelValue({
-      channelNumber: row.original.channel_number,
+      channelNumber: row.original.channelNumber,
       value: newValue,
     }).catch(toast.error);
   };

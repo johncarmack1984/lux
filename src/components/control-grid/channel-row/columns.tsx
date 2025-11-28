@@ -16,7 +16,7 @@ const columns: ColumnDef<ChannelProps>[] = [
     cell: ChannelLabel,
   },
   {
-    accessorKey: "channel_number",
+    accessorKey: "channelNumber",
     cell: ChannelNumber,
   },
   {
