@@ -5,7 +5,7 @@ import { TableRow } from "@/components/ui/table";
 import { flexRender, type Row } from "@tanstack/react-table";
 
 function GridRow(row: Row<ChannelProps>) {
-  const key = `row-channel-${row.original.channel_number}`;
+  const key = `row-channel-${row.original.channelNumber}`;
 
   return (
     <TableRow id={key} key={key} data-state={row.getIsSelected() && "selected"}>

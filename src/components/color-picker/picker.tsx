@@ -3,13 +3,13 @@
 import { Popover, PopoverContent } from "@/components/ui/popover";
 
 import useBuffer from "@/hooks/useBuffer";
-import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState, type ChangeEvent } from "react";
 import { RgbaColorPicker, HexColorInput, type RgbaColor } from "react-colorful";
 import { cn } from "@/lib/utils";
 import { bufferToRgba, defaultBuffer, rgbaToBuffer } from "./rgb-utils";
 import RgbaInput from "./rgba-input";
 import ColorTrigger from "./color-trigger";
+import { createTauRPCProxy } from "../../../bindings";
 
 const ColorPicker = ({ className }: { className?: string }) => {
   const buffer = useBuffer();
@@ -25,7 +25,8 @@ const ColorPicker = ({ className }: { className?: string }) => {
 
   const selectColor = (newColor: RgbaColor) => {
     setColor(newColor);
-    invoke("set_buffer", { buffer: rgbaToBuffer(newColor) });
+    const taurpc = createTauRPCProxy();
+    taurpc.cmd.set_buffer(rgbaToBuffer(newColor));
   };
 
   return (

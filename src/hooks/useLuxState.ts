@@ -4,15 +4,13 @@ import { useEffect, useMemo, useReducer } from "react";
 
 import useBuffer from "@/hooks/useBuffer";
 import useChannelsMetadata from "@/hooks/useChannelsMetaData";
-import { invoke } from "@tauri-apps/api/core";
-import useTauRPC from "./useTauRPC";
+import { createTauRPCProxy } from "../../bindings";
 
 const useLuxState = () => {
-  const taurpc = useTauRPC();
-
   useEffect(() => {
-    taurpc?.sync_state();
-  }, [taurpc]);
+    const taurpc = createTauRPCProxy();
+    taurpc.cmd.sync_state();
+  }, []);
 
   const luxChannels = useChannelsMetadata();
   const buffer = useBuffer();
@@ -22,7 +20,7 @@ const useLuxState = () => {
     if (!buffer) return [];
     return luxChannels?.map((channel) => ({
       ...channel,
-      value: buffer?.[channel.channel_number - 1],
+      value: buffer?.[channel.channelNumber - 1],
     }));
   }, [buffer, luxChannels]);
 };

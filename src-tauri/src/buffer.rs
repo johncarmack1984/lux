@@ -1,7 +1,8 @@
-use crate::devices::enttec_open_dmx_usb::EnttecOpenDMX;
+use crate::{devices::enttec_open_dmx_usb::EnttecOpenDMX, sync::SyncEventTrigger};
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use std::sync::{Arc, Mutex};
-use tauri::{Emitter, Runtime};
+use tauri::Runtime;
 
 pub const BUFFER_SIZE: usize = 6;
 
@@ -12,7 +13,7 @@ pub trait ConvertFromVec {
 
 pub type Buffer = [u8; BUFFER_SIZE];
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Type)]
 pub struct LuxBuffer {
     pub buffer: Arc<Mutex<Buffer>>,
 }
@@ -74,17 +75,18 @@ impl LuxBuffer {
             .close()
             .map_err(|e| format!("Enttec OpenDMX USB failed to close: {}", e))?;
 
-        app.emit("buffer_set", incoming_buffer)
+        SyncEventTrigger::new(app)
+            .buffer_set(incoming_buffer)
             .map_err(|e| format!("Failed to emit buffer_set event: {}", e))?;
 
         Ok(self.clone())
     }
 
-    pub fn set_channel(
+    pub fn set_channel<R: Runtime>(
         &mut self,
         channel_number: usize,
         value: u8,
-        app: tauri::AppHandle,
+        app: tauri::AppHandle<R>,
     ) -> Result<LuxBuffer, String> {
         let mut buffer = *self.buffer.lock().unwrap();
         buffer[channel_number - 1] = value;

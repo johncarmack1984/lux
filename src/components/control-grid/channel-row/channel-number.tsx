@@ -21,15 +21,15 @@ const labelColorOptions: LuxLabelColor[] = [
   "Brightness",
 ];
 
-const ColorOption = (label_color: LuxLabelColor) => {
-  const firstLetter = label_color[0].toUpperCase();
+const ColorOption = (labelColor: LuxLabelColor) => {
+  const firstLetter = labelColor[0].toUpperCase();
   return (
     <DropdownMenuItem
       className="flex justify-end gap-4 w-full text-right"
-      key={`${label_color}-dropdown-item`}
+      key={`${labelColor}-dropdown-item`}
     >
-      {label_color}
-      <Button className={cn(lightColorVariants({ label_color }))} size="icon">
+      {labelColor}
+      <Button className={cn(lightColorVariants({ labelColor }))} size="icon">
         {firstLetter}
       </Button>
     </DropdownMenuItem>
@@ -37,14 +37,14 @@ const ColorOption = (label_color: LuxLabelColor) => {
 };
 
 const ChannelNumber = ({ row }: CellContext<ChannelProps, unknown>) => {
-  const { channel_number, label_color } = row.original;
+  const { channelNumber, labelColor } = row.original;
   const key = `channel-number-${row.original.id}`;
   return (
     <TableCell className="w-5" id={key} key={key}>
       <DropdownMenu>
         <DropdownMenuTrigger>
-          <div className={cn(lightColorVariants({ label_color }))}>
-            {channel_number}
+          <div className={cn(lightColorVariants({ labelColor }))}>
+            {channelNumber}
           </div>
         </DropdownMenuTrigger>
         <DropdownMenuContent className=" w-40" align="end">

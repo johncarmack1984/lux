@@ -1,9 +1,10 @@
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use strum::{AsRefStr, EnumIter, EnumProperty};
 
-#[derive(Debug, Deserialize, Serialize, Copy, Clone, AsRefStr, EnumIter, EnumProperty)]
+#[derive(Debug, Deserialize, Serialize, Copy, Clone, AsRefStr, EnumIter, EnumProperty, Type)]
 pub enum LuxLabelColor {
     Red,
     Green,

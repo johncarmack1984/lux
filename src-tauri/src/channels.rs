@@ -1,14 +1,16 @@
 use crate::buffer::BUFFER_SIZE;
 use crate::channel::{Channel, LuxChannel};
+use crate::cmd::CmdEventTrigger;
 use crate::colors::LuxLabelColor;
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use std::fmt::{self, Display, Formatter};
 use std::sync::{Arc, Mutex, MutexGuard};
-use tauri::Emitter;
+use tauri::Runtime;
 
 pub type Channels = [LuxChannel; BUFFER_SIZE];
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Type)]
 pub struct LuxChannels {
     pub channels: Arc<Mutex<Channels>>,
 }
@@ -133,17 +135,19 @@ impl LuxChannels {
         LuxChannels::from(channels)
     }
 
-    pub fn set(
+    pub fn set<R: Runtime>(
         &mut self,
         channel_number: usize,
         new_metadata: LuxChannel,
-        app: tauri::AppHandle,
+        app: tauri::AppHandle<R>,
     ) -> Result<LuxChannel, String> {
         let channel = self
             .get(channel_number)
             .insert(LuxChannel::from(new_metadata))
             .to_owned();
-        app.emit("channel_data_set", self.channels.clone()).unwrap();
+        CmdEventTrigger::new(app)
+            .channel_data_set(self.channels.lock().unwrap().clone())
+            .map_err(|e| format!("Failed to emit channel_data_set event: {}", e))?;
         Ok(channel)
     }
 
@@ -154,14 +158,16 @@ impl LuxChannels {
         Ok(locked_channels.into())
     }
 
-    pub fn set_channels(
+    pub fn set_channels<R: Runtime>(
         &mut self,
         channels: LuxChannels,
-        app: tauri::AppHandle,
+        app: tauri::AppHandle<R>,
     ) -> Result<LuxChannels, String> {
         self.set_all(channels.into())?;
 
-        app.emit("channel_data_set", self.channels.clone()).unwrap();
+        CmdEventTrigger::new(app)
+            .channel_data_set(self.channels.lock().unwrap().clone())
+            .map_err(|e| format!("Failed to emit channel_data_set event: {}", e))?;
         Ok(self.clone())
     }
 }

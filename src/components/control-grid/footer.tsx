@@ -5,7 +5,7 @@ import {
   TableFooter,
   TableRow,
 } from "@/components/ui/table";
-import { invoke } from "@tauri-apps/api/core";
+import { createTauRPCProxy } from "../../../bindings";
 import { Button } from "../ui/button";
 import { PlusIcon } from "lucide-react";
 import useBuffer from "@/hooks/useBuffer";
@@ -13,12 +13,18 @@ import useBuffer from "@/hooks/useBuffer";
 function GridFooter() {
   const buffer = useBuffer();
   const nextChannelNumber = (buffer?.length ?? 0) + 1;
-  const handleClick = () => {
-    invoke("insert_channel", {
-      disabled: false,
-      channelNumber: nextChannelNumber,
-      label: "Channel",
-      labelColor: "Brightness",
+  const handleClick = async () => {
+    const taurpc = createTauRPCProxy();
+    const disabled = false;
+    const channelNumber = nextChannelNumber;
+    const label = "Channel";
+    const labelColor = "Brightness";
+    await taurpc.cmd.insert_channel({
+      id: "123e4567-e89b-12d3-a456-426614174000",
+      disabled,
+      channelNumber,
+      label,
+      labelColor,
     });
   };
   return (
@@ -30,8 +36,6 @@ function GridFooter() {
             onClick={handleClick}
             variant="outline"
             className="mx-auto m-5 p-5"
-            disabled={true}
-            aria-disabled={true}
           >
             <PlusIcon size={12} className="size-4 mr-2" />
             Channel {nextChannelNumber}

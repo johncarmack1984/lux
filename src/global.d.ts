@@ -1,32 +1,20 @@
 import { deleteChannel, editChannel } from "./app/actions";
-// import { createTauRPCProxy } from "./app/bindings";
+import {
+  createTauRPCProxy,
+  type LuxLabelColor,
+  type LuxBuffer,
+  type LuxChannel,
+} from "../bindings";
 
-// export type LuxClient = Awaited<ReturnType<typeof createTauRPCProxy>>;
-
-export type LuxLabelColor =
-  | "Red"
-  | "Green"
-  | "Blue"
-  | "Amber"
-  | "White"
-  | "Brightness";
-
-export type LuxBuffer = number[] | null;
-
-export type LuxChannel = {
-  id: string;
-  disabled: boolean;
-  channel_number: number;
-  label: string;
-  label_color: LuxLabelColor;
-};
+export { LuxChannel, LuxBuffer, LuxLabelColor };
 
 export interface ChannelProps extends LuxChannel {
   value: number;
 }
 
-export interface LightColorVariants
-  extends VariantProps<typeof lightColorVariants> {}
+export interface LightColorVariants extends VariantProps<
+  typeof lightColorVariants
+> {}
 
 declare module "@tanstack/table-core" {
   interface TableMeta<TData extends ChannelProps> {

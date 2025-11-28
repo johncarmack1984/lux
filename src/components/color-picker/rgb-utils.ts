@@ -21,7 +21,9 @@ const bufferToRgba = (buffer?: number[]) => {
   return { r: buffer[0], g: buffer[1], b: buffer[2], a };
 };
 
-const rgbaToBuffer = (color: RgbaColor) => {
+const rgbaToBuffer = (
+  color: RgbaColor
+): [number, number, number, number, number, number] => {
   const { r, g, b, a } = color;
   return [r, g, b, 0, 0, alphaToBrightness(a)];
 };

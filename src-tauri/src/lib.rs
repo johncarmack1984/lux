@@ -10,8 +10,12 @@ mod error;
 mod logger;
 mod sync;
 
+use specta_typescript::Typescript;
+
 use buffer::LuxBuffer;
 use channels::LuxChannels;
+use cmd::*;
+use sync::*;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
@@ -21,15 +25,21 @@ pub async fn run() {
     let default_channels = LuxChannels::default();
 
     let formatter = specta_typescript::formatter::prettier;
-    let bindings = specta_typescript::Typescript::default().formatter(formatter);
-    let router = taurpc::Router::new().export_config(bindings).into_handler();
+    let bigint = specta_typescript::BigIntExportBehavior::Number;
+    let bindings = Typescript::default().formatter(formatter).bigint(bigint);
+    let router = taurpc::Router::new()
+        .export_config(bindings)
+        .merge(SyncEndpoint.into_handler())
+        .merge(CmdEndpoint.into_handler());
+
+    let taurpc = router.into_handler();
 
     builder
         .plugin(tauri_plugin_shell::init())
         .plugin(logger::logger().build())
         .manage(default_buffer)
         .manage(default_channels)
-        .invoke_handler(router)
+        .invoke_handler(taurpc)
         .run(tauri::generate_context!())
         .expect("error while running tauri application")
 }
