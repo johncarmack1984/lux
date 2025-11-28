@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { error, trace } from "@tauri-apps/plugin-log";
-import { createTauRPCProxy } from "../../bindings";
+import { createTauRPCProxy } from "@/bindings";
 import { toast } from "sonner";
 
 export function setBuffer(
@@ -55,7 +55,7 @@ function ControlButton({
   onClick,
 }: {
   children: string;
-  onClick: () => any;
+  onClick: () => void;
 }) {
   const handleClick = () => {
     trace(`frontend sending ${children}`);

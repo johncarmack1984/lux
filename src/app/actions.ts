@@ -1,6 +1,6 @@
 import type { LuxChannel } from "@/global";
 import { trace } from "@tauri-apps/plugin-log";
-import { createTauRPCProxy } from "../../bindings";
+import { createTauRPCProxy } from "@/bindings";
 
 const editChannel = async (channelId: number, newMetadata: LuxChannel) => {
   trace(`frontend sending editChannel ${channelId}`);

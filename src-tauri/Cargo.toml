@@ -33,13 +33,7 @@ specta = { version = "=2.0.0-rc.22", features = [
     "derive",
     "export",
     "function",
-    # "indexmap",
-    # "serde",
-    # "serde_json",
-    # "time",
     "tokio",
-    # "ulid",
-    # "url",
 ] }
 specta-typescript = { version = "0.0.9", features = ["function"] }
 strum_macros = "0.27.2"
@@ -48,30 +42,6 @@ tauri = { version = "2.9.3", features = [
     "image-ico",
     "image-png",
     "tray-icon",
-    # "tracing",
-    # "test",
-    # "objc-exception",
-    # "linux-ipc-protocol",
-    # "linux-libxdo",
-    # "devtools",
-    # "native-tls",
-    # "native-tls-vendored",
-    # "rustls-tls",
-    # "webview-data-url",
-    # "config-json5",
-    # "macos-proxy",
-    # "tracing",
-    # "test",
-    # "objc-exception",
-    # "linux-ipc-protocol",
-    # "linux-libxdo",
-    # "devtools",
-    # "native-tls",
-    # "native-tls-vendored",
-    # "rustls-tls",
-    # "webview-data-url",
-    # "config-json5",
-    # "macos-proxy",
 ] }
 tauri-plugin-http = "2.5.4"
 tauri-plugin-log = "2.7.1"
@@ -81,9 +51,7 @@ thiserror = "2.0.17"
 tokio = { version = "1.48.0", features = ["full"] }
 tower = "0.5.2"
 uuid = { version = "1.18.1", features = [
-    "v4", # Lets you generate random UUIDs
-    # "fast-rng",          # Use a faster (but still sufficiently random) RNG
-    # "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+    "v4",    # Lets you generate random UUIDs
     "serde", # Enable serialization/deserialization of UUIDs
 ] }
 

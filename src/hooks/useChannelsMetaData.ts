@@ -1,7 +1,7 @@
 import type { LuxChannel } from "@/global";
 import { trace } from "@tauri-apps/plugin-log";
 import { useState, useEffect } from "react";
-import { createTauRPCProxy } from "../../bindings";
+import { createTauRPCProxy } from "@/bindings";
 
 function useChannelData() {
   const [channelData, setChannelData] = useState<LuxChannel[] | null>(null);

@@ -3,7 +3,7 @@
 import { attachConsole, debug, trace } from "@tauri-apps/plugin-log";
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { createTauRPCProxy } from "../../bindings";
+import { createTauRPCProxy } from "@/bindings";
 
 const detach = async () => await attachConsole();
 

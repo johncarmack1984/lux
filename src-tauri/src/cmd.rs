@@ -6,7 +6,7 @@ use crate::{
 };
 use tauri::{AppHandle, Manager, Runtime};
 
-#[taurpc::procedures(path = "cmd", event_trigger = CmdEventTrigger)]
+#[taurpc::procedures(path = "cmd", event_trigger = CmdEventTrigger, export_to = "../src/bindings.ts")]
 pub trait CmdMethods {
     async fn set_buffer<R: Runtime>(
         app_handle: AppHandle<R>,

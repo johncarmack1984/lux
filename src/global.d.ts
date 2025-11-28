@@ -4,7 +4,7 @@ import {
   type LuxLabelColor,
   type LuxBuffer,
   type LuxChannel,
-} from "../bindings";
+} from "@/bindings";
 
 export { LuxChannel, LuxBuffer, LuxLabelColor };
 

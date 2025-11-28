@@ -4,7 +4,7 @@ import { useEffect, useMemo, useReducer } from "react";
 
 import useBuffer from "@/hooks/useBuffer";
 import useChannelsMetadata from "@/hooks/useChannelsMetaData";
-import { createTauRPCProxy } from "../../bindings";
+import { createTauRPCProxy } from "@/bindings";
 
 const useLuxState = () => {
   useEffect(() => {

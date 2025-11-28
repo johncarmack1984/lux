@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { bufferToRgba, defaultBuffer, rgbaToBuffer } from "./rgb-utils";
 import RgbaInput from "./rgba-input";
 import ColorTrigger from "./color-trigger";
-import { createTauRPCProxy } from "../../../bindings";
+import { createTauRPCProxy } from "@/bindings";
 
 const ColorPicker = ({ className }: { className?: string }) => {
   const buffer = useBuffer();

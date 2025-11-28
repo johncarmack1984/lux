@@ -5,8 +5,8 @@ import {
   TableFooter,
   TableRow,
 } from "@/components/ui/table";
-import { createTauRPCProxy } from "../../../bindings";
-import { Button } from "../ui/button";
+import { createTauRPCProxy } from "@/bindings";
+import { Button } from "@/components/ui/button";
 import { PlusIcon } from "lucide-react";
 import useBuffer from "@/hooks/useBuffer";
 
