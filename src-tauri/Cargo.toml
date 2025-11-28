@@ -19,6 +19,7 @@ tauri-build = { version = "2.5.2", features = ["isolation", "codegen"] }
 tauri = { version = "^2.9.3", features = ["devtools", "test", "tracing"] }
 
 [dependencies]
+anyhow = "1.0.100"
 array-init = "2.1.0"
 dotenvy = "0.15.7"
 enttecopendmx = "0.1.1"
@@ -72,19 +73,19 @@ tauri = { version = "2.9.3", features = [
     # "config-json5",
     # "macos-proxy",
 ] }
+tauri-plugin-http = "2.5.4"
 tauri-plugin-log = "2.7.1"
 tauri-plugin-shell = "2.3.3"
+taurpc = "0.5.2"
 thiserror = "2.0.17"
 tokio = { version = "1.48.0", features = ["full"] }
+tower = "0.5.2"
 uuid = { version = "1.18.1", features = [
     "v4", # Lets you generate random UUIDs
     # "fast-rng",          # Use a faster (but still sufficiently random) RNG
     # "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
     "serde", # Enable serialization/deserialization of UUIDs
 ] }
-tauri-plugin-http = "2.5.4"
-anyhow = "1.0.100"
-tower = "0.5.2"
 
 # default to small, optimized release binaries
 [profile.release]
