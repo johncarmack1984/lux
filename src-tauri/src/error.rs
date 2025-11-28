@@ -1,6 +1,7 @@
 use serde::Serialize;
 
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 pub enum Error {
     #[error(transparent)]
     Io(#[from] std::io::Error),
