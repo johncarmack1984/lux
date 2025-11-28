@@ -22,6 +22,7 @@ function ColorTrigger({
   const backgroundColor = `rgba(${color.r},${color.g},${color.b},${color.a})`;
   const lightColor = colord(backgroundColor).lighten(luminance).toRgbString();
   const boxShadow = `0 0 ${destination}px ${lightColor}`;
+  const background = `radial-gradient(${lightColor} ${origin}, ${backgroundColor} ${destination}%)`;
   return (
     <PopoverTrigger className={cn(className)} asChild>
       <Button variant="ghost" className={cn("gap-3", className)}>
@@ -29,8 +30,7 @@ function ColorTrigger({
         <div
           className="rounded-full size-7"
           style={{
-            background: `radial-gradient(${lightColor} ${origin}, ${backgroundColor} ${destination}%)`,
-            backgroundColor,
+            background,
             boxShadow,
           }}
         />
