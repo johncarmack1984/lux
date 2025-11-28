@@ -17,7 +17,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={`${inter.className} dark`}>
+      <body className={`${inter.className}`}>
         <div className="min-h-screen flex flex-col justify-center sm:px-12">
           {children}
         </div>
