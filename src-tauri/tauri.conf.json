@@ -1,12 +1,11 @@
 {
-  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
   "productName": "lux",
   "version": "0.1.0",
   "identifier": "com.johncarmack.lux",
   "build": {
     "beforeBuildCommand": "bun run build",
     "beforeDevCommand": "bun run dev",
-    "frontendDist": "../out",
+    "frontendDist": "../dist",
     "devUrl": "http://localhost:3000"
   },
   "app": {
@@ -14,16 +13,24 @@
     "windows": [
       {
         "title": "💡lux",
+        "label": "control-grid",
+        "url": "control-grid",
         "x": 0,
         "y": 0,
         "width": 960,
-        "height": 1020,
+        "height": 1035,
         "acceptFirstMouse": true,
         "titleBarStyle": "Transparent"
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "pattern": {
+        "use": "isolation",
+        "options": {
+          "dir": "../dist-isolation/"
+        }
+      }
     },
     "trayIcon": {
       "iconPath": "icons/tray.png",
@@ -40,5 +47,9 @@
       "icons/icon.ico"
     ]
   },
-  "plugins": {}
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
 }

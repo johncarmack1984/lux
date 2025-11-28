@@ -10,7 +10,7 @@ const lightColorVariants = cva(
   [
     "size-8",
     "border-border",
-    "border-[1px]",
+    "border",
     "flex",
     "items-center",
     "justify-center",

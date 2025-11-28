@@ -1,49 +1,36 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-// #![allow(non_snake_case)]
-
-// mod api;
-// mod buffer;
-// mod channel;
-// mod colors;
-// mod devices;
+mod buffer;
+mod channel;
+mod channels;
+mod cmd;
+mod colors;
+mod devices;
+mod error;
 mod logger;
-// mod state;
-// mod sync;
+mod sync;
 
-use specta::{ts, Type};
-
-#[derive(Type)]
-pub struct TypeOne {
-    pub a: String,
-    pub b: GenericType<i32>,
-    #[serde(rename = "cccccc")]
-    pub c: MyEnum,
-}
-
-#[derive(Type)]
-pub struct GenericType<A> {
-    pub my_field: String,
-    pub generic: A,
-}
-
-#[derive(Type)]
-pub enum MyEnum {
-    A,
-    B,
-    C,
-}
+use buffer::LuxBuffer;
+use channels::LuxChannels;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    assert_eq!(
-        ts::export::<TypeOne>(&Default::default()).unwrap(),
-        "export type TypeOne = { a: string; b: GenericType<number>; cccccc: MyEnum }".to_string()
-    );
-    tauri::Builder::default()
-        // .manage(state::LuxState::default().mutex())
-        // .invoke_handler(api::router().into_handler())
+pub async fn run() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+    let builder = tauri::Builder::default();
+
+    let default_buffer = LuxBuffer::from([121, 255, 255, 0, 0, 42]);
+    let default_channels = LuxChannels::default();
+
+    builder
+        .plugin(tauri_plugin_shell::init())
         .plugin(logger::logger().build())
+        .manage(default_buffer)
+        .manage(default_channels)
+        .invoke_handler(tauri::generate_handler![
+            cmd::update_channel_value,
+            cmd::set_buffer,
+            cmd::sync_state,
+            cmd::update_channel_metadata,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application")
 }

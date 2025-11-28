@@ -13,22 +13,40 @@ name = "lux_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.0.0-beta", features = [
-    # "isolation",
-    "codegen",
-] }
+tauri-build = { version = "2.5.2", features = ["isolation", "codegen"] }
 
 [dev-dependencies]
-tauri = { version = "2.0.0-beta", features = ["devtools", "test", "tracing"] }
+tauri = { version = "^2.9.3", features = ["devtools", "test", "tracing"] }
 
 [dependencies]
-log = "^0.4"
-serde_json = "1.0"
+array-init = "2.1.0"
+dotenvy = "0.15.7"
+enttecopendmx = "0.1.1"
+libftd2xx = { version = "0.33.1", features = ["static"] }
+log = "^0.4.28"
+axum = { version = "0.8.7", features = ["tokio"] }
+serde_json = "1.0.145"
 serde = { version = "1.0", features = ["derive"] }
-tauri = { version = "2.0.0-beta", features = [
+strum = { version = "0.27.2", features = ["derive"] }
+specta = { version = "=2.0.0-rc.22", features = [
+    "derive",
+    "export",
+    "function",
+    # "indexmap",
+    # "serde",
+    # "serde_json",
+    # "time",
+    "tokio",
+    # "ulid",
+    # "url",
+] }
+specta-typescript = { version = "0.0.9", features = ["function"] }
+strum_macros = "0.27.2"
+tauri = { version = "2.9.3", features = [
+    "isolation",
+    "image-ico",
+    "image-png",
     "tray-icon",
-    # "image-ico",
-    # "image-png",
     # "tracing",
     # "test",
     # "objc-exception",
@@ -54,47 +72,19 @@ tauri = { version = "2.0.0-beta", features = [
     # "config-json5",
     # "macos-proxy",
 ] }
-tauri-plugin-log = "2.0.0-beta.3"
-# tauri-plugin-cli = "^2.0.0-beta"
-# tauri-plugin-notification = "2.0.0-beta"
-# tauri-plugin-positioner = { version = "^2.0.0-beta", features = ["tray-icon"] }
-# tauri-plugin-shell = "^2.0.0-beta"
-# tauri-plugin-window-state = "^2.0.0-beta"
-# thiserror = "1.0.58"
-# tokio = { version = "1", features = ["full"] }
-# rspc-tauri2 = { git = "https://github.com/specta-rs/tauri2", branch = "main" }
-# taurpc = { git = "https://github.com/MatsDK/TauRPC", branch = "tauri-v2" }
-specta = { version = "1.0.5", features = ["serde", "typescript"] }
-# specta = { version = "2.0.0-rc.5", features = [
-#     "typescript",
-#     "export",
-#     "uuid",
-#     #     "tokio",
-# ] }
-uuid = { version = "1.4.1", features = [
+tauri-plugin-log = "2.7.1"
+tauri-plugin-shell = "2.3.3"
+thiserror = "2.0.17"
+tokio = { version = "1.48.0", features = ["full"] }
+uuid = { version = "1.18.1", features = [
     "v4", # Lets you generate random UUIDs
-    #     "fast-rng",          # Use a faster (but still sufficiently random) RNG
-    #     "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+    # "fast-rng",          # Use a faster (but still sufficiently random) RNG
+    # "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+    "serde", # Enable serialization/deserialization of UUIDs
 ] }
-# tauri-specta = { version = "2.0.0-rc.4", features = [
-#     "javascript",
-#     "typescript",
-# ] }
-# array-init = "2.1.0"
-# dotenvy = "0.15.7"
-# enttecopendmx = "0.1.0"
-# libftd2xx = { version = "0.32.4", features = ["static"] }
-# libsql = { git = "https://github.com/tursodatabase/libsql" }
-# reqwest = { version = "0.12.2", features = ["json", "blocking"] }
-# strum = { version = "0.26.2", features = ["derive"] }
-# strum_macros = "0.26.2"
-
-
-# [patch.crates-io]
-# sqlite3-parser = { git = "https://github.com/LucioFranco/lemon-rs" }
-
-# [profile.dev.package.sqlx-macros]
-# opt-level = 3
+tauri-plugin-http = "2.5.4"
+anyhow = "1.0.100"
+tower = "0.5.2"
 
 # default to small, optimized release binaries
 [profile.release]
@@ -103,9 +93,6 @@ codegen-units = 1
 lto = true
 incremental = false
 opt-level = "s"
-
-[profile.dev]
-debug = 0
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.

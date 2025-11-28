@@ -1,6 +1,6 @@
 "use client";
 
-import { type ColumnDef, type CellContext } from "@tanstack/react-table";
+import { type CellContext } from "@tanstack/react-table";
 import { DeleteIcon, MoreHorizontal } from "lucide-react";
 
 import { Button } from "@/components/ui/button";

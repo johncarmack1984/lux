@@ -1,7 +1,7 @@
+import { Toaster } from "@/components/ui/sonner";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import "./globals.css";
-import Providers from "./providers";
+import "@/app/globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -17,12 +17,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={`${inter.className} dark`}>
-        <Providers>
-          <main className="flex min-h-screen flex-col items-center justify-start py-[7.5%] sm:px-12">
-            {children}
-          </main>
-        </Providers>
+      <body className={`${inter.className}`}>
+        <div className="min-h-screen flex flex-col justify-center sm:px-12">
+          {children}
+        </div>
+        <Toaster closeButton={true} />
       </body>
     </html>
   );

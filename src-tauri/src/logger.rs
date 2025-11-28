@@ -7,5 +7,5 @@ pub fn logger() -> tauri_plugin_log::Builder {
             Target::new(TargetKind::Stdout),
             Target::new(TargetKind::LogDir { file_name: None }),
         ])
-        .level(log::LevelFilter::Trace)
+        .level(log::LevelFilter::Debug)
 }

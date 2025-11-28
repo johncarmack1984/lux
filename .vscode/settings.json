@@ -14,6 +14,15 @@
     ["cva\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"],
     ["cx\\(([^)]*)\\)", "(?:'|\"|`)([^']*)(?:'|\"|`)"]
   ],
+  "rust-analyzer.cargo.allTargets": true,
+  "rust-analyzer.cargo.targetDir": true,
+  "rust-analyzer.check.allTargets": true,
+  "rust-analyzer.diagnostics.enable": false,
+  "rust-analyzer.diagnostics.experimental.enable": false,
+  "rust-analyzer.diagnostics.disabled": [],
+  "rust-analyzer.debug.engine": "vadimcn.vscode-lldb",
+  "rust-analyzer.files.watcher": "server",
   "rust-analyzer.linkedProjects": ["./src-tauri/Cargo.toml"],
+  "rust-analyzer.restartServerOnConfigChange": true,
   "rust-analyzer.showUnlinkedFileNotification": false
 }

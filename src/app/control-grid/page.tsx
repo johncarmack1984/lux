@@ -1,14 +1,8 @@
 import ButtonRow from "@/components/button-row";
 import ControlGrid from "@/components/control-grid/grid";
 import Greeting from "@/components/greeting";
-import BufferState from "./buffer-state";
+import ColorPicker from "@/components/color-picker/picker";
 
 export default function Home() {
-  return (
-    <>
-      <Greeting />
-      <ButtonRow />
-      <ControlGrid />
-    </>
-  );
+  return <ControlGrid />;
 }

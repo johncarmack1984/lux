@@ -4,7 +4,10 @@ import { trace } from "@tauri-apps/plugin-log";
 
 const editChannel = async (channelId: string, newMetadata: LuxChannel) => {
   trace(`frontend sending editChannel ${channelId}`);
-  return await invoke<LuxChannel>("edit_channel", { channelId, newMetadata });
+  return await invoke<LuxChannel>("edit_channel", {
+    channelId,
+    newMetadata,
+  });
 };
 
 const deleteChannel = async (channelId: string) => {
