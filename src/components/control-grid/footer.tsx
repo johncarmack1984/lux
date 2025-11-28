@@ -15,16 +15,12 @@ function GridFooter() {
   const nextChannelNumber = (buffer?.length ?? 0) + 1;
   const handleClick = async () => {
     const taurpc = createTauRPCProxy();
-    const disabled = false;
-    const channelNumber = nextChannelNumber;
-    const label = "Channel";
-    const labelColor = "Brightness";
     await taurpc.cmd.insert_channel({
-      id: "123e4567-e89b-12d3-a456-426614174000",
-      disabled,
-      channelNumber,
-      label,
-      labelColor,
+      id: crypto.randomUUID(),
+      disabled: false,
+      channelNumber: nextChannelNumber,
+      label: "Channel",
+      labelColor: "White",
     });
   };
   return (
