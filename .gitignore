@@ -41,3 +41,5 @@ next-env.d.ts
 /gen
 /target/
 dist
+
+.terraform/
