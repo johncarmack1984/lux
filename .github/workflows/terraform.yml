@@ -1,0 +1,39 @@
+name: terraform
+
+# fmt + validate the infra root on PRs and pushes to main. No AWS credentials:
+# CI initializes providers without a backend (`terraform init -backend=false`)
+# and validates — no plan, no state access, no OIDC.
+
+on:
+  pull_request:
+    paths:
+      - 'infra/**'
+      - '.github/workflows/terraform.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/**'
+      - '.github/workflows/terraform.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: fmt
+        run: terraform fmt -check -recursive
+
+      - name: init (no backend)
+        run: terraform init -backend=false -input=false
+
+      - name: validate
+        run: terraform validate -no-color
