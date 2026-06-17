@@ -75,8 +75,10 @@ impl LuxBuffer {
             .close()
             .map_err(|e| format!("Enttec OpenDMX USB failed to close: {}", e))?;
 
-        SyncEventTrigger::new(app)
-            .buffer_set(incoming_buffer)
+        SyncEvent::BufferSet {
+            buffer: incoming_buffer,
+        }
+            .emit(&app)
             .map_err(|e| format!("Failed to emit buffer_set event: {}", e))?;
 
         Ok(self.clone())
