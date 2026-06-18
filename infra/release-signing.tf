@@ -10,6 +10,10 @@ data "aws_secretsmanager_secret" "updater_signing_key" {
   name = "lux/updater-signing-key"
 }
 
+data "aws_secretsmanager_secret" "apple_signing" {
+  name = "lux/apple-signing"
+}
+
 resource "aws_iam_role" "release_signing" {
   name = "lux-release-signing"
   assume_role_policy = jsonencode({
@@ -37,9 +41,12 @@ resource "aws_iam_role_policy" "read_updater_signing_key" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect   = "Allow"
-      Action   = "secretsmanager:GetSecretValue"
-      Resource = data.aws_secretsmanager_secret.updater_signing_key.arn
+      Effect = "Allow"
+      Action = "secretsmanager:GetSecretValue"
+      Resource = [
+        data.aws_secretsmanager_secret.updater_signing_key.arn,
+        data.aws_secretsmanager_secret.apple_signing.arn,
+      ]
     }]
   })
 }
