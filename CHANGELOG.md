@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/johncarmack1984/lux/compare/v0.2.2...v0.3.0) (2026-06-18)
+
+
+### Features
+
+* sign and notarize macOS releases (Developer ID + notarization) ([#37](https://github.com/johncarmack1984/lux/issues/37)) ([e3e555b](https://github.com/johncarmack1984/lux/commit/e3e555b271cbee91da95f3eb4c46b7839f4a2b96))
+
 ## [0.2.2](https://github.com/johncarmack1984/lux/compare/v0.2.1...v0.2.2) (2026-06-18)
 
 
