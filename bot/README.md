@@ -1,16 +1,47 @@
-# Poise Hello World Bot with Shuttle
+# lux-bot
 
-In this example we will deploy a Poise/Serenity bot with Shuttle that responds to the `/hello` command with `world!`. To run this bot we need a valid Discord Token. To get started log in to the [Discord developer portal](https://discord.com/developers/applications).
+A Discord [Interactions](https://discord.com/developers/docs/interactions/receiving-and-responding) endpoint for lux, deployed as an AWS Lambda (`provided.al2023`) behind a Function URL. Discord POSTs slash-command interactions to the Function URL; the Lambda verifies the ed25519 request signature and, for `/set_buffer`, publishes the chosen color to the device's AWS IoT topic. The lux desktop app subscribes to that topic and drives the fixture — so there is no public ingress to the machine running the lights, no tunnel, and no long-lived credentials (the Lambda publishes via its IAM role, all in one AWS account).
 
-1. Click the New Application button, name your application and click Create.
-2. Navigate to the Bot tab in the lefthand menu, and add a new bot.
-3. On the bot page click the Reset Token button to reveal your token. Put this token in your `Secrets.toml`. It's very important that you don't reveal your token to anyone, as it can be abused. Create a `.gitignore` file to omit your `Secrets.toml` from version control.
-4. For the sake of this example, you also need to scroll down on the bot page to the Message Content Intent section and enable that option.
+This replaces the previous Shuttle/poise gateway bot, which reached the app over an ngrok tunnel.
 
-To add the bot to a server we need to create an invite link.
+## Slash command
 
-1. On your bot's application page, open the OAuth2 page via the lefthand panel.
-2. Go to the URL Generator via the lefthand panel, and select the `bot` scope as well as the `Send Messages` permission in the Bot Permissions section.
-3. Copy the URL, open it in your browser and select a Discord server you wish to invite the bot to.
+`/set_buffer color:<red | blue | green | amber | daylight | white>` publishes `{ "buffer": [r, g, b, a, w, master] }` to `lux/<device>/buffer/set`.
 
-For more information please refer to the [Discord docs](https://discord.com/developers/docs/getting-started) as well as the [Poise docs](https://docs.rs/poise) for more examples.
+## Environment
+
+| Variable | Purpose |
+|---|---|
+| `DISCORD_PUBLIC_KEY` | Discord application public key; verifies the request signature. |
+| `AWS_IOT_ENDPOINT` | IoT Data-ATS endpoint (`xxxxxxxx-ats.iot.us-west-1.amazonaws.com`); output by Terraform in `../infra`. |
+| `LUX_DEVICE_ID` | Device segment of the topic; defaults to `lux-1` and must match the lux app's `LUX_DEVICE_ID`. |
+
+## Build & deploy
+
+```bash
+cargo lambda build --release         # arch must match the function (x86_64)
+cargo lambda deploy lux-discord-bot   # config (role, env, Function URL) is managed in ../infra
+```
+
+Then set the function's Function URL as the **Interactions Endpoint URL** in the Discord developer portal; Discord sends a signed PING that this handler answers.
+
+## Register the slash command (one-time)
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
+  -H "Content-Type: application/json" \
+  "https://discord.com/api/v10/applications/$DISCORD_APPLICATION_ID/commands" \
+  -d '{
+        "name": "set_buffer",
+        "description": "Set the lux lights to a color",
+        "options": [{
+          "name": "color", "description": "Color of the lights", "type": 3, "required": true,
+          "choices": [
+            {"name": "Red", "value": "red"}, {"name": "Blue", "value": "blue"},
+            {"name": "Green", "value": "green"}, {"name": "Amber", "value": "amber"},
+            {"name": "Daylight", "value": "daylight"}, {"name": "White", "value": "white"}
+          ]
+        }]
+      }'
+```

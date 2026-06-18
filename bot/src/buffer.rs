@@ -1,61 +1,37 @@
-use crate::Context;
-use crate::Error;
-use poise::serenity_prelude::{self as serenity};
-use poise::ChoiceParameter;
-use std::collections::HashMap;
+//! The `/set_buffer` color choices and the AWS IoT publish that drives the
+//! lux device.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ChoiceParameter)]
-enum ColorOption {
-    Red,
-    Blue,
-    Green,
-    Amber,
-    Daylight,
-    White,
+use aws_sdk_iotdataplane::primitives::Blob;
+use aws_sdk_iotdataplane::Client;
+use lambda_http::Error;
+
+/// `[red, green, blue, amber, white, master]` — the six DMX channels of the
+/// RGBAW fixture lux drives.
+pub type Buffer = [u8; 6];
+
+/// Map a Discord choice value to a buffer; `None` for an unknown choice.
+pub fn color_to_buffer(color: &str) -> Option<Buffer> {
+    Some(match color {
+        "red" => [255, 0, 0, 0, 0, 255],
+        "blue" => [0, 0, 255, 0, 0, 255],
+        "green" => [0, 255, 0, 0, 0, 255],
+        "amber" => [0, 0, 0, 255, 0, 255],
+        "daylight" => [0, 0, 0, 0, 255, 255],
+        "white" => [255, 255, 255, 255, 255, 255],
+        _ => return None,
+    })
 }
 
-fn get_color_values(color: ColorOption) -> [u8; 6] {
-    let mut color_map = HashMap::new();
-    color_map.insert(ColorOption::Red, [255, 0, 0, 0, 0, 255]);
-    color_map.insert(ColorOption::Blue, [0, 0, 255, 0, 0, 255]);
-    color_map.insert(ColorOption::Green, [0, 255, 0, 0, 0, 255]);
-    color_map.insert(ColorOption::Amber, [0, 0, 0, 255, 0, 255]);
-    color_map.insert(ColorOption::Daylight, [0, 0, 0, 0, 255, 255]);
-    color_map.insert(ColorOption::White, [255, 255, 255, 255, 255, 255]);
-
-    *color_map.get(&color).unwrap_or(&[0, 0, 0, 0, 0, 0])
-}
-
-#[poise::command(slash_command)]
-pub async fn set_buffer(
-    ctx: Context<'_>,
-    #[description = "Color of the lights"] color: ColorOption,
-) -> Result<(), Error> {
-    let ngrok_tunnel_domain = std::env::var("NGROK_TUNNEL_DOMAIN").unwrap();
-
-    let url = format!("https://{}/buffer", ngrok_tunnel_domain);
-
-    let buffer = get_color_values(color);
-    let mut map = HashMap::new();
-    map.insert("buffer", buffer);
-    let client = reqwest::Client::new();
-
-    let response = client
-        .post(url)
-        .json(&map)
+/// Publish `{ "buffer": [...] }` to the device's control topic. The lux app,
+/// subscribed to that topic, applies it to the fixture.
+pub async fn publish(client: &Client, topic: &str, buffer: Buffer) -> Result<(), Error> {
+    let payload = serde_json::json!({ "buffer": buffer }).to_string();
+    client
+        .publish()
+        .topic(topic)
+        .qos(1)
+        .payload(Blob::new(payload.into_bytes()))
         .send()
-        .await
-        .map_err(|e| {
-            eprintln!("Failed to make request: {}", e);
-            serenity::Error::Other("Failed to make request")
-        })?
-        .text()
-        .await
-        .map_err(|e| {
-            eprintln!("Failed to read response: {}", e);
-            serenity::Error::Other("Failed to read response")
-        })?;
-
-    ctx.say(response).await?;
+        .await?;
     Ok(())
 }
