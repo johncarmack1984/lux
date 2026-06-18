@@ -31,10 +31,6 @@
           "dir": "../dist-isolation/"
         }
       }
-    },
-    "trayIcon": {
-      "iconPath": "icons/tray.png",
-      "iconAsTemplate": true
     }
   },
   "bundle": {
