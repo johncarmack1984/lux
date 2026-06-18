@@ -1,3 +1,6 @@
+// Migrated from TauRPC by ttipc-migrate. Manual follow-ups:
+//   - mount: the TauRPC Router/handler became `ttipc::handler(..)` (a `-> Router` factory now returns `ttipc::Procedures`); generate bindings separately (`ttipc::Bindings`, replacing the dropped `export_config`) and keep app state on `.manage(..)`.
+
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod buffer;
@@ -10,7 +13,6 @@ mod error;
 mod logger;
 mod sync;
 
-use specta_typescript::Typescript;
 
 use buffer::LuxBuffer;
 use channels::LuxChannels;
@@ -20,20 +22,10 @@ use sync::*;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
     let builder = setup(tauri::Builder::default(), |_| {});
-
     let default_buffer = LuxBuffer::from([121, 255, 255, 0, 0, 42]);
     let default_channels = LuxChannels::default();
-
-    let formatter = specta_typescript::formatter::prettier;
-    let bigint = specta_typescript::BigIntExportBehavior::Number;
-    let bindings = Typescript::default().formatter(formatter).bigint(bigint);
-    let router = taurpc::Router::new()
-        .export_config(bindings)
-        .merge(SyncEndpoint.into_handler())
-        .merge(CmdEndpoint.into_handler());
-
-    let taurpc = router.into_handler();
-
+    let router = SyncEndpoint.into_procedures().merge(CmdEndpoint.into_procedures());
+    let taurpc = ttipc::handler(router);
     builder
         .plugin(tauri_plugin_shell::init())
         .plugin(logger::logger().build())

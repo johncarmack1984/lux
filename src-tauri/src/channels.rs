@@ -1,6 +1,6 @@
 use crate::buffer::BUFFER_SIZE;
 use crate::channel::{Channel, LuxChannel};
-use crate::cmd::CmdEventTrigger;
+use crate::cmd::CmdEvent;
 use crate::colors::LuxLabelColor;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -145,8 +145,10 @@ impl LuxChannels {
             .get(channel_number)
             .insert(LuxChannel::from(new_metadata))
             .to_owned();
-        CmdEventTrigger::new(app)
-            .channel_data_set(self.channels.lock().unwrap().clone())
+        CmdEvent::ChannelDataSet {
+            channels: self.channels.lock().unwrap().clone(),
+        }
+            .emit(&app)
             .map_err(|e| format!("Failed to emit channel_data_set event: {}", e))?;
         Ok(channel)
     }
@@ -165,8 +167,10 @@ impl LuxChannels {
     ) -> Result<LuxChannels, String> {
         self.set_all(channels.into())?;
 
-        CmdEventTrigger::new(app)
-            .channel_data_set(self.channels.lock().unwrap().clone())
+        CmdEvent::ChannelDataSet {
+            channels: self.channels.lock().unwrap().clone(),
+        }
+            .emit(&app)
             .map_err(|e| format!("Failed to emit channel_data_set event: {}", e))?;
         Ok(self.clone())
     }
