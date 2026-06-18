@@ -32,7 +32,7 @@ curl -X PUT \
   -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
   -H "Content-Type: application/json" \
   "https://discord.com/api/v10/applications/$DISCORD_APPLICATION_ID/commands" \
-  -d '{
+  -d '[{
         "name": "set_buffer",
         "description": "Set the lux lights to a color",
         "options": [{
@@ -43,5 +43,5 @@ curl -X PUT \
             {"name": "Daylight", "value": "daylight"}, {"name": "White", "value": "white"}
           ]
         }]
-      }'
+      }]'
 ```
