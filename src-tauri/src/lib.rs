@@ -10,8 +10,6 @@ mod error;
 mod logger;
 mod sync;
 
-use specta_typescript::Typescript;
-
 use buffer::LuxBuffer;
 use channels::LuxChannels;
 use cmd::*;
@@ -20,20 +18,12 @@ use sync::*;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
     let builder = setup(tauri::Builder::default(), |_| {});
-
     let default_buffer = LuxBuffer::from([121, 255, 255, 0, 0, 42]);
     let default_channels = LuxChannels::default();
-
-    let formatter = specta_typescript::formatter::prettier;
-    let bigint = specta_typescript::BigIntExportBehavior::Number;
-    let bindings = Typescript::default().formatter(formatter).bigint(bigint);
-    let router = taurpc::Router::new()
-        .export_config(bindings)
-        .merge(SyncEndpoint.into_handler())
-        .merge(CmdEndpoint.into_handler());
-
-    let taurpc = router.into_handler();
-
+    let router = SyncEndpoint
+        .into_procedures()
+        .merge(CmdEndpoint.into_procedures());
+    let taurpc = ttipc::handler(router);
     builder
         .plugin(tauri_plugin_shell::init())
         .plugin(logger::logger().build())
@@ -50,4 +40,14 @@ where
     F: FnOnce(&tauri::App<R>) + Send + 'static,
 {
     builder.setup(move |app| Ok(setup(app)))
+}
+
+pub fn ttipc_bindings() -> ttipc::Bindings {
+    ttipc::Bindings::new()
+        .method_case(ttipc::MethodCase::Snake)
+        .router("createTauRPCProxy")
+        .register::<CmdMethodsProcedures>()
+        .register::<SyncMethodsProcedures>()
+        .register_events::<CmdEvent>()
+        .register_events::<SyncEvent>()
 }

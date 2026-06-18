@@ -8,9 +8,10 @@ function useChannelData() {
   useEffect(() => {
     trace(`useChannel useEffect`);
     const taurpc = createTauRPCProxy();
-    const unlisten = taurpc.cmd.channel_data_set.on((channels) => {
-      trace(`useChannel listen ${channels.map((c) => c.label).join(", ")}`);
-      setChannelData(channels);
+    const unlisten = taurpc.cmd.event.on((event) => {
+      if (event.type !== "channelDataSet") return;
+      trace(`useChannel listen ${event.channels.map((c) => c.label).join(", ")}`);
+      setChannelData(event.channels);
     });
 
     return () => {

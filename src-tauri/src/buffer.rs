@@ -1,4 +1,4 @@
-use crate::{devices::enttec_open_dmx_usb::EnttecOpenDMX, sync::SyncEventTrigger};
+use crate::{devices::enttec_open_dmx_usb::EnttecOpenDMX, sync::SyncEvent};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::sync::{Arc, Mutex};
@@ -75,9 +75,11 @@ impl LuxBuffer {
             .close()
             .map_err(|e| format!("Enttec OpenDMX USB failed to close: {}", e))?;
 
-        SyncEventTrigger::new(app)
-            .buffer_set(incoming_buffer)
-            .map_err(|e| format!("Failed to emit buffer_set event: {}", e))?;
+        SyncEvent::BufferSet {
+            buffer: incoming_buffer,
+        }
+        .emit(&app)
+        .map_err(|e| format!("Failed to emit buffer_set event: {}", e))?;
 
         Ok(self.clone())
     }
