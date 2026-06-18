@@ -64,15 +64,20 @@ jobs:
           role-to-assume: arn:aws:iam::735853783919:role/lux-release-signing
           aws-region: us-west-1
       - name: Load updater signing key
-        # printf '%s' + "$(...)" strips the trailing newline that --output text
-        # adds, which otherwise breaks the base64 key decode (Invalid symbol 10).
-        run: printf '%s' "$(aws secretsmanager get-secret-value --secret-id lux/updater-signing-key --query SecretString --output text)" > "$RUNNER_TEMP/updater.key"
+        # The secret is JSON {key, password}. Write the key to a file (printf '%s'
+        # avoids a trailing newline that would break the base64 decode) and pass
+        # the password via $GITHUB_ENV, masked so it never appears in logs.
+        run: |
+          secret=$(aws secretsmanager get-secret-value --secret-id lux/updater-signing-key --query SecretString --output text)
+          printf '%s' "$(printf '%s' "$secret" | jq -r '.key')" > "$RUNNER_TEMP/updater.key"
+          password=$(printf '%s' "$secret" | jq -r '.password')
+          echo "::add-mask::$password"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$password" >> "$GITHUB_ENV"
 
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ runner.temp }}/updater.key
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tagName: ${{ env.TAG }}
           args: --target universal-apple-darwin
