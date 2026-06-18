@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/johncarmack1984/lux/compare/v0.2.1...v0.2.2) (2026-06-18)
+
+
+### Bug Fixes
+
+* use a password-protected updater key from a JSON secret ([#35](https://github.com/johncarmack1984/lux/issues/35)) ([8c67a62](https://github.com/johncarmack1984/lux/commit/8c67a62c56e198276e2349ded4aff3ac8d7fca2a))
+
 ## [0.2.1](https://github.com/johncarmack1984/lux/compare/v0.2.0...v0.2.1) (2026-06-18)
 
 
