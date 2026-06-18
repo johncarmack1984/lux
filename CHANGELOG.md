@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/johncarmack1984/lux/compare/v0.3.1...v0.3.2) (2026-06-18)
+
+
+### Bug Fixes
+
+* **deps:** align [@tauri-apps](https://github.com/tauri-apps) JS packages to tauri 2.11 ([#42](https://github.com/johncarmack1984/lux/issues/42)) ([bdbdc2e](https://github.com/johncarmack1984/lux/commit/bdbdc2ebfa55a4c4dc6fe612d3386d61c01c9ef3))
+
 ## [0.3.1](https://github.com/johncarmack1984/lux/compare/v0.3.0...v0.3.1) (2026-06-18)
 
 
