@@ -6,5 +6,8 @@
 # Remote state is in S3; ignore any local state that shows up
 *.tfstate
 *.tfstate.*
+# Saved plans (ephemeral)
+tfplan
+*.tfplan
 # Discord registration secrets (bot token + application id)
 discord.env
