@@ -96,6 +96,11 @@ output "iot_endpoint" {
   value       = data.aws_iot_endpoint.ats.endpoint_address
 }
 
+output "bot_function_url" {
+  description = "Set this as the Discord application's Interactions Endpoint URL."
+  value       = aws_lambda_function_url.lux_discord_bot.function_url
+}
+
 output "device_certificate_pem" {
   description = "Device certificate; write to the file referenced by the app's AWS_IOT_CERT_PATH."
   value       = aws_iot_certificate.lux.certificate_pem
