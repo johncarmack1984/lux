@@ -16,6 +16,8 @@
     "shell:allow-open",
     "log:default",
     "core:webview:default",
-    "shell:default"
+    "shell:default",
+    "updater:default",
+    "process:default"
   ]
 }

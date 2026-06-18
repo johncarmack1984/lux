@@ -1,4 +1,5 @@
 import { Toaster } from "@/components/ui/sonner";
+import { Updater } from "@/components/updater";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "@/app/globals.css";
@@ -22,6 +23,7 @@ export default function RootLayout({
           {children}
         </div>
         <Toaster closeButton={true} />
+        <Updater />
       </body>
     </html>
   );

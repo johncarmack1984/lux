@@ -32,6 +32,8 @@ pub async fn run() {
     let taurpc = ttipc::handler(router);
     builder
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(logger::logger().build())
         .manage(default_buffer)
         .manage(default_channels)

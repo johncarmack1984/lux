@@ -30,7 +30,7 @@ serde = { version = "1.0", features = ["derive"] }
 strum = { version = "0.27.2", features = ["derive"] }
 specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 strum_macros = "0.27.2"
-tauri = { version = "2.9.3", features = [
+tauri = { version = "~2.9.3", features = [
     "isolation",
     "image-ico",
     "image-png",
@@ -46,6 +46,8 @@ uuid = { version = "1.18.1", features = [
     "serde", # Enable serialization/deserialization of UUIDs
 ] }
 rumqttc = "0.24"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 # default to small, optimized release binaries
 [profile.release]
