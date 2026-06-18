@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/johncarmack1984/lux/compare/v0.1.1...v0.2.0) (2026-06-18)
+
+
+### Features
+
+* in-app auto-updater (tauri-plugin-updater) ([#30](https://github.com/johncarmack1984/lux/issues/30)) ([44762ef](https://github.com/johncarmack1984/lux/commit/44762efb1eb1f20018e8f366fbb47231b5e2e16a))
+
 ## [0.1.1](https://github.com/johncarmack1984/lux/compare/v0.1.0...v0.1.1) (2026-06-18)
 
 
