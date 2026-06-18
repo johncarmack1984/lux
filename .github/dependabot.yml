@@ -14,6 +14,12 @@ updates:
     groups:
       cargo:
         patterns: ["*"]
+    # The Tauri crates move in lockstep (tauri / tauri-runtime / -wry / wry); an
+    # uncoordinated dependabot bump broke that pairing (reverted #21). Update
+    # them deliberately rather than via dependabot.
+    ignore:
+      - dependency-name: "tauri*"
+      - dependency-name: "wry"
 
   # Discord bot Lambda
   - package-ecosystem: "cargo"
