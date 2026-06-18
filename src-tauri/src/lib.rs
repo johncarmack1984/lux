@@ -8,6 +8,7 @@ mod colors;
 mod devices;
 mod error;
 mod logger;
+mod remote;
 mod sync;
 
 use buffer::LuxBuffer;
@@ -17,7 +18,9 @@ use sync::*;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
-    let builder = setup(tauri::Builder::default(), |_| {});
+    let builder = setup(tauri::Builder::default(), |app| {
+        remote::connect(app.handle());
+    });
     let default_buffer = LuxBuffer::from([121, 255, 255, 0, 0, 42]);
     let default_channels = LuxChannels::default();
     let router = SyncEndpoint
