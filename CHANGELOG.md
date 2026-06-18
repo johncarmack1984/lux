@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.1](https://github.com/johncarmack1984/lux/compare/v0.1.0...v0.1.1) (2026-06-18)
+
+
+### Bug Fixes
+
+* revert the breaking cargo bump ([#21](https://github.com/johncarmack1984/lux/issues/21)) + guard tauri in dependabot ([c8c35ba](https://github.com/johncarmack1984/lux/commit/c8c35ba7f67b6e2c79829a2e940f93b730a6cbf4))
+* type-only import so next build / tauri build resolves ([da6ae57](https://github.com/johncarmack1984/lux/commit/da6ae574db3f51b03e8ade90f1f0b68f7b4f2464))
+* use type-only import for ChannelProps so next build resolves ([b977d82](https://github.com/johncarmack1984/lux/commit/b977d82344acfa855f0e0141961a31928ca471cd))
+
 ## [0.1.0](https://github.com/johncarmack1984/lux/compare/v0.0.3...v0.1.0) (2026-06-18)
 
 
