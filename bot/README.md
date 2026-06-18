@@ -19,8 +19,8 @@ This replaces the previous Shuttle/poise gateway bot, which reached the app over
 ## Build & deploy
 
 ```bash
-cargo lambda build --release         # arch must match the function (x86_64)
-cargo lambda deploy lux-discord-bot   # config (role, env, Function URL) is managed in ../infra
+cargo lambda build --release --x86-64   # match the imported function's architecture
+cargo lambda deploy lux-discord-bot      # config (role, env, Function URL) is managed in ../infra
 ```
 
 Then set the function's Function URL as the **Interactions Endpoint URL** in the Discord developer portal; Discord sends a signed PING that this handler answers.
