@@ -4479,9 +4479,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-typed-ipc"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c52b32b995427a268a640933851e9f5b3220079ad52ad4ad3a0b9da558a52311"
+checksum = "c4edbf60828e8b4b074c9b8fff49f5bdebc5efdc895e9bf07cd3432c2d170fee"
 dependencies = [
  "serde",
  "serde_json",
@@ -4495,9 +4495,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-typed-ipc-macros"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74b8996901cd086ec2ab65d91aaece04439f1c060cee62f62c8434ab5c2bb218"
+checksum = "f9620dc011a9b5fbed16156944dab9ab81487a9918ad6d09bc40aad4dfa3e09e"
 dependencies = [
  "proc-macro-crate 3.4.0",
  "proc-macro2",
