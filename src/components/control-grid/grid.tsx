@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChannelProps } from "@/global";
+import type { ChannelProps } from "@/global";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 
 import GridFooter from "./footer";
