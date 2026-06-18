@@ -74,6 +74,24 @@ jobs:
           echo "::add-mask::$password"
           echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$password" >> "$GITHUB_ENV"
 
+      - name: Load Apple signing secret
+        # JSON {certificate (.p12 b64), certificate_password, signing_identity,
+        # team_id, api_key (.p8), api_key_id, api_issuer_id} -> tauri-action env.
+        # tauri-action reads APPLE_* from the process env (set via $GITHUB_ENV).
+        run: |
+          s=$(aws secretsmanager get-secret-value --secret-id lux/apple-signing --query SecretString --output text)
+          echo "::add-mask::$(printf '%s' "$s" | jq -r '.certificate_password')"
+          {
+            echo "APPLE_CERTIFICATE=$(printf '%s' "$s" | jq -r '.certificate')"
+            echo "APPLE_CERTIFICATE_PASSWORD=$(printf '%s' "$s" | jq -r '.certificate_password')"
+            echo "APPLE_SIGNING_IDENTITY=$(printf '%s' "$s" | jq -r '.signing_identity')"
+            echo "APPLE_TEAM_ID=$(printf '%s' "$s" | jq -r '.team_id')"
+            echo "APPLE_API_ISSUER=$(printf '%s' "$s" | jq -r '.api_issuer_id')"
+            echo "APPLE_API_KEY=$(printf '%s' "$s" | jq -r '.api_key_id')"
+          } >> "$GITHUB_ENV"
+          printf '%s' "$s" | jq -r '.api_key' > "$RUNNER_TEMP/asc_api_key.p8"
+          echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/asc_api_key.p8" >> "$GITHUB_ENV"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
