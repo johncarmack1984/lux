@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/johncarmack1984/lux/compare/v0.2.0...v0.2.1) (2026-06-18)
+
+
+### Bug Fixes
+
+* pin updater/process JS plugins to match the Rust crates ([#32](https://github.com/johncarmack1984/lux/issues/32)) ([34c3aa3](https://github.com/johncarmack1984/lux/commit/34c3aa3c649849d9682b1bdfad9ba9569c46cf5b))
+
 ## [0.2.0](https://github.com/johncarmack1984/lux/compare/v0.1.1...v0.2.0) (2026-06-18)
 
 
