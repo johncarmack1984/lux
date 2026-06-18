@@ -1,0 +1,34 @@
+# Dependabot version updates for the lux monorepo.
+#
+# This configures scheduled *version* updates. Security updates are alert-driven
+# and run independently of this file (they cannot be disabled here — dismiss a
+# specific alert in the Security tab, or it clears when the affected dependency
+# is upgradable).
+version: 2
+updates:
+  # Tauri desktop backend
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+    groups:
+      cargo:
+        patterns: ["*"]
+
+  # Discord bot Lambda
+  - package-ecosystem: "cargo"
+    directory: "/bot"
+    schedule:
+      interval: "weekly"
+    groups:
+      cargo:
+        patterns: ["*"]
+
+  # GitHub Actions used by the workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
