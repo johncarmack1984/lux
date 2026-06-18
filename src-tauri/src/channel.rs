@@ -10,7 +10,7 @@ pub struct Channel {
     #[specta(type = String)]
     pub id: uuid::Uuid,
     pub disabled: bool,
-    pub channel_number: usize,
+    pub channel_number: u32,
     pub label: String,
     pub label_color: LuxLabelColor,
 }
@@ -28,7 +28,7 @@ impl LuxChannel {
         (*data).clone()
     }
 
-    pub fn get_channel_number(&self) -> usize {
+    pub fn get_channel_number(&self) -> u32 {
         self.0.lock().unwrap().channel_number
     }
 

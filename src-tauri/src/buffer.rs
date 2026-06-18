@@ -78,8 +78,8 @@ impl LuxBuffer {
         SyncEvent::BufferSet {
             buffer: incoming_buffer,
         }
-            .emit(&app)
-            .map_err(|e| format!("Failed to emit buffer_set event: {}", e))?;
+        .emit(&app)
+        .map_err(|e| format!("Failed to emit buffer_set event: {}", e))?;
 
         Ok(self.clone())
     }

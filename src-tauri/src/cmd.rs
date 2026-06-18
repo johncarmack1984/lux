@@ -1,28 +1,18 @@
-// Migrated from TauRPC by ttipc-migrate. Manual follow-ups:
-//   - imports: drop the now-unused `Runtime`; `Channel` is now `ttipc::Channel`.
-//   - bigint: a wire type uses a BigInt-style integer (`u64`/`i64`/`usize`/`i128`/...); ttipc's exporter rejects these (TauRPC's `BigIntExportBehavior` has no ttipc equivalent), so the bindings will not generate until you narrow them to a 32-bit-or-smaller integer (e.g. `u32`).
-//   - de-async: methods with no blocking `.await` were made sync (ttipc's default), and their `.await`s on now-sync siblings were dropped.
-//   - events: `#[taurpc(event)]` methods were lifted into a `#[derive(ttipc::Event)]` enum (matching emit sites were rewritten to `Enum::Variant.emit(&h)`); drop any now-empty trait/impl.
-
 use crate::{
     buffer::{Buffer, LuxBuffer, BUFFER_SIZE},
     channel::LuxChannel,
     channels::LuxChannels,
     sync::*,
 };
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Manager};
 
 #[ttipc::procedures(path = "cmd")]
 pub trait CmdMethods {
-    fn set_buffer(
-        &self,
-        app_handle: AppHandle,
-        buffer: Buffer,
-    ) -> Result<LuxBuffer, String>;
+    fn set_buffer(&self, app_handle: AppHandle, buffer: Buffer) -> Result<LuxBuffer, String>;
     fn update_channel_value(
         &self,
         app_handle: AppHandle,
-        channel_number: usize,
+        channel_number: u32,
         value: u8,
     ) -> Result<LuxBuffer, String>;
     fn insert_channel(
@@ -30,15 +20,11 @@ pub trait CmdMethods {
         app_handle: AppHandle,
         new_metadata: LuxChannel,
     ) -> Result<LuxChannel, String>;
-    fn delete_channel(
-        &self,
-        app_handle: AppHandle,
-        channel_number: usize,
-    ) -> Result<(), String>;
+    fn delete_channel(&self, app_handle: AppHandle, channel_number: u32) -> Result<(), String>;
     fn update_channel_metadata(
         &self,
         app_handle: AppHandle,
-        channel_number: usize,
+        channel_number: u32,
         new_metadata: LuxChannel,
     ) -> Result<LuxChannel, String>;
     fn sync_state(&self, app_handle: AppHandle) -> Result<String, String>;
@@ -52,11 +38,7 @@ pub enum CmdEvent {
 pub struct CmdEndpoint;
 
 impl CmdMethods for CmdEndpoint {
-    fn set_buffer(
-        &self,
-        app_handle: AppHandle,
-        buffer: Buffer,
-    ) -> Result<LuxBuffer, String> {
+    fn set_buffer(&self, app_handle: AppHandle, buffer: Buffer) -> Result<LuxBuffer, String> {
         log::trace!("received buffer {:?}", buffer);
         let mut state = app_handle.state::<LuxBuffer>().inner().clone();
         state.set(buffer, app_handle.clone())
@@ -64,12 +46,12 @@ impl CmdMethods for CmdEndpoint {
     fn update_channel_value(
         &self,
         app_handle: AppHandle,
-        channel_number: usize,
+        channel_number: u32,
         value: u8,
     ) -> Result<LuxBuffer, String> {
         log::debug!("received channel {} to {}", channel_number, value);
         let mut state = app_handle.state::<LuxBuffer>().inner().clone();
-        state.set_channel(channel_number, value, app_handle.clone())
+        state.set_channel(channel_number as usize, value, app_handle.clone())
     }
     fn insert_channel(
         &self,
@@ -78,25 +60,25 @@ impl CmdMethods for CmdEndpoint {
     ) -> Result<LuxChannel, String> {
         log::trace!("received channel {:?}", new_metadata);
         let mut state = app_handle.state::<LuxChannels>().inner().clone();
-        state.set(new_metadata.get_channel_number(), new_metadata, app_handle.clone())
+        state.set(
+            new_metadata.get_channel_number() as usize,
+            new_metadata,
+            app_handle.clone(),
+        )
     }
-    fn delete_channel(
-        &self,
-        _app_handle: AppHandle,
-        channel_number: usize,
-    ) -> Result<(), String> {
+    fn delete_channel(&self, _app_handle: AppHandle, channel_number: u32) -> Result<(), String> {
         log::debug!("received channel {} to delete", channel_number);
         Ok(())
     }
     fn update_channel_metadata(
         &self,
         app_handle: AppHandle,
-        channel_number: usize,
+        channel_number: u32,
         new_metadata: LuxChannel,
     ) -> Result<LuxChannel, String> {
         log::trace!("received channel {:?}", new_metadata);
         let mut state = app_handle.state::<LuxChannels>().inner().clone();
-        state.set(channel_number, new_metadata, app_handle.clone())
+        state.set(channel_number as usize, new_metadata, app_handle.clone())
     }
     fn sync_state(&self, app: AppHandle) -> Result<String, String> {
         log::trace!("sync_state");

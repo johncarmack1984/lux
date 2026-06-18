@@ -12,10 +12,11 @@ function useBuffer() {
 
   const setupListeners = useCallback(async () => {
     const taurpc = createTauRPCProxy();
-    await taurpc.sync.buffer_set
-      .on((buffer) => {
-        trace(`useBuffer listen buffer_set [${buffer}]`);
-        setBuffer(buffer);
+    await taurpc.sync.event
+      .on((event) => {
+        if (event.type !== "bufferSet") return;
+        trace(`useBuffer listen buffer_set [${event.buffer}]`);
+        setBuffer(event.buffer);
       })
       .catch(toast.error);
   }, []);

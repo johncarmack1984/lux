@@ -148,8 +148,8 @@ impl LuxChannels {
         CmdEvent::ChannelDataSet {
             channels: self.channels.lock().unwrap().clone(),
         }
-            .emit(&app)
-            .map_err(|e| format!("Failed to emit channel_data_set event: {}", e))?;
+        .emit(&app)
+        .map_err(|e| format!("Failed to emit channel_data_set event: {}", e))?;
         Ok(channel)
     }
 
@@ -170,8 +170,8 @@ impl LuxChannels {
         CmdEvent::ChannelDataSet {
             channels: self.channels.lock().unwrap().clone(),
         }
-            .emit(&app)
-            .map_err(|e| format!("Failed to emit channel_data_set event: {}", e))?;
+        .emit(&app)
+        .map_err(|e| format!("Failed to emit channel_data_set event: {}", e))?;
         Ok(self.clone())
     }
 }

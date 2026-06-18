@@ -1,14 +1,9 @@
-// Migrated from TauRPC by ttipc-migrate. Manual follow-ups:
-//   - imports: drop the now-unused `Runtime`; `Channel` is now `ttipc::Channel`.
-//   - de-async: methods with no blocking `.await` were made sync (ttipc's default), and their `.await`s on now-sync siblings were dropped.
-//   - events: `#[taurpc(event)]` methods were lifted into a `#[derive(ttipc::Event)]` enum (matching emit sites were rewritten to `Enum::Variant.emit(&h)`); drop any now-empty trait/impl.
-
 use crate::{
     buffer::{Buffer, LuxBuffer},
     channels::LuxChannels,
 };
 
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Manager};
 
 #[ttipc::procedures(path = "sync")]
 pub trait SyncMethods {
