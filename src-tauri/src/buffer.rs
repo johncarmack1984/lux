@@ -1,8 +1,9 @@
 use crate::{devices::enttec_open_dmx_usb::EnttecOpenDMX, sync::SyncEvent};
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::Runtime;
+use tauri::{Manager, Runtime};
 
 pub const BUFFER_SIZE: usize = 6;
 
@@ -16,6 +17,25 @@ pub type Buffer = [u8; BUFFER_SIZE];
 #[derive(Debug, Serialize, Deserialize, Clone, Type)]
 pub struct LuxBuffer {
     pub buffer: Arc<Mutex<Buffer>>,
+}
+
+/// Tray-toggleable emit ordering for `LuxBuffer::set`. When `optimistic` is set,
+/// the buffer event is emitted *before* the DMX render (the UI reflects a command
+/// immediately, even with no fixture attached); otherwise it is emitted only after
+/// a successful render (the UI mirrors the hardware). Default: after render.
+#[derive(Default)]
+pub struct EmitMode {
+    optimistic: AtomicBool,
+}
+
+impl EmitMode {
+    pub fn optimistic(&self) -> bool {
+        self.optimistic.load(Ordering::Relaxed)
+    }
+
+    pub fn set(&self, optimistic: bool) {
+        self.optimistic.store(optimistic, Ordering::Relaxed);
+    }
 }
 
 impl ConvertFromVec for Buffer {
@@ -52,34 +72,19 @@ impl LuxBuffer {
         incoming_buffer: Buffer,
         app: tauri::AppHandle<R>,
     ) -> Result<LuxBuffer, String> {
-        let mut locked_buffer = self.buffer.lock().unwrap();
-        *locked_buffer = incoming_buffer;
+        *self.buffer.lock().unwrap() = incoming_buffer;
 
-        let mut temp_buffer = [0; 513];
-
-        temp_buffer[1..BUFFER_SIZE + 1].copy_from_slice(&incoming_buffer);
-
-        let mut interface = EnttecOpenDMX::new()
-            .map_err(|e| format!("Enttec OpenDMX USB initialization failed: {}", e))?;
-
-        interface
-            .open()
-            .map_err(|e| format!("Enttec OpenDMX USB failed to open: {}", e))?;
-
-        interface.set_buffer(temp_buffer);
-
-        interface
-            .render()
-            .map_err(|e| format!("Enttec OpenDMX USB failed to render: {}", e))?;
-        interface
-            .close()
-            .map_err(|e| format!("Enttec OpenDMX USB failed to close: {}", e))?;
-
-        SyncEvent::BufferSet {
-            buffer: incoming_buffer,
+        // Tray toggle: emit the buffer event before the DMX render (optimistic —
+        // the UI reflects the command even with no fixture) or only after a
+        // successful render (the UI mirrors the hardware).
+        let optimistic = app.state::<EmitMode>().optimistic();
+        if optimistic {
+            emit_buffer(incoming_buffer, &app)?;
         }
-        .emit(&app)
-        .map_err(|e| format!("Failed to emit buffer_set event: {}", e))?;
+        render(incoming_buffer)?;
+        if !optimistic {
+            emit_buffer(incoming_buffer, &app)?;
+        }
 
         Ok(self.clone())
     }
@@ -94,4 +99,31 @@ impl LuxBuffer {
         buffer[channel_number - 1] = value;
         self.set(buffer, app)
     }
+}
+
+/// Push the 6-channel buffer to the Enttec OpenDMX fixture (channels 1..=6 of the
+/// 512-channel universe). Fails (e.g. `DEVICE_NOT_FOUND`) when no unit is attached.
+fn render(buffer: Buffer) -> Result<(), String> {
+    let mut temp_buffer = [0u8; 513];
+    temp_buffer[1..BUFFER_SIZE + 1].copy_from_slice(&buffer);
+
+    let mut interface = EnttecOpenDMX::new()
+        .map_err(|e| format!("Enttec OpenDMX USB initialization failed: {}", e))?;
+    interface
+        .open()
+        .map_err(|e| format!("Enttec OpenDMX USB failed to open: {}", e))?;
+    interface.set_buffer(temp_buffer);
+    interface
+        .render()
+        .map_err(|e| format!("Enttec OpenDMX USB failed to render: {}", e))?;
+    interface
+        .close()
+        .map_err(|e| format!("Enttec OpenDMX USB failed to close: {}", e))?;
+    Ok(())
+}
+
+fn emit_buffer<R: Runtime>(buffer: Buffer, app: &tauri::AppHandle<R>) -> Result<(), String> {
+    SyncEvent::BufferSet { buffer }
+        .emit(app)
+        .map_err(|e| format!("Failed to emit buffer_set event: {}", e))
 }

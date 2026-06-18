@@ -1,0 +1,10 @@
+# Local provider plugins (the committed .terraform.lock.hcl is kept)
+.terraform/
+# Variable files hold secrets (e.g. discord_public_key)
+*.tfvars
+*.auto.tfvars
+# Remote state is in S3; ignore any local state that shows up
+*.tfstate
+*.tfstate.*
+# Discord registration secrets (bot token + application id)
+discord.env

@@ -25,7 +25,6 @@ dotenvy = "0.15.7"
 enttecopendmx = "0.1.1"
 libftd2xx = { version = "0.33.1", features = ["static"] }
 log = "^0.4.28"
-axum = { version = "0.8.7", features = ["tokio"] }
 serde_json = "1.0.145"
 serde = { version = "1.0", features = ["derive"] }
 strum = { version = "0.27.2", features = ["derive"] }
@@ -37,17 +36,16 @@ tauri = { version = "2.9.3", features = [
     "image-png",
     "tray-icon",
 ] }
-tauri-plugin-http = "2.5.4"
 tauri-plugin-log = "2.7.1"
 tauri-plugin-shell = "2.3.3"
 ttipc = { package = "tauri-typed-ipc", version = "0.1", features = ["export"] }
 thiserror = "2.0.17"
 tokio = { version = "1.48.0", features = ["full"] }
-tower = "0.5.2"
 uuid = { version = "1.18.1", features = [
     "v4",    # Lets you generate random UUIDs
     "serde", # Enable serialization/deserialization of UUIDs
 ] }
+rumqttc = "0.24"
 
 # default to small, optimized release binaries
 [profile.release]
