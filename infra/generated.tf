@@ -54,6 +54,13 @@ resource "aws_lambda_function" "lux_discord_bot" {
   skip_destroy                   = false
   tags                           = {}
   timeout                        = 30
+  environment {
+    variables = {
+      AWS_IOT_ENDPOINT   = data.aws_iot_endpoint.ats.endpoint_address
+      LUX_DEVICE_ID      = var.device_id
+      DISCORD_PUBLIC_KEY = var.discord_public_key
+    }
+  }
   ephemeral_storage {
     size = 512
   }
