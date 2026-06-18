@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/johncarmack1984/lux/compare/v0.3.0...v0.3.1) (2026-06-18)
+
+
+### Bug Fixes
+
+* **deps:** upgrade tauri 2.9.3 -&gt; 2.11.3 (GHSA-7gmj-67g7-phm9) ([#40](https://github.com/johncarmack1984/lux/issues/40)) ([ba3c2b7](https://github.com/johncarmack1984/lux/commit/ba3c2b7fcdcbf1c357ad2d8e167b191a65db3f7e))
+
 ## [0.3.0](https://github.com/johncarmack1984/lux/compare/v0.2.2...v0.3.0) (2026-06-18)
 
 
