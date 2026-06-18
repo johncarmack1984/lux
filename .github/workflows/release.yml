@@ -1,16 +1,23 @@
 name: release
 
 # release-please maintains a release PR (version bump + CHANGELOG) from
-# conventional-commit history. Merging that PR cuts a vX.Y.Z tag + GitHub
-# Release, which triggers the build job to attach the macOS bundle.
+# conventional-commit history. Merging it cuts a vX.Y.Z tag + GitHub Release,
+# which triggers the macOS build to attach the .dmg. The build is also runnable
+# on demand for an existing tag via workflow_dispatch.
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build and attach the macOS bundle to (e.g. v0.1.0)"
+        required: true
 
 permissions: {}
 
 jobs:
   release-please:
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -18,7 +25,6 @@ jobs:
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
-      release_id: ${{ steps.release.outputs.id }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -26,17 +32,21 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  # Builds the macOS app and uploads it to the release release-please just cut.
-  # Unsigned for now — macOS Gatekeeper will warn until Developer ID signing +
-  # notarization are wired in.
+  # Builds the macOS app and attaches it to the release — after a release-please
+  # release, or on a manual dispatch for an existing tag. Unsigned for now
+  # (Gatekeeper will warn until Developer ID signing + notarization are wired in).
   build-macos:
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    if: ${{ always() && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: macos-latest
     permissions:
       contents: write
+    env:
+      TAG: ${{ github.event.inputs.tag || needs.release-please.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
 
       - uses: oven-sh/setup-bun@v2
 
@@ -44,11 +54,11 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - run: bun install --frozen-lockfile
+      - run: bun install
 
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          releaseId: ${{ needs.release-please.outputs.release_id }}
+          tagName: ${{ env.TAG }}
           args: --target universal-apple-darwin
