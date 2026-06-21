@@ -26,7 +26,7 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: release
         with:
           config-file: release-please-config.json
@@ -45,7 +45,7 @@ jobs:
     env:
       TAG: ${{ github.event.inputs.tag || needs.release-please.outputs.tag_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
 
@@ -59,7 +59,7 @@ jobs:
 
       # Pull the updater signing key from AWS Secrets Manager via OIDC — no
       # long-lived AWS keys in GitHub. Written to a file so it never hits a log.
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::735853783919:role/lux-release-signing
           aws-region: us-west-1
