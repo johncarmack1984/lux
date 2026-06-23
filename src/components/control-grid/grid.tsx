@@ -1,7 +1,6 @@
 import type { ChannelProps } from "@/global";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 
-import GridFooter from "./footer";
 import columns from "./channel-row/columns";
 import {
   getCoreRowModel,
@@ -46,7 +45,6 @@ export default function ControlGrid() {
   return (
     <Table>
       <GridBody table={table} />
-      <GridFooter />
     </Table>
   );
 }

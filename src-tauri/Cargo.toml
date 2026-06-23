@@ -46,6 +46,9 @@ uuid = { version = "1.18.1", features = [
     "serde", # Enable serialization/deserialization of UUIDs
 ] }
 rumqttc = "0.25"
+# rumqttc pulls rustls 0.23, which panics at runtime unless exactly one crypto
+# provider feature is enabled. Pin ring (no cmake / aws-lc-sys C build).
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 
