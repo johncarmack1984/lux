@@ -16,7 +16,7 @@ function useBuffer() {
         trace(`useBuffer listen buffer_set [${event.buffer}]`);
         setBuffer(event.buffer);
       })
-      .catch(toast.error);
+      .catch((e) => toast.error(String(e)));
   }, []);
 
   useEffect(() => {

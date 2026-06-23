@@ -12,7 +12,7 @@ export function setBuffer(
     .then(() => {
       if (import.meta.env.DEV) toast.info(JSON.stringify({ buffer }));
     })
-    .catch(toast.error);
+    .catch((e) => toast.error(String(e)));
 }
 
 const buttons = [

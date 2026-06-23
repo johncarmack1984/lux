@@ -13,7 +13,9 @@ const ChannelSlider = ({ row }: CellContext<ChannelProps, unknown>) => {
   // Slider drags fire continuously; keep the UI immediate but throttle the
   // hardware/IPC write so we don't flood the DMX render path (the old "judder").
   const sendValue = useThrottle((channel: number, next: number) => {
-    setChannelValue({ channelNumber: channel, value: next }).catch(toast.error);
+    setChannelValue({ channelNumber: channel, value: next }).catch((e) =>
+      toast.error(String(e))
+    );
   }, 40);
   const dragSlider = (newValues: number[]) => {
     setValues(newValues);

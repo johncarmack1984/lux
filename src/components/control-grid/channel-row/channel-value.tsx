@@ -13,7 +13,7 @@ const ChannelValue = ({ row }: CellContext<ChannelProps, unknown>) => {
     await setChannelValue({
       channelNumber: row.original.channelNumber,
       value: newValue,
-    }).catch(toast.error);
+    }).catch((e) => toast.error(String(e)));
   };
   return (
     <TableCell className="w-14" key={key} id={key}>
