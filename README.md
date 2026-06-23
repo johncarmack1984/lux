@@ -14,6 +14,12 @@ The Rust side keeps a DMX channel buffer continuously synced to the hardware
 type-safe IPC crate I wrote — so the Rust↔TypeScript command layer is type-safe
 end to end.
 
+## Demo
+
+![Lux driving an RGBAW fixture over an Enttec OpenDMX USB interface](.github/lux-demo.gif)
+
+*Setting fixture color live from the desktop UI — the RGBAW tube and the Enttec OpenDMX USB interface (bottom) respond in real time.*
+
 ## Stack
 
 Rust · Tauri 2 · tauri-typed-ipc (type-safe IPC) · Next.js 16 · React 19 · shadcn/ui ·
@@ -32,21 +38,6 @@ cargo tauri dev
 - ✅ Remote control from Discord over AWS IoT
 - ✅ Type-safe Rust↔TS commands via tauri-typed-ipc
 
-### Planned
+## Screenshot
 
-- [ ] User accounts synced via Turso
-- [ ] Custom fixtures using the full 512-channel universe
-- [ ] Binary distribution: macOS → iOS → Raspberry Pi → Windows → Android
-- [ ] Client/server modes for shared home use
-- [ ] CLI for remote control
-
-## Screenshots
-
-### v0.0.3
-![Lux v0.0.3](.github/lux-window-v0.0.3.png?raw=true)
-
-### v0.0.2
-![Lux v0.0.2](.github/lux-window-v0.0.2.png?raw=true)
-
-### v0.0.1
-![Lux v0.0.1](.github/lux-window-v0.0.1.png?raw=true)
+![The lux control grid (v0.0.3)](.github/lux-window-v0.0.3.png?raw=true)
