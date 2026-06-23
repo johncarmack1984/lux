@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { trace } from "@tauri-apps/plugin-log";
+import { debug, trace } from "@tauri-apps/plugin-log";
 import { createTauRPCProxy } from "@/bindings";
 import { toast } from "sonner";
 
@@ -10,7 +10,8 @@ export function setBuffer(
   taurpc.cmd
     .set_buffer(buffer)
     .then(() => {
-      if (import.meta.env.DEV) toast.info(JSON.stringify({ buffer }));
+      // Debug-only: logged at debug level, not surfaced as a toast.
+      debug(`buffer set [${buffer}]`);
     })
     .catch((e) => toast.error(String(e)));
 }
