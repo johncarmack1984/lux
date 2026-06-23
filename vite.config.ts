@@ -15,7 +15,9 @@ export default defineConfig({
   // Tauri controls the window; keep its logs visible and don't watch the Rust side.
   clearScreen: false,
   server: {
-    port: 1420,
+    // Non-default port so lux doesn't collide with other local Tauri/Vite apps.
+    // Must match src-tauri/tauri.conf.json -> build.devUrl.
+    port: 1430,
     strictPort: true,
     watch: { ignored: ["**/src-tauri/**"] },
   },
