@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3](https://github.com/johncarmack1984/lux/compare/v0.3.2...v0.3.3) (2026-06-23)
+
+
+### Bug Fixes
+
+* channel persistence, slider throttling, and dead-code cleanup ([#47](https://github.com/johncarmack1984/lux/issues/47)) ([c94a9a1](https://github.com/johncarmack1984/lux/commit/c94a9a15f323718436d2d73d542ab2ea293ec5eb))
+
 ## [0.3.2](https://github.com/johncarmack1984/lux/compare/v0.3.1...v0.3.2) (2026-06-18)
 
 
