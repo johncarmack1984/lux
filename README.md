@@ -32,14 +32,6 @@ cargo tauri dev
 - ✅ Remote control from Discord over AWS IoT
 - ✅ Type-safe Rust↔TS commands via tauri-typed-ipc
 
-### Planned
-
-- [ ] User accounts synced via Turso
-- [ ] Custom fixtures using the full 512-channel universe
-- [ ] Binary distribution: macOS → iOS → Raspberry Pi → Windows → Android
-- [ ] Client/server modes for shared home use
-- [ ] CLI for remote control
-
 ## Screenshots
 
 ### v0.0.3
