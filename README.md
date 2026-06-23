@@ -32,13 +32,6 @@ cargo tauri dev
 - ✅ Remote control from Discord over AWS IoT
 - ✅ Type-safe Rust↔TS commands via tauri-typed-ipc
 
-## Screenshots
+## Screenshot
 
-### v0.0.3
-![Lux v0.0.3](.github/lux-window-v0.0.3.png?raw=true)
-
-### v0.0.2
-![Lux v0.0.2](.github/lux-window-v0.0.2.png?raw=true)
-
-### v0.0.1
-![Lux v0.0.1](.github/lux-window-v0.0.1.png?raw=true)
+![The lux control grid (v0.0.3)](.github/lux-window-v0.0.3.png?raw=true)
