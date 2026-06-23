@@ -20,11 +20,6 @@ export const cmd = {
   },
 
   /** @throws {string} */
-  delete_channel(channelNumber: number): Promise<null> {
-    return invoke("cmd.delete_channel", { channel_number: channelNumber });
-  },
-
-  /** @throws {string} */
   update_channel_metadata(channelNumber: number, newMetadata: LuxChannel): Promise<LuxChannel> {
     return invoke("cmd.update_channel_metadata", { channel_number: channelNumber, new_metadata: newMetadata });
   },

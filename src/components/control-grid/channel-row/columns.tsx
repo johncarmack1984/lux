@@ -1,14 +1,11 @@
 "use client";
 
 import type { ChannelProps } from "@/global";
-import { createColumnHelper, type ColumnDef } from "@tanstack/react-table";
-import { ActionsMenu } from "../action-menu";
+import { type ColumnDef } from "@tanstack/react-table";
 import ChannelLabel from "./channel-label";
 import ChannelNumber from "./channel-number";
 import ChannelValue from "./channel-value";
 import ChannelSlider from "./channel-slider";
-
-const columnHelper = createColumnHelper<ChannelProps>();
 
 const columns: ColumnDef<ChannelProps>[] = [
   {
@@ -29,10 +26,6 @@ const columns: ColumnDef<ChannelProps>[] = [
     accessorKey: "value",
     cell: ChannelSlider,
   },
-  columnHelper.display({
-    id: "actions",
-    cell: ActionsMenu,
-  }),
 ];
 
 export default columns;

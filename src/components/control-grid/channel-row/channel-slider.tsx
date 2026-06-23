@@ -6,13 +6,20 @@ import { useEffect, useState } from "react";
 import { Slider } from "@/components/ui/slider";
 import { TableCell } from "../../ui/table";
 import { setChannelValue } from "@/app/actions";
+import { toast } from "sonner";
+import useThrottle from "@/hooks/useThrottle";
 
 const ChannelSlider = ({ row }: CellContext<ChannelProps, unknown>) => {
   const { id, channelNumber, value } = row.original;
   const [values, setValues] = useState([value]);
-  const dragSlider = async (newValues: number[]) => {
+  // Slider drags fire continuously; keep the UI immediate but throttle the
+  // hardware/IPC write so we don't flood the DMX render path (the old "judder").
+  const sendValue = useThrottle((channel: number, next: number) => {
+    setChannelValue({ channelNumber: channel, value: next }).catch(toast.error);
+  }, 40);
+  const dragSlider = (newValues: number[]) => {
     setValues(newValues);
-    await setChannelValue({ channelNumber, value: newValues[0] });
+    sendValue(channelNumber, newValues[0]);
   };
   useEffect(() => {
     setValues([value]);

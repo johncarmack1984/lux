@@ -1,4 +1,3 @@
-import { deleteChannel, editChannel } from "./app/actions";
 import {
   createTauRPCProxy,
   type LuxLabelColor,
@@ -15,10 +14,3 @@ export interface ChannelProps extends LuxChannel {
 export interface LightColorVariants extends VariantProps<
   typeof lightColorVariants
 > {}
-
-declare module "@tanstack/table-core" {
-  interface TableMeta<TData extends ChannelProps> {
-    deleteChannel: typeof deleteChannel;
-    editChannel: typeof editChannel;
-  }
-}
