@@ -3,13 +3,14 @@
 import { Popover, PopoverContent } from "@/components/ui/popover";
 
 import useBuffer from "@/hooks/useBuffer";
-import { useEffect, useState, type ChangeEvent } from "react";
-import { RgbaColorPicker, HexColorInput, type RgbaColor } from "react-colorful";
+import { useEffect, useState } from "react";
+import { RgbaColorPicker, type RgbaColor } from "react-colorful";
 import { cn } from "@/lib/utils";
 import { bufferToRgba, defaultBuffer, rgbaToBuffer } from "./rgb-utils";
 import RgbaInput from "./rgba-input";
 import ColorTrigger from "./color-trigger";
 import { createTauRPCProxy } from "@/bindings";
+import useThrottle from "@/hooks/useThrottle";
 
 const ColorPicker = ({ className }: { className?: string }) => {
   const buffer = useBuffer();
@@ -23,10 +24,14 @@ const ColorPicker = ({ className }: { className?: string }) => {
     setColor(bufferToRgba(buffer));
   }, [buffer]);
 
+  // The color wheel fires continuously; keep the swatch immediate but throttle
+  // the buffer write to the hardware/IPC path.
+  const sendBuffer = useThrottle((next: RgbaColor) => {
+    createTauRPCProxy().cmd.set_buffer(rgbaToBuffer(next));
+  }, 40);
   const selectColor = (newColor: RgbaColor) => {
     setColor(newColor);
-    const taurpc = createTauRPCProxy();
-    taurpc.cmd.set_buffer(rgbaToBuffer(newColor));
+    sendBuffer(newColor);
   };
 
   return (

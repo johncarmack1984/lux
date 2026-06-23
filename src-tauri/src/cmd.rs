@@ -20,7 +20,6 @@ pub trait CmdMethods {
         app_handle: AppHandle,
         new_metadata: LuxChannel,
     ) -> Result<LuxChannel, String>;
-    fn delete_channel(&self, app_handle: AppHandle, channel_number: u32) -> Result<(), String>;
     fn update_channel_metadata(
         &self,
         app_handle: AppHandle,
@@ -65,10 +64,6 @@ impl CmdMethods for CmdEndpoint {
             new_metadata,
             app_handle.clone(),
         )
-    }
-    fn delete_channel(&self, _app_handle: AppHandle, channel_number: u32) -> Result<(), String> {
-        log::debug!("received channel {} to delete", channel_number);
-        Ok(())
     }
     fn update_channel_metadata(
         &self,

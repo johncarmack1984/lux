@@ -7,7 +7,7 @@ function Greeting() {
       <Image
         className="inline w-[57px] h-[62px]"
         src="/lux.svg"
-        alt="Vercel Logo"
+        alt="Lux"
         width={57}
         height={62}
       />

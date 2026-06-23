@@ -10,10 +10,8 @@ import {
   useReactTable,
   type Table as TableType,
 } from "@tanstack/react-table";
-import { deleteChannel, editChannel } from "@/app/actions";
 import GridRow from "./row";
 import useLuxState from "@/hooks/useLuxState";
-import useIncomingApiRequest from "@/hooks/useIncomingApiRequest";
 
 function EmptyGrid() {
   const key = "no-rows-present-row";
@@ -41,15 +39,10 @@ function GridBody({ table }: { table: TableType<ChannelProps> }) {
 
 export default function ControlGrid() {
   const data = useLuxState();
-  // useIncomingApiRequest();
   const table = useReactTable({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    meta: {
-      editChannel,
-      deleteChannel,
-    },
   });
 
   return (
