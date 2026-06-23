@@ -14,6 +14,12 @@ The Rust side keeps a DMX channel buffer continuously synced to the hardware
 type-safe IPC crate I wrote — so the Rust↔TypeScript command layer is type-safe
 end to end.
 
+## Demo
+
+![Lux driving an RGBAW fixture over an Enttec OpenDMX USB interface](.github/lux-demo.gif)
+
+*Setting fixture color live from the desktop UI — the RGBAW tube and the Enttec OpenDMX USB interface (bottom) respond in real time.*
+
 ## Stack
 
 Rust · Tauri 2 · tauri-typed-ipc (type-safe IPC) · Next.js 16 · React 19 · shadcn/ui ·
