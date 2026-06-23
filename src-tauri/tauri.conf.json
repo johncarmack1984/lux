@@ -6,7 +6,7 @@
     "beforeBuildCommand": "bun run build",
     "beforeDevCommand": "bun run dev",
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:3000"
+    "devUrl": "http://localhost:1420"
   },
   "app": {
     "withGlobalTauri": false,
@@ -14,7 +14,7 @@
       {
         "title": "💡lux",
         "label": "control-grid",
-        "url": "control-grid",
+        "url": "/",
         "x": 0,
         "y": 0,
         "width": 960,

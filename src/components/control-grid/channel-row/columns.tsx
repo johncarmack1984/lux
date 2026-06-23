@@ -1,5 +1,3 @@
-"use client";
-
 import type { ChannelProps } from "@/global";
 import { type ColumnDef } from "@tanstack/react-table";
 import ChannelLabel from "./channel-label";

@@ -1,5 +1,3 @@
-"use client";
-
 import { type ChangeEvent } from "react";
 import { type RgbaColor } from "react-colorful";
 import { Input, inputVariants } from "../ui/input";

@@ -1,5 +1,3 @@
-"use client";
-
 import { Button } from "@/components/ui/button";
 import { error, trace } from "@tauri-apps/plugin-log";
 import { createTauRPCProxy } from "@/bindings";

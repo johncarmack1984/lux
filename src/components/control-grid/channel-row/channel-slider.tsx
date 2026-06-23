@@ -1,11 +1,9 @@
-"use client";
-
 import type { ChannelProps } from "@/global";
 import { type CellContext } from "@tanstack/react-table";
 import { useEffect, useState } from "react";
 import { Slider } from "@/components/ui/slider";
 import { TableCell } from "../../ui/table";
-import { setChannelValue } from "@/app/actions";
+import { setChannelValue } from "@/lib/actions";
 import { toast } from "sonner";
 import useThrottle from "@/hooks/useThrottle";
 

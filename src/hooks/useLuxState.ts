@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useMemo, useReducer } from "react";
 
 import useBuffer from "@/hooks/useBuffer";

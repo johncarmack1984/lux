@@ -1,5 +1,3 @@
-"use client";
-
 import type { ChannelProps, LuxLabelColor } from "@/global";
 import { type CellContext } from "@tanstack/react-table";
 import { cn, lightColorVariants } from "@/lib/utils";

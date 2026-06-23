@@ -1,10 +1,8 @@
-"use client";
-
 import type { ChannelProps } from "@/global";
 import { type CellContext } from "@tanstack/react-table";
 import { Button } from "../../ui/button";
 import { TableCell } from "../../ui/table";
-import { setChannelValue } from "@/app/actions";
+import { setChannelValue } from "@/lib/actions";
 import { toast } from "sonner";
 
 const ChannelValue = ({ row }: CellContext<ChannelProps, unknown>) => {

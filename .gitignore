@@ -42,6 +42,9 @@ next-env.d.ts
 /target/
 dist
 
+# tanstack router (generated)
+src/routeTree.gen.ts
+
 .terraform/
 
 # Claude Code — local working notes, not for the public repo

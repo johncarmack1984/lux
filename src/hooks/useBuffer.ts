@@ -1,5 +1,3 @@
-"use client";
-
 import { attachConsole, debug, trace } from "@tauri-apps/plugin-log";
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";

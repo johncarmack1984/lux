@@ -10,7 +10,7 @@ const usePrintChannels = () => {
       if (channels === null) return;
       let l1 = "";
       let l2 = "";
-      let length = channels.length;
+      const length = channels.length;
       buffer.forEach((value, i) => {
         l1 += `| ${toBoardDisplay("0", String(value))}`;
         l2 += "| " + toBoardDisplay(" ", `C${i + 1}`);
