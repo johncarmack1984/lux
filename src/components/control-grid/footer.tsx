@@ -1,10 +1,4 @@
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableFooter,
-  TableRow,
-} from "@/components/ui/table";
+import { TableCell, TableFooter, TableRow } from "@/components/ui/table";
 import { createTauRPCProxy } from "@/bindings";
 import { Button } from "@/components/ui/button";
 import { PlusIcon } from "lucide-react";

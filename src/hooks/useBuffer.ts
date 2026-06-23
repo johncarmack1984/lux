@@ -1,4 +1,4 @@
-import { attachConsole, debug, trace } from "@tauri-apps/plugin-log";
+import { attachConsole, trace } from "@tauri-apps/plugin-log";
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import { createTauRPCProxy } from "@/bindings";
