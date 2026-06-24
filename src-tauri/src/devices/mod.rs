@@ -224,7 +224,7 @@ fn sacn_interface_override() -> Option<Ipv4Addr> {
 pub fn switch_to_device<R: Runtime>(app: &AppHandle<R>, device: &Device) {
     app.state::<DmxOutput>().set_device(device);
     persist_key(app, &device.key());
-    let buffer = *app.state::<crate::buffer::LuxBuffer>().buffer.lock().unwrap();
+    let buffer = app.state::<crate::buffer::LuxBuffer>().buffer.lock().unwrap().clone();
     if let Err(e) = app.state::<DmxOutput>().render(&buffer) {
         log::trace!("post-switch render failed: {e}");
     }
@@ -317,7 +317,7 @@ pub fn start_keepalive<R: Runtime>(app: &AppHandle<R>) {
                 continue;
             }
             // Copy out of the lock before the render so no guard is held across it.
-            let buffer = *app.state::<crate::buffer::LuxBuffer>().buffer.lock().unwrap();
+            let buffer = app.state::<crate::buffer::LuxBuffer>().buffer.lock().unwrap().clone();
             if let Err(e) = app.state::<DmxOutput>().render(&buffer) {
                 log::trace!("sACN keepalive render failed: {e}");
             }

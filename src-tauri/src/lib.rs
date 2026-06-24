@@ -34,7 +34,7 @@ pub async fn run() {
         devices::start_autodetect(app.handle());
         devices::start_keepalive(app.handle());
     });
-    let default_buffer = LuxBuffer::from([121, 255, 255, 0, 0, 42]);
+    let default_buffer = LuxBuffer::from(vec![121, 255, 255, 0, 0, 42]);
     let default_channels = LuxChannels::default();
     let router = SyncEndpoint
         .into_procedures()

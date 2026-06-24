@@ -1,5 +1,5 @@
 use crate::{
-    buffer::{Buffer, LuxBuffer, BUFFER_SIZE},
+    buffer::{Buffer, LuxBuffer},
     channel::LuxChannel,
     channels::LuxChannels,
     sync::*,
@@ -30,7 +30,7 @@ pub trait CmdMethods {
 }
 #[derive(ttipc::Event)]
 pub enum CmdEvent {
-    ChannelDataSet { channels: [LuxChannel; BUFFER_SIZE] },
+    ChannelDataSet { channels: Vec<LuxChannel> },
 }
 
 #[derive(Clone)]

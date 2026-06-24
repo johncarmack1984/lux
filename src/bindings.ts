@@ -5,7 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 
 export const cmd = {
   /** @throws {string} */
-  set_buffer(buffer: [number, number, number, number, number, number]): Promise<LuxBuffer> {
+  set_buffer(buffer: number[]): Promise<LuxBuffer> {
     return invoke("cmd.set_buffer", { buffer });
   },
 
@@ -47,20 +47,20 @@ export const sync = {
   },
 };
 
-export type CmdEvent = { type: "channelDataSet"; channels: [LuxChannel, LuxChannel, LuxChannel, LuxChannel, LuxChannel, LuxChannel] };
+export type CmdEvent = { type: "channelDataSet"; channels: LuxChannel[] };
 
-export type SyncEvent = { type: "bufferSet"; buffer: [number, number, number, number, number, number] };
+export type SyncEvent = { type: "bufferSet"; buffer: number[] };
 
 export const events = {
   cmd: {
     listen(callback: (event: CmdEvent) => void): Promise<() => void> {
-      return listen<{ channels: [LuxChannel, LuxChannel, LuxChannel, LuxChannel, LuxChannel, LuxChannel] }>("cmd:channelDataSet", (event) => callback({ type: "channelDataSet", ...event.payload }));
+      return listen<{ channels: LuxChannel[] }>("cmd:channelDataSet", (event) => callback({ type: "channelDataSet", ...event.payload }));
     },
   },
 
   sync: {
     listen(callback: (event: SyncEvent) => void): Promise<() => void> {
-      return listen<{ buffer: [number, number, number, number, number, number] }>("sync:bufferSet", (event) => callback({ type: "bufferSet", ...event.payload }));
+      return listen<{ buffer: number[] }>("sync:bufferSet", (event) => callback({ type: "bufferSet", ...event.payload }));
     },
   },
 };
@@ -79,13 +79,15 @@ export type Channel = {
 };
 
 export type LuxBuffer = {
-	buffer: [number, number, number, number, number, number],
+	buffer: number[],
 };
 
 export type LuxChannel = Channel;
 
 export type LuxChannels = {
-	channels: [LuxChannel, LuxChannel, LuxChannel, LuxChannel, LuxChannel, LuxChannel],
+	channels: LuxChannel[],
 };
 
-export type LuxLabelColor = "Red" | "Green" | "Blue" | "Amber" | "White" | "Brightness";
+export type LuxLabelColor = "Red" | "Green" | "Blue" | "Amber" | "White" | "Brightness" | 
+/**  Raw universe channels (7..=512) with no fixed colour role. */
+"Generic";
