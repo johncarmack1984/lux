@@ -1488,8 +1488,7 @@ dependencies = [
 [[package]]
 name = "glib"
 version = "0.18.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "233daaf6e83ae6a12a52055f568f9d7cf4671dabb78ff9560ab6da230ce00ee5"
+source = "git+https://github.com/johncarmack1984/gtk-rs-core?branch=lux%2Fglib-0.18-patch#0869c7efc510daf87622847bcf3ea8db48373a64"
 dependencies = [
  "bitflags 2.13.0",
  "futures-channel",
@@ -2225,7 +2224,7 @@ checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 
 [[package]]
 name = "lux"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "array-init",
