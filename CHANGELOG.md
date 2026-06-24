@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/johncarmack1984/lux/compare/v0.4.1...v0.5.0) (2026-06-24)
+
+
+### Features
+
+* add network DMX output (sACN/E1.31) with auto-detected device selection ([#53](https://github.com/johncarmack1984/lux/issues/53)) ([b9b0f2b](https://github.com/johncarmack1984/lux/commit/b9b0f2b7716087d1d32dc16bb13577e0e61441fb))
+
 ## [0.4.1](https://github.com/johncarmack1984/lux/compare/v0.4.0...v0.4.1) (2026-06-24)
 
 
