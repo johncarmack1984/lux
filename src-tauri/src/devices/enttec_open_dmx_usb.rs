@@ -179,3 +179,33 @@ impl Default for EnttecOpenDMX {
         EnttecOpenDMX::new().unwrap()
     }
 }
+
+/// `DmxSink` adapter for the Enttec Open DMX USB. Each render re-enumerates,
+/// opens, writes, and closes the FTDI device — the device is stateless between
+/// frames and `LuxBuffer` only renders on change, so per-frame open/close is
+/// fine. Fails (e.g. `DEVICE_NOT_FOUND`) when no unit is attached.
+pub struct EnttecSink;
+
+impl super::DmxSink for EnttecSink {
+    fn render(&self, channels: &[u8]) -> Result<(), String> {
+        // Pack the fixture channels into a 513-byte DMX frame: index 0 is the
+        // start code, 1..=N the channel data.
+        let mut frame = [0u8; BUF_SIZE];
+        let n = channels.len().min(BUF_SIZE - 1);
+        frame[1..1 + n].copy_from_slice(&channels[..n]);
+
+        let mut interface = EnttecOpenDMX::new()
+            .map_err(|e| format!("Enttec OpenDMX USB initialization failed: {e}"))?;
+        interface
+            .open()
+            .map_err(|e| format!("Enttec OpenDMX USB failed to open: {e:?}"))?;
+        interface.set_buffer(frame);
+        interface
+            .render()
+            .map_err(|e| format!("Enttec OpenDMX USB failed to render: {e:?}"))?;
+        interface
+            .close()
+            .map_err(|e| format!("Enttec OpenDMX USB failed to close: {e:?}"))?;
+        Ok(())
+    }
+}

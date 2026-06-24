@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged into the generated macOS Info.plist by the Tauri bundler (`tauri build`).
+  Tauri 2 has no inline Info.plist field in tauri.conf.json; this file is the
+  supported way to add keys. https://v2.tauri.app/distribute/macos-application-bundle/
+
+  NSLocalNetworkUsageDescription: macOS gates local-network multicast/broadcast
+  behind a TCC prompt. lux needs it to discover (Art-Net ArtPoll) and drive
+  (sACN/E1.31 multicast) DMX nodes like the DMXKing eDMX1 Pro. Without this key
+  the prompt can fail to appear and sACN output is silently blocked.
+-->
+<plist version="1.0">
+  <dict>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>lux discovers and controls DMX lighting nodes (Art-Net / sACN) on your local network.</string>
+  </dict>
+</plist>

@@ -1,7 +1,6 @@
-use crate::{devices::enttec_open_dmx_usb::EnttecOpenDMX, sync::SyncEvent};
+use crate::{devices::DmxOutput, sync::SyncEvent};
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, Runtime};
 
@@ -17,34 +16,6 @@ pub type Buffer = [u8; BUFFER_SIZE];
 #[derive(Debug, Serialize, Deserialize, Clone, Type)]
 pub struct LuxBuffer {
     pub buffer: Arc<Mutex<Buffer>>,
-}
-
-/// Tray-toggleable emit ordering for `LuxBuffer::set`. When `optimistic` is set,
-/// the buffer event is emitted *before* the DMX render (the UI reflects a command
-/// immediately, even with no fixture attached); otherwise it is emitted only after
-/// a successful render (the UI mirrors the hardware). Default: optimistic, so the
-/// UI reflects a command immediately instead of waiting on the slower DMX render
-/// (waiting makes the sliders snap back to the lagging value and judder mid-drag).
-pub struct EmitMode {
-    optimistic: AtomicBool,
-}
-
-impl Default for EmitMode {
-    fn default() -> Self {
-        EmitMode {
-            optimistic: AtomicBool::new(true),
-        }
-    }
-}
-
-impl EmitMode {
-    pub fn optimistic(&self) -> bool {
-        self.optimistic.load(Ordering::Relaxed)
-    }
-
-    pub fn set(&self, optimistic: bool) {
-        self.optimistic.store(optimistic, Ordering::Relaxed);
-    }
 }
 
 impl ConvertFromVec for Buffer {
@@ -83,17 +54,12 @@ impl LuxBuffer {
     ) -> Result<LuxBuffer, String> {
         *self.buffer.lock().unwrap() = incoming_buffer;
 
-        // Tray toggle: emit the buffer event before the DMX render (optimistic —
-        // the UI reflects the command even with no fixture) or only after a
-        // successful render (the UI mirrors the hardware).
-        let optimistic = app.state::<EmitMode>().optimistic();
-        if optimistic {
-            emit_buffer(incoming_buffer, &app)?;
-        }
-        render(incoming_buffer)?;
-        if !optimistic {
-            emit_buffer(incoming_buffer, &app)?;
-        }
+        // Optimistic: reflect the command in the UI immediately, before the DMX
+        // render — which may hit the network (sACN) or have no device attached.
+        // Always on: with a network node in the path, leading the render is what
+        // keeps the sliders from snapping back to a lagging value mid-drag.
+        emit_buffer(incoming_buffer, &app)?;
+        render(incoming_buffer, &app)?;
 
         Ok(self.clone())
     }
@@ -110,25 +76,12 @@ impl LuxBuffer {
     }
 }
 
-/// Push the 6-channel buffer to the Enttec OpenDMX fixture (channels 1..=6 of the
-/// 512-channel universe). Fails (e.g. `DEVICE_NOT_FOUND`) when no unit is attached.
-fn render(buffer: Buffer) -> Result<(), String> {
-    let mut temp_buffer = [0u8; 513];
-    temp_buffer[1..BUFFER_SIZE + 1].copy_from_slice(&buffer);
-
-    let mut interface = EnttecOpenDMX::new()
-        .map_err(|e| format!("Enttec OpenDMX USB initialization failed: {}", e))?;
-    interface
-        .open()
-        .map_err(|e| format!("Enttec OpenDMX USB failed to open: {}", e))?;
-    interface.set_buffer(temp_buffer);
-    interface
-        .render()
-        .map_err(|e| format!("Enttec OpenDMX USB failed to render: {}", e))?;
-    interface
-        .close()
-        .map_err(|e| format!("Enttec OpenDMX USB failed to close: {}", e))?;
-    Ok(())
+/// Push the 6-channel buffer to the active DMX output (Enttec USB or sACN
+/// network node), selected at startup into `DmxOutput`. Channels map to slots
+/// 1..=6 of the 512-channel universe. Fails (e.g. `DEVICE_NOT_FOUND`, socket
+/// error) when the output can't accept the frame.
+fn render<R: Runtime>(buffer: Buffer, app: &tauri::AppHandle<R>) -> Result<(), String> {
+    app.state::<DmxOutput>().render(&buffer)
 }
 
 fn emit_buffer<R: Runtime>(buffer: Buffer, app: &tauri::AppHandle<R>) -> Result<(), String> {
