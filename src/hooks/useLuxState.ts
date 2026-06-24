@@ -1,6 +1,4 @@
-"use client";
-
-import { useEffect, useMemo, useReducer } from "react";
+import { useEffect, useMemo } from "react";
 
 import useBuffer from "@/hooks/useBuffer";
 import useChannelsMetadata from "@/hooks/useChannelsMetaData";

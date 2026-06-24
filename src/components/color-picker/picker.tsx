@@ -1,5 +1,3 @@
-"use client";
-
 import { Popover, PopoverContent } from "@/components/ui/popover";
 
 import useBuffer from "@/hooks/useBuffer";

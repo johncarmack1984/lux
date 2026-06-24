@@ -22,10 +22,19 @@ pub struct LuxBuffer {
 /// Tray-toggleable emit ordering for `LuxBuffer::set`. When `optimistic` is set,
 /// the buffer event is emitted *before* the DMX render (the UI reflects a command
 /// immediately, even with no fixture attached); otherwise it is emitted only after
-/// a successful render (the UI mirrors the hardware). Default: after render.
-#[derive(Default)]
+/// a successful render (the UI mirrors the hardware). Default: optimistic, so the
+/// UI reflects a command immediately instead of waiting on the slower DMX render
+/// (waiting makes the sliders snap back to the lagging value and judder mid-drag).
 pub struct EmitMode {
     optimistic: AtomicBool,
+}
+
+impl Default for EmitMode {
+    fn default() -> Self {
+        EmitMode {
+            optimistic: AtomicBool::new(true),
+        }
+    }
 }
 
 impl EmitMode {

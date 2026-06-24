@@ -1,5 +1,3 @@
-"use client";
-
 import type { ChannelProps } from "@/global";
 import { type CellContext } from "@tanstack/react-table";
 import { Input } from "@/components/ui/input";

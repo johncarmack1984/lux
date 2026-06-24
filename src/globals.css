@@ -70,6 +70,7 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: "Inter Variable", system-ui, sans-serif;
   }
 }
 

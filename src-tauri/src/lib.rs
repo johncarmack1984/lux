@@ -18,6 +18,10 @@ use sync::*;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
+    // rustls 0.23 (pulled by rumqttc + reqwest) needs a process-level crypto
+    // provider installed before any TLS use, or it panics. Install ring explicitly.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let builder = setup(tauri::Builder::default(), |app| {
         remote::connect(app.handle());
         if let Err(e) = build_tray(app) {

@@ -1,32 +1,35 @@
-"use client";
-
-import { attachConsole, debug, trace } from "@tauri-apps/plugin-log";
-import { useState, useEffect, useCallback } from "react";
-import { toast } from "sonner";
+import { attachConsole } from "@tauri-apps/plugin-log";
+import { useState, useEffect } from "react";
 import { createTauRPCProxy } from "@/bindings";
-
-const detach = async () => await attachConsole();
 
 function useBuffer() {
   const [buffer, setBuffer] = useState<number[] | null>(null);
 
-  const setupListeners = useCallback(async () => {
-    const taurpc = createTauRPCProxy();
-    await taurpc.sync.event
-      .on((event) => {
-        if (event.type !== "bufferSet") return;
-        trace(`useBuffer listen buffer_set [${event.buffer}]`);
-        setBuffer(event.buffer);
-      })
-      .catch(toast.error);
-  }, []);
-
   useEffect(() => {
-    setupListeners();
+    const taurpc = createTauRPCProxy();
+    let active = true;
+    const consoleAttached = attachConsole();
+
+    // Fetch the current buffer directly so the UI reflects state on load even if
+    // the startup sync event fires before this listener is attached.
+    taurpc.sync
+      .sync_buffer()
+      .then((b) => {
+        if (active) setBuffer(b.buffer);
+      })
+      .catch(() => {});
+
+    const unlisten = taurpc.sync.event.on((event) => {
+      if (event.type !== "bufferSet") return;
+      setBuffer(event.buffer);
+    });
+
     return () => {
-      detach();
+      active = false;
+      unlisten.then((f) => f());
+      consoleAttached.then((detach) => detach());
     };
-  }, [setupListeners]);
+  }, []);
 
   return buffer;
 }

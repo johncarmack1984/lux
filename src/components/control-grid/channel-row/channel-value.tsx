@@ -1,10 +1,8 @@
-"use client";
-
 import type { ChannelProps } from "@/global";
 import { type CellContext } from "@tanstack/react-table";
 import { Button } from "../../ui/button";
 import { TableCell } from "../../ui/table";
-import { setChannelValue } from "@/app/actions";
+import { setChannelValue } from "@/lib/actions";
 import { toast } from "sonner";
 
 const ChannelValue = ({ row }: CellContext<ChannelProps, unknown>) => {
@@ -15,7 +13,7 @@ const ChannelValue = ({ row }: CellContext<ChannelProps, unknown>) => {
     await setChannelValue({
       channelNumber: row.original.channelNumber,
       value: newValue,
-    }).catch(toast.error);
+    }).catch((e) => toast.error(String(e)));
   };
   return (
     <TableCell className="w-14" key={key} id={key}>

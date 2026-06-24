@@ -1,7 +1,5 @@
-"use client";
-
 import { Button } from "@/components/ui/button";
-import { error, trace } from "@tauri-apps/plugin-log";
+import { debug, trace } from "@tauri-apps/plugin-log";
 import { createTauRPCProxy } from "@/bindings";
 import { toast } from "sonner";
 
@@ -11,11 +9,11 @@ export function setBuffer(
   const taurpc = createTauRPCProxy();
   taurpc.cmd
     .set_buffer(buffer)
-    .then((res) => {
-      if (process.env.NODE_ENV === "development")
-        toast.info(JSON.stringify({ buffer }));
+    .then(() => {
+      // Debug-only: logged at debug level, not surfaced as a toast.
+      debug(`buffer set [${buffer}]`);
     })
-    .catch(toast.error);
+    .catch((e) => toast.error(String(e)));
 }
 
 const buttons = [

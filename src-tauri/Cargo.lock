@@ -2225,7 +2225,7 @@ checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 
 [[package]]
 name = "lux"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "array-init",
@@ -2234,6 +2234,7 @@ dependencies = [
  "libftd2xx 0.33.1",
  "log",
  "rumqttc",
+ "rustls",
  "serde",
  "serde_json",
  "specta",

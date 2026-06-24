@@ -1,5 +1,3 @@
-"use client";
-
 import { colord } from "colord";
 import { type RgbaColor } from "react-colorful";
 import { Button } from "../ui/button";

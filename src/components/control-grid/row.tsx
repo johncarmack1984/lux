@@ -1,5 +1,3 @@
-"use client";
-
 import type { ChannelProps } from "@/global";
 import { TableRow } from "@/components/ui/table";
 import { flexRender, type Row } from "@tanstack/react-table";
