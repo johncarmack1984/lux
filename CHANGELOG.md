@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/johncarmack1984/lux/compare/v0.3.3...v0.4.0) (2026-06-24)
+
+
+### Features
+
+* migrate frontend to Vite + TanStack Router ([#49](https://github.com/johncarmack1984/lux/issues/49)) ([9091206](https://github.com/johncarmack1984/lux/commit/9091206f22d4d65a5665812a46f1c8aef1b7c20d))
+
 ## [0.3.3](https://github.com/johncarmack1984/lux/compare/v0.3.2...v0.3.3) (2026-06-23)
 
 
