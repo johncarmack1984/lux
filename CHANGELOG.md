@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/johncarmack1984/lux/compare/v0.4.0...v0.4.1) (2026-06-24)
+
+
+### Bug Fixes
+
+* **deps:** patch glib to clear RUSTSEC-2024-0429 ([#51](https://github.com/johncarmack1984/lux/issues/51)) ([766e8dc](https://github.com/johncarmack1984/lux/commit/766e8dc19300c092419187c029fc3e0c6c1e18b4))
+
 ## [0.4.0](https://github.com/johncarmack1984/lux/compare/v0.3.3...v0.4.0) (2026-06-24)
 
 
