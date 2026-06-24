@@ -20,7 +20,6 @@ tauri = { version = "^2.9.3", features = ["devtools", "test", "tracing"] }
 
 [dependencies]
 anyhow = "1.0.100"
-array-init = "2.1.0"
 dotenvy = "0.15.7"
 enttecopendmx = "0.1.1"
 libftd2xx = { version = "0.33.1", features = ["static"] }

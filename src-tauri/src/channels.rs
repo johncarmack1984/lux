@@ -1,14 +1,14 @@
-use crate::buffer::BUFFER_SIZE;
+use crate::buffer::UNIVERSE_SIZE;
 use crate::channel::{Channel, LuxChannel};
 use crate::cmd::CmdEvent;
 use crate::colors::LuxLabelColor;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::fmt::{self, Display, Formatter};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use tauri::Runtime;
 
-pub type Channels = [LuxChannel; BUFFER_SIZE];
+pub type Channels = Vec<LuxChannel>;
 
 #[derive(Debug, Deserialize, Serialize, Clone, Type)]
 pub struct LuxChannels {
@@ -17,28 +17,27 @@ pub struct LuxChannels {
 
 impl From<LuxChannels> for Channels {
     fn from(value: LuxChannels) -> Self {
-        value.channels.lock().unwrap().to_owned()
+        value.channels.lock().unwrap().clone()
     }
 }
 
 impl From<&LuxChannels> for Channels {
     fn from(value: &LuxChannels) -> Self {
-        value.channels.lock().unwrap().to_owned()
+        value.channels.lock().unwrap().clone()
     }
 }
 
-impl From<[LuxChannel; BUFFER_SIZE]> for LuxChannels {
-    fn from(value: [LuxChannel; BUFFER_SIZE]) -> Self {
-        let channels = array_init::array_init(|i| LuxChannel::from(value[i].clone()));
+impl From<Vec<LuxChannel>> for LuxChannels {
+    fn from(value: Vec<LuxChannel>) -> Self {
         LuxChannels {
-            channels: Arc::new(Mutex::new(channels)),
+            channels: Arc::new(Mutex::new(value)),
         }
     }
 }
 
-impl From<[Channel; BUFFER_SIZE]> for LuxChannels {
-    fn from(value: [Channel; BUFFER_SIZE]) -> Self {
-        let channels = array_init::array_init(|i| LuxChannel::from(value[i].clone()));
+impl From<Vec<Channel>> for LuxChannels {
+    fn from(value: Vec<Channel>) -> Self {
+        let channels = value.into_iter().map(LuxChannel::from).collect();
         LuxChannels {
             channels: Arc::new(Mutex::new(channels)),
         }
@@ -47,7 +46,7 @@ impl From<[Channel; BUFFER_SIZE]> for LuxChannels {
 
 impl From<&LuxChannels> for LuxChannels {
     fn from(value: &LuxChannels) -> Self {
-        let channels = value.channels.lock().unwrap().to_owned();
+        let channels = value.channels.lock().unwrap().clone();
         LuxChannels {
             channels: Arc::new(Mutex::new(channels)),
         }
@@ -56,51 +55,31 @@ impl From<&LuxChannels> for LuxChannels {
 
 impl Default for LuxChannels {
     fn default() -> Self {
-        let channels: LuxChannels = LuxChannels::from([
-            Channel {
-                id: uuid::Uuid::new_v4(),
-                disabled: false,
-                channel_number: 1,
-                label: "Red".to_owned(),
-                label_color: LuxLabelColor::Red,
-            },
-            Channel {
-                id: uuid::Uuid::new_v4(),
-                disabled: false,
-                channel_number: 2,
-                label: "Green".to_owned(),
-                label_color: LuxLabelColor::Green,
-            },
-            Channel {
-                id: uuid::Uuid::new_v4(),
-                disabled: false,
-                channel_number: 3,
-                label: "Blue".to_owned(),
-                label_color: LuxLabelColor::Blue,
-            },
-            Channel {
-                id: uuid::Uuid::new_v4(),
-                disabled: false,
-                channel_number: 4,
-                label: "Amber".to_owned(),
-                label_color: LuxLabelColor::Amber,
-            },
-            Channel {
-                id: uuid::Uuid::new_v4(),
-                disabled: false,
-                channel_number: 5,
-                label: "White".to_owned(),
-                label_color: LuxLabelColor::White,
-            },
-            Channel {
-                id: uuid::Uuid::new_v4(),
-                disabled: false,
-                channel_number: 6,
-                label: "Brightness".to_owned(),
-                label_color: LuxLabelColor::Brightness,
-            },
-        ]);
-
+        // Slots 1..=6 are the labelled RGBAW fixture; 7..=512 are raw universe
+        // channels with generic "CH N" labels.
+        let rgbaw = [
+            ("Red", LuxLabelColor::Red),
+            ("Green", LuxLabelColor::Green),
+            ("Blue", LuxLabelColor::Blue),
+            ("Amber", LuxLabelColor::Amber),
+            ("White", LuxLabelColor::White),
+            ("Brightness", LuxLabelColor::Brightness),
+        ];
+        let channels: Vec<Channel> = (1..=UNIVERSE_SIZE as u32)
+            .map(|channel_number| {
+                let (label, label_color) = rgbaw
+                    .get((channel_number - 1) as usize)
+                    .map(|(label, color)| ((*label).to_owned(), *color))
+                    .unwrap_or_else(|| (format!("CH {channel_number}"), LuxLabelColor::Generic));
+                Channel {
+                    id: uuid::Uuid::new_v4(),
+                    disabled: false,
+                    channel_number,
+                    label,
+                    label_color,
+                }
+            })
+            .collect();
         LuxChannels::from(channels)
     }
 }
@@ -108,20 +87,6 @@ impl Default for LuxChannels {
 impl Display for LuxChannels {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.channels.lock().unwrap())
-    }
-}
-
-impl From<MutexGuard<'_, [LuxChannel; BUFFER_SIZE]>> for LuxChannels {
-    fn from(value: MutexGuard<'_, [LuxChannel; BUFFER_SIZE]>) -> Self {
-        LuxChannels {
-            channels: Arc::new(Mutex::new(value.to_owned())),
-        }
-    }
-}
-
-impl From<Arc<Mutex<[LuxChannel; BUFFER_SIZE]>>> for LuxChannels {
-    fn from(value: Arc<Mutex<[LuxChannel; BUFFER_SIZE]>>) -> Self {
-        LuxChannels { channels: value }
     }
 }
 
@@ -139,13 +104,13 @@ impl LuxChannels {
         channel_number: usize,
         new_metadata: LuxChannel,
     ) -> Result<LuxChannel, String> {
+        let mut channels = self.channels.lock().unwrap();
+        let len = channels.len();
         let index = channel_number
             .checked_sub(1)
-            .filter(|i| *i < BUFFER_SIZE)
-            .ok_or_else(|| {
-                format!("channel {channel_number} out of range (expected 1..={BUFFER_SIZE})")
-            })?;
-        self.channels.lock().unwrap()[index] = new_metadata.clone();
+            .filter(|i| *i < len)
+            .ok_or_else(|| format!("channel {channel_number} out of range (expected 1..={len})"))?;
+        channels[index] = new_metadata.clone();
         Ok(new_metadata)
     }
 
@@ -166,9 +131,8 @@ impl LuxChannels {
 
     pub fn set_all(&mut self, channels: Channels) -> Result<LuxChannels, String> {
         log::trace!("set_all");
-        let mut locked_channels = self.channels.lock().unwrap();
-        *locked_channels = channels.clone();
-        Ok(locked_channels.into())
+        *self.channels.lock().unwrap() = channels.clone();
+        Ok(LuxChannels::from(channels))
     }
 
     pub fn set_channels<R: Runtime>(
@@ -204,6 +168,16 @@ mod tests {
     }
 
     #[test]
+    fn default_spans_the_full_universe() {
+        let channels = LuxChannels::default();
+        let locked = channels.channels.lock().unwrap();
+        assert_eq!(locked.len(), UNIVERSE_SIZE);
+        // Slot 1 is the labelled Red channel, slot 7 is a generic raw channel.
+        assert_eq!(locked[0].get_channel_number(), 1);
+        assert_eq!(locked[6].get_channel_number(), 7);
+    }
+
+    #[test]
     fn put_persists_metadata_at_one_based_channel() {
         let channels = LuxChannels::default();
 
@@ -223,6 +197,6 @@ mod tests {
     fn put_rejects_out_of_range_channels() {
         let channels = LuxChannels::default();
         assert!(channels.put(0, sample(1, "x")).is_err());
-        assert!(channels.put(BUFFER_SIZE + 1, sample(1, "x")).is_err());
+        assert!(channels.put(UNIVERSE_SIZE + 1, sample(1, "x")).is_err());
     }
 }

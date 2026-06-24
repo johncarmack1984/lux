@@ -16,9 +16,9 @@ const useLuxState = () => {
   return useMemo(() => {
     if (!luxChannels) return [];
     if (!buffer) return [];
-    return luxChannels?.map((channel) => ({
+    return luxChannels.map((channel) => ({
       ...channel,
-      value: buffer?.[channel.channelNumber - 1],
+      value: buffer[channel.channelNumber - 1] ?? 0,
     }));
   }, [buffer, luxChannels]);
 };

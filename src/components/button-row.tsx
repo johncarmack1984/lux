@@ -3,9 +3,7 @@ import { debug, trace } from "@tauri-apps/plugin-log";
 import { createTauRPCProxy } from "@/bindings";
 import { toast } from "sonner";
 
-export function setBuffer(
-  buffer: [number, number, number, number, number, number]
-) {
+export function setBuffer(buffer: number[]) {
   const taurpc = createTauRPCProxy();
   taurpc.cmd
     .set_buffer(buffer)
@@ -18,8 +16,11 @@ export function setBuffer(
 
 const buttons = [
   {
+    // Universe-wide: 512 zeros clear every channel, not just the RGBAW fixture
+    // (`set_buffer` overlays the leading slots, so a 6-byte write would leave
+    // raw channels 7..=512 lit).
     children: "⚫️ Blackout",
-    onClick: () => setBuffer([0, 0, 0, 0, 0, 0]),
+    onClick: () => setBuffer(Array(512).fill(0)),
   },
   {
     children: "✅ Default",

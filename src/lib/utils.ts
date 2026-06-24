@@ -25,6 +25,7 @@ const lightColorVariants = cva(
         Amber: "bg-amber-200 text-amber-800",
         White: "bg-white text-black",
         Brightness: "bg-black text-white",
+        Generic: "bg-muted text-muted-foreground",
       },
     },
   }

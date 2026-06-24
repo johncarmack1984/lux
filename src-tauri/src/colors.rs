@@ -12,6 +12,8 @@ pub enum LuxLabelColor {
     Amber,
     White,
     Brightness,
+    /// Raw universe channels (7..=512) with no fixed colour role.
+    Generic,
 }
 
 impl FromStr for LuxLabelColor {
@@ -25,6 +27,7 @@ impl FromStr for LuxLabelColor {
             "Amber" => Ok(LuxLabelColor::Amber),
             "White" => Ok(LuxLabelColor::White),
             "Brightness" => Ok(LuxLabelColor::Brightness),
+            "Generic" => Ok(LuxLabelColor::Generic),
             _ => Err("Invalid color"),
         }
     }
