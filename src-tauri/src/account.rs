@@ -1,11 +1,11 @@
 //! Cognito accounts: sign-up, SRP sign-in, sign-out, and silent refresh, plus
 //! secure refresh-token storage in the OS keychain.
 //!
-//! Like [`crate::remote`], this is configured from the environment and no-ops
-//! cleanly when unset: with `COGNITO_*` absent, accounts are disabled and the
-//! app runs exactly as it does today (local-only). Identity gates cloud sync
-//! (Phase 3) — it never sits in the live DMX path, so a network or auth outage
-//! can't affect output.
+//! Production Cognito + sync endpoints are baked in (the `DEFAULT_*` constants)
+//! so accounts work in distributed builds, which ship without a `.env`; env
+//! vars (or `src-tauri/.env` in dev) still override them. Sign-in stays optional
+//! — identity only gates cloud sync (Phase 3) and never sits in the live DMX
+//! path, so a network or auth outage can't affect output.
 //!
 //! Cognito's sign-up / InitiateAuth / RespondToAuthChallenge / refresh calls are
 //! *unauthenticated* (keyed by the public app-client id, not AWS SigV4), so the
@@ -29,7 +29,28 @@ use crate::cmd::CmdEvent;
 const KEYRING_SERVICE: &str = "com.johncarmack.lux";
 const KEYRING_USER: &str = "cognito-session";
 
-/// Cognito configuration from the environment. Absent → accounts disabled.
+// Production Cognito + sync endpoints, baked in so accounts work in a released
+// `.app` (which ships without a `.env`). None of these are secrets: a public
+// Cognito app-client carries no client secret, the pool only honors
+// per-user-authenticated calls, and the sync Function URL verifies a JWT in the
+// handler — and all four are trivially extractable from any shipped binary
+// regardless. Runtime env vars override them for dev and alternate deployments.
+const DEFAULT_REGION: &str = "us-west-1";
+const DEFAULT_POOL_ID: &str = "us-west-1_jV7esPwmi";
+const DEFAULT_CLIENT_ID: &str = "2t2l4fn537ttb3vul39olt3of3";
+const DEFAULT_SYNC_URL: &str = "https://ql2e5b4hdjnfsns467vesieul40vbvsb.lambda-url.us-west-1.on.aws/";
+
+/// Read `key` from the environment, falling back to a baked-in default. An unset
+/// *or empty* value yields the default, so a blank `.env` line can't disable it.
+fn env_or(key: &str, default: &str) -> String {
+    std::env::var(key)
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| default.to_string())
+}
+
+/// Cognito configuration: baked-in production defaults (above), each overridable
+/// by the matching `COGNITO_*` env var for dev and alternate deployments.
 #[derive(Debug, Clone)]
 struct Config {
     region: String,
@@ -37,13 +58,13 @@ struct Config {
     client_id: String,
 }
 
-fn load_config() -> Option<Config> {
+fn load_config() -> Config {
     let _ = dotenvy::dotenv();
-    Some(Config {
-        region: std::env::var("COGNITO_REGION").ok()?,
-        pool_id: std::env::var("COGNITO_USER_POOL_ID").ok()?,
-        client_id: std::env::var("COGNITO_APP_CLIENT_ID").ok()?,
-    })
+    Config {
+        region: env_or("COGNITO_REGION", DEFAULT_REGION),
+        pool_id: env_or("COGNITO_USER_POOL_ID", DEFAULT_POOL_ID),
+        client_id: env_or("COGNITO_APP_CLIENT_ID", DEFAULT_CLIENT_ID),
+    }
 }
 
 /// The signed-in session, held in memory. The refresh token is also persisted to
@@ -103,16 +124,14 @@ struct StoredSession {
 impl LuxAccount {
     pub fn from_env() -> Self {
         let config = load_config();
-        match &config {
-            Some(c) => log::info!("accounts enabled (Cognito pool {})", c.pool_id),
-            None => log::info!("accounts not configured; sign-in disabled (set COGNITO_* to enable)"),
-        }
-        let sync_url = std::env::var("LUX_SYNC_URL")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .map(|s| s.trim_end_matches('/').to_string());
+        log::info!("accounts enabled (Cognito pool {})", config.pool_id);
+        let sync_url = Some(
+            env_or("LUX_SYNC_URL", DEFAULT_SYNC_URL)
+                .trim_end_matches('/')
+                .to_string(),
+        );
         LuxAccount {
-            config,
+            config: Some(config),
             sync_url,
             session: Arc::new(Mutex::new(Session::default())),
         }
