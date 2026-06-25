@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/johncarmack1984/lux/compare/v0.7.0...v0.8.0) (2026-06-25)
+
+
+### Features
+
+* accounts and cloud sync of setups ([#62](https://github.com/johncarmack1984/lux/issues/62)) ([11040e2](https://github.com/johncarmack1984/lux/commit/11040e288fc2b1da5086e212ebb74282d7acad41))
+
+
+### Bug Fixes
+
+* bake Cognito config into the build so accounts work in releases ([#65](https://github.com/johncarmack1984/lux/issues/65)) ([168ee1c](https://github.com/johncarmack1984/lux/commit/168ee1cca31430687cbd1588c535c0ebc7a4d6bf))
+
 ## [0.7.0](https://github.com/johncarmack1984/lux/compare/v0.6.1...v0.7.0) (2026-06-25)
 
 
