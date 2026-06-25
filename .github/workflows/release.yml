@@ -26,11 +26,44 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
+      - uses: actions/checkout@v7
+
       - uses: googleapis/release-please-action@v5
         id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # release-please uses release-type "simple", which bumps src-tauri/Cargo.toml
+      # but leaves the `lux` entry in src-tauri/Cargo.lock at the old version, so the
+      # lockfile shows up dirty on the next local `cargo` run. While a release PR is
+      # open, sync the lockfile onto its branch so main never lands a stale lock.
+      # Runs in this job by necessity: a push authored by GITHUB_TOKEN can't trigger
+      # a separate workflow, so the release branch wouldn't get picked up elsewhere.
+      - name: Sync Cargo.lock to the release version
+        if: ${{ steps.release.outputs.pr }}
+        env:
+          PR_JSON: ${{ steps.release.outputs.pr }}
+        run: |
+          set -euo pipefail
+          PR_BRANCH=$(printf '%s' "$PR_JSON" | jq -r '.headBranchName')
+          echo "Release PR branch: $PR_BRANCH"
+          git fetch --depth=1 origin "$PR_BRANCH"
+          git checkout "$PR_BRANCH"
+          version=$(jq -r '."."' .release-please-manifest.json)
+          # The `lux` workspace member has no checksum in the lock, so its version
+          # is a pure text field — sync it without invoking cargo (no dep churn).
+          VER="$version" perl -0pi -e 's/(name = "lux"\nversion = ")[^"]*/$1$ENV{VER}/' src-tauri/Cargo.lock
+          if git diff --quiet -- src-tauri/Cargo.lock; then
+            echo "Cargo.lock already in sync at $version"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri/Cargo.lock
+          git commit -m "chore: sync Cargo.lock to $version"
+          git push origin "HEAD:$PR_BRANCH"
+          echo "Synced Cargo.lock to $version on $PR_BRANCH"
 
   # Builds the macOS app and attaches it to the release — after a release-please
   # release, or on a manual dispatch for an existing tag. Unsigned for now
