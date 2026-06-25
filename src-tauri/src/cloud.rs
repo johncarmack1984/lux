@@ -449,6 +449,9 @@ mod tests {
     #[test]
     #[ignore = "hits the live sync API; needs LUX_SYNC_URL + LUX_TEST_ID_TOKEN"]
     fn cloud_round_trip_live() {
+        // reqwest 0.13 (rustls-no-provider) needs a process crypto provider before
+        // building a Client; the app installs ring in lib.rs::run(), so mirror that here.
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let base = std::env::var("LUX_SYNC_URL")
             .unwrap()
             .trim_end_matches('/')

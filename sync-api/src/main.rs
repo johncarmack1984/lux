@@ -38,6 +38,10 @@ async fn main() -> Result<(), Error> {
         .without_time()
         .init();
 
+    // reqwest uses rustls with no baked provider; install ring as the process
+    // default before the JWKS fetch below performs any TLS.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let pool_id = env("COGNITO_USER_POOL_ID");
     let client_id = env("COGNITO_APP_CLIENT_ID");
     let region = env("COGNITO_REGION");
