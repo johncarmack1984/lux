@@ -13,6 +13,7 @@
       // change this to your `beforeDevCommand`:
       "command": "bun",
       "args": ["dev"],
+      "options": { "cwd": "${workspaceFolder}/apps/desktop" },
       "problemMatcher": [
         {
           "pattern": [
@@ -37,6 +38,7 @@
       // change this to your `beforeBuildCommand`:
       "command": "bun",
       "args": ["build"],
+      "options": { "cwd": "${workspaceFolder}/apps/desktop" },
       "problemMatcher": ["$tsc"]
     }
   ]

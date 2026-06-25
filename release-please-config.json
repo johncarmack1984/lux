@@ -7,9 +7,9 @@
       "include-component-in-tag": false,
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
-        { "type": "json", "path": "package.json", "jsonpath": "$.version" },
-        { "type": "json", "path": "src-tauri/tauri.conf.json", "jsonpath": "$.version" },
-        "src-tauri/Cargo.toml"
+        { "type": "json", "path": "apps/desktop/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "apps/desktop/src-tauri/tauri.conf.json", "jsonpath": "$.version" },
+        "apps/desktop/src-tauri/Cargo.toml"
       ]
     }
   }
