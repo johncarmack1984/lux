@@ -83,6 +83,31 @@ export const cmd = {
   set_active_setup(id: string): Promise<SetupSummary> {
     return invoke("cmd.set_active_setup", { id });
   },
+
+  /** @throws {string} */
+  auth_status(): Promise<AuthStatus> {
+    return invoke("cmd.auth_status");
+  },
+
+  /** @throws {string} */
+  sign_up(email: string, password: string): Promise<null> {
+    return invoke("cmd.sign_up", { email, password });
+  },
+
+  /** @throws {string} */
+  confirm_sign_up(email: string, code: string): Promise<null> {
+    return invoke("cmd.confirm_sign_up", { email, code });
+  },
+
+  /** @throws {string} */
+  sign_in(email: string, password: string): Promise<AuthStatus> {
+    return invoke("cmd.sign_in", { email, password });
+  },
+
+  /** @throws {string} */
+  sign_out(): Promise<AuthStatus> {
+    return invoke("cmd.sign_out");
+  },
 };
 
 export const sync = {
@@ -102,7 +127,7 @@ export const sync = {
   },
 };
 
-export type CmdEvent = { type: "channelDataSet"; channels: LuxChannel[] } | { type: "patchSet"; setup_id: string; fixtures: Fixture[] } | { type: "setupsChanged"; setups: SetupSummary[]; active_setup_id: string };
+export type CmdEvent = { type: "channelDataSet"; channels: LuxChannel[] } | { type: "patchSet"; setup_id: string; fixtures: Fixture[] } | { type: "setupsChanged"; setups: SetupSummary[]; active_setup_id: string } | { type: "authChanged"; status: AuthStatus };
 
 export type SyncEvent = { type: "bufferSet"; buffer: number[] };
 
@@ -113,6 +138,7 @@ export const events = {
         listen<{ channels: LuxChannel[] }>("cmd:channelDataSet", (event) => callback({ type: "channelDataSet", ...event.payload })),
         listen<{ setup_id: string; fixtures: Fixture[] }>("cmd:patchSet", (event) => callback({ type: "patchSet", ...event.payload })),
         listen<{ setups: SetupSummary[]; active_setup_id: string }>("cmd:setupsChanged", (event) => callback({ type: "setupsChanged", ...event.payload })),
+        listen<{ status: AuthStatus }>("cmd:authChanged", (event) => callback({ type: "authChanged", ...event.payload })),
       ]);
       return () => unlisten.forEach((un) => un());
     },
@@ -129,6 +155,16 @@ export const createTauRPCProxy = () => ({
   cmd: { ...cmd, event: { on: events.cmd.listen } },
   sync: { ...sync, event: { on: events.sync.listen } },
 });
+
+/**
+ *  Auth status crossing IPC: whether accounts are configured at all, whether
+ *  someone is signed in, and their email.
+ */
+export type AuthStatus = {
+	configured: boolean,
+	signedIn: boolean,
+	email: string | null,
+};
 
 export type Channel = {
 	id: string,

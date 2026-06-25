@@ -20,6 +20,13 @@ tauri = { version = "^2.9.3", features = ["devtools", "test", "tracing"] }
 
 [dependencies]
 anyhow = "1.0.100"
+# Cognito accounts (sign-up / SRP sign-in / refresh) + secure refresh-token
+# storage. Cognito's auth ops are unauthenticated, so the client runs with
+# `.no_credentials()` — end users never need AWS keys.
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-cognitoidentityprovider = "1"
+aws-cognito-srp = "0.2.5"
+keyring = { version = "3", features = ["apple-native"] }
 dotenvy = "0.15.7"
 enttecopendmx = "0.1.1"
 libftd2xx = { version = "0.33.1", features = ["static"] }
