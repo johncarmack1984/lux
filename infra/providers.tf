@@ -13,6 +13,12 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 6.0"
     }
+    # Builds the placeholder zip that lets `apply` create the sync-api Lambda
+    # before cargo-lambda ships the real code (see accounts.tf).
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.0"
+    }
   }
 }
 

@@ -1,0 +1,29 @@
+[package]
+name = "lux-sync-api"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Cloud-sync API on AWS Lambda (provided.al2023). The lux desktop app calls this
+# Function URL with a Cognito ID token to push and pull its setups; the handler
+# verifies the JWT, derives the caller's `sub`, and reads/writes only that user's
+# partition of the `lux-sync` DynamoDB table. Built and deployed with
+# cargo-lambda; the runtime expects a `bootstrap` executable, which cargo-lambda
+# produces from this binary.
+
+[dependencies]
+lambda_http = "1.2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-dynamodb = "1"
+jsonwebtoken = "9"
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "fmt",
+] }
