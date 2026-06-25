@@ -53,6 +53,36 @@ export const cmd = {
   remove_fixture(id: string): Promise<Fixture[]> {
     return invoke("cmd.remove_fixture", { id });
   },
+
+  /** @throws {string} */
+  list_setups(): Promise<SetupSummary[]> {
+    return invoke("cmd.list_setups");
+  },
+
+  /** @throws {string} */
+  create_setup(name: string, universe: number): Promise<SetupSummary[]> {
+    return invoke("cmd.create_setup", { name, universe });
+  },
+
+  /** @throws {string} */
+  rename_setup(id: string, name: string): Promise<SetupSummary[]> {
+    return invoke("cmd.rename_setup", { id, name });
+  },
+
+  /** @throws {string} */
+  set_setup_universe(id: string, universe: number): Promise<SetupSummary[]> {
+    return invoke("cmd.set_setup_universe", { id, universe });
+  },
+
+  /** @throws {string} */
+  delete_setup(id: string): Promise<SetupSummary[]> {
+    return invoke("cmd.delete_setup", { id });
+  },
+
+  /** @throws {string} */
+  set_active_setup(id: string): Promise<SetupSummary> {
+    return invoke("cmd.set_active_setup", { id });
+  },
 };
 
 export const sync = {
@@ -72,7 +102,7 @@ export const sync = {
   },
 };
 
-export type CmdEvent = { type: "channelDataSet"; channels: LuxChannel[] } | { type: "patchSet"; fixtures: Fixture[] };
+export type CmdEvent = { type: "channelDataSet"; channels: LuxChannel[] } | { type: "patchSet"; setup_id: string; fixtures: Fixture[] } | { type: "setupsChanged"; setups: SetupSummary[]; active_setup_id: string };
 
 export type SyncEvent = { type: "bufferSet"; buffer: number[] };
 
@@ -81,7 +111,8 @@ export const events = {
     async listen(callback: (event: CmdEvent) => void): Promise<() => void> {
       const unlisten = await Promise.all([
         listen<{ channels: LuxChannel[] }>("cmd:channelDataSet", (event) => callback({ type: "channelDataSet", ...event.payload })),
-        listen<{ fixtures: Fixture[] }>("cmd:patchSet", (event) => callback({ type: "patchSet", ...event.payload })),
+        listen<{ setup_id: string; fixtures: Fixture[] }>("cmd:patchSet", (event) => callback({ type: "patchSet", ...event.payload })),
+        listen<{ setups: SetupSummary[]; active_setup_id: string }>("cmd:setupsChanged", (event) => callback({ type: "setupsChanged", ...event.payload })),
       ]);
       return () => unlisten.forEach((un) => un());
     },
@@ -142,3 +173,15 @@ export type LuxChannels = {
 export type LuxLabelColor = "Red" | "Green" | "Blue" | "Amber" | "White" | "Brightness" | 
 /**  Raw universe channels (7..=512) with no fixed colour role. */
 "Generic";
+
+/**
+ *  A lightweight setup descriptor for the switcher UI — no fixtures, so listing
+ *  setups doesn't ship every patch.
+ */
+export type SetupSummary = {
+	id: string,
+	name: string,
+	universe: number,
+	fixtureCount: number,
+	active: boolean,
+};

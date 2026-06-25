@@ -2,18 +2,18 @@
 //!
 //! A [`Fixture`] is `channels.len()` consecutive DMX slots starting at a 1-based
 //! `address`; each [`ChannelDef`] gives that slot a role (which drives the UI
-//! control + colour) and a label. The set of fixtures is the [`LuxPatch`], held
-//! in Tauri state and persisted to `app_config_dir()/patch.json` — the same
-//! lightweight pattern the tray uses for the selected DMX device. Fixtures are
-//! additive: their controls write the shared `LuxBuffer` through the normal
-//! overlay `set` path, so the raw universe desk and color picker are unaffected.
-
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+//! control + colour) and a label. Fixtures are additive: their controls write the
+//! shared `LuxBuffer` through the normal overlay `set` path, so the raw universe
+//! desk and color picker are unaffected.
+//!
+//! This module owns the fixture *domain* — the types, the preset library, and the
+//! placement validation + add/update/remove operations over a `Vec<Fixture>`. It
+//! is deliberately storage-agnostic: a patch is just a `Vec<Fixture>` that lives
+//! inside whichever [`crate::setup::Setup`] is active, and persistence is the
+//! setup store's job.
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::{Manager, Runtime};
 
 use crate::buffer::UNIVERSE_SIZE;
 use crate::colors::LuxLabelColor;
@@ -112,6 +112,22 @@ pub fn presets() -> Vec<FixturePreset> {
     ]
 }
 
+/// The default single RGBAW fixture at slot 1 — the original PoC patch, now the
+/// seed for a brand-new "Home" setup on first run.
+pub fn default_fixtures() -> Vec<Fixture> {
+    let channels = presets()
+        .into_iter()
+        .find(|p| p.key == "rgbaw")
+        .map(|p| p.channels)
+        .unwrap_or_default();
+    vec![Fixture {
+        id: uuid::Uuid::new_v4(),
+        name: "RGBAW".into(),
+        address: 1,
+        channels,
+    }]
+}
+
 /// Validate a fixture placement against the rest of the patch. Pure (no lock /
 /// `AppHandle`) so it is unit-testable.
 fn validate_placement(address: u16, len: usize, others: &[Fixture]) -> Result<(), String> {
@@ -142,148 +158,68 @@ fn validate_placement(address: u16, len: usize, others: &[Fixture]) -> Result<()
     Ok(())
 }
 
-/// Tauri-managed set of patched fixtures.
-#[derive(Debug)]
-pub struct LuxPatch {
-    pub fixtures: Arc<Mutex<Vec<Fixture>>>,
-}
+// --- patch operations (over a plain `Vec<Fixture>`) -------------------------
+//
+// The patch lives inside the active setup; these helpers mutate that vec in
+// place after validating placement, and the caller persists the owning store.
 
-impl Default for LuxPatch {
-    fn default() -> Self {
-        // Default patch reproduces the original single RGBAW fixture at slot 1.
-        let channels = presets()
-            .into_iter()
-            .find(|p| p.key == "rgbaw")
-            .map(|p| p.channels)
-            .unwrap_or_default();
-        let fixture = Fixture {
-            id: uuid::Uuid::new_v4(),
-            name: "RGBAW".into(),
-            address: 1,
-            channels,
-        };
-        LuxPatch {
-            fixtures: Arc::new(Mutex::new(vec![fixture])),
-        }
-    }
-}
-
-impl LuxPatch {
-    pub fn list(&self) -> Vec<Fixture> {
-        self.fixtures.lock().unwrap().clone()
-    }
-
-    pub fn add(
-        &self,
-        name: String,
-        address: u16,
-        channels: Vec<ChannelDef>,
-    ) -> Result<Fixture, String> {
-        let mut fixtures = self.fixtures.lock().unwrap();
-        validate_placement(address, channels.len(), &fixtures)?;
-        let fixture = Fixture {
-            id: uuid::Uuid::new_v4(),
-            name,
-            address,
-            channels,
-        };
-        fixtures.push(fixture.clone());
-        Ok(fixture)
-    }
-
-    pub fn update(
-        &self,
-        id: uuid::Uuid,
-        name: String,
-        address: u16,
-        channels: Vec<ChannelDef>,
-    ) -> Result<Fixture, String> {
-        let mut fixtures = self.fixtures.lock().unwrap();
-        // Validate against the *other* fixtures so a fixture can move within or
-        // across its own current slots.
-        let others: Vec<Fixture> = fixtures.iter().filter(|f| f.id != id).cloned().collect();
-        if others.len() == fixtures.len() {
-            return Err(format!("fixture {id} not found"));
-        }
-        validate_placement(address, channels.len(), &others)?;
-        let fixture = Fixture {
-            id,
-            name,
-            address,
-            channels,
-        };
-        if let Some(slot) = fixtures.iter_mut().find(|f| f.id == id) {
-            *slot = fixture.clone();
-        }
-        Ok(fixture)
-    }
-
-    pub fn remove(&self, id: uuid::Uuid) -> Result<(), String> {
-        let mut fixtures = self.fixtures.lock().unwrap();
-        let before = fixtures.len();
-        fixtures.retain(|f| f.id != id);
-        if fixtures.len() == before {
-            return Err(format!("fixture {id} not found"));
-        }
-        Ok(())
-    }
-}
-
-// --- persistence (app_config_dir/patch.json) --------------------------------
-
-fn patch_file<R: Runtime>(app: &tauri::AppHandle<R>) -> Option<PathBuf> {
-    app.path()
-        .app_config_dir()
-        .ok()
-        .map(|dir| dir.join("patch.json"))
-}
-
-/// Load the patch from disk, or the default patch when absent/unreadable. An
-/// empty file (`[]`) is honoured — that's a user who deleted every fixture.
-pub fn load<R: Runtime>(app: &tauri::AppHandle<R>) -> LuxPatch {
-    let Some(path) = patch_file(app) else {
-        return LuxPatch::default();
+/// Add a fixture to `fixtures`, validating placement against the existing ones.
+pub fn add(
+    fixtures: &mut Vec<Fixture>,
+    name: String,
+    address: u16,
+    channels: Vec<ChannelDef>,
+) -> Result<Fixture, String> {
+    validate_placement(address, channels.len(), fixtures)?;
+    let fixture = Fixture {
+        id: uuid::Uuid::new_v4(),
+        name,
+        address,
+        channels,
     };
-    match std::fs::read_to_string(&path) {
-        Ok(json) => match serde_json::from_str::<Vec<Fixture>>(&json) {
-            Ok(fixtures) => LuxPatch {
-                fixtures: Arc::new(Mutex::new(fixtures)),
-            },
-            Err(e) => {
-                log::warn!("patch.json unreadable ({e}); using default patch");
-                LuxPatch::default()
-            }
-        },
-        // Absent file → first run → default patch.
-        Err(_) => LuxPatch::default(),
-    }
+    fixtures.push(fixture.clone());
+    Ok(fixture)
 }
 
-/// Persist the current patch to disk. Best-effort (logs on failure).
-pub fn save<R: Runtime>(app: &tauri::AppHandle<R>, patch: &LuxPatch) {
-    let Some(path) = patch_file(app) else { return };
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+/// Move/relabel the fixture `id` in place. Validation runs against the *other*
+/// fixtures, so a fixture may overlap its own current slots while moving.
+pub fn update(
+    fixtures: &mut [Fixture],
+    id: uuid::Uuid,
+    name: String,
+    address: u16,
+    channels: Vec<ChannelDef>,
+) -> Result<Fixture, String> {
+    let others: Vec<Fixture> = fixtures.iter().filter(|f| f.id != id).cloned().collect();
+    if others.len() == fixtures.len() {
+        return Err(format!("fixture {id} not found"));
     }
-    match serde_json::to_string_pretty(&patch.list()) {
-        Ok(json) => {
-            if let Err(e) = std::fs::write(&path, json) {
-                log::warn!("could not persist patch: {e}");
-            }
-        }
-        Err(e) => log::warn!("could not serialize patch: {e}"),
+    validate_placement(address, channels.len(), &others)?;
+    let fixture = Fixture {
+        id,
+        name,
+        address,
+        channels,
+    };
+    if let Some(slot) = fixtures.iter_mut().find(|f| f.id == id) {
+        *slot = fixture.clone();
     }
+    Ok(fixture)
+}
+
+/// Remove the fixture `id`, reporting an error if it wasn't present.
+pub fn remove(fixtures: &mut Vec<Fixture>, id: uuid::Uuid) -> Result<(), String> {
+    let before = fixtures.len();
+    fixtures.retain(|f| f.id != id);
+    if fixtures.len() == before {
+        return Err(format!("fixture {id} not found"));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn empty() -> LuxPatch {
-        LuxPatch {
-            fixtures: Arc::new(Mutex::new(vec![])),
-        }
-    }
 
     fn six() -> Vec<ChannelDef> {
         presets()
@@ -301,46 +237,54 @@ mod tests {
     }
 
     #[test]
-    fn add_then_list_roundtrips() {
-        let patch = empty();
-        let f = patch.add("Left".into(), 1, six()).unwrap();
-        assert_eq!(patch.list().len(), 1);
+    fn default_fixtures_is_one_rgbaw_at_slot_one() {
+        let f = default_fixtures();
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].address, 1);
+        assert_eq!(f[0].channels.len(), 6);
+    }
+
+    #[test]
+    fn add_then_roundtrips() {
+        let mut fixtures = vec![];
+        let f = add(&mut fixtures, "Left".into(), 1, six()).unwrap();
+        assert_eq!(fixtures.len(), 1);
         assert_eq!(f.address, 1);
     }
 
     #[test]
     fn rejects_overlap_but_allows_adjacent() {
-        let patch = empty();
-        patch.add("Left".into(), 1, six()).unwrap(); // slots 1..=6
-        let err = patch.add("Right".into(), 6, six()).unwrap_err(); // 6..=11 overlaps at slot 6
+        let mut fixtures = vec![];
+        add(&mut fixtures, "Left".into(), 1, six()).unwrap(); // slots 1..=6
+        let err = add(&mut fixtures, "Right".into(), 6, six()).unwrap_err(); // 6..=11 overlaps at 6
         assert!(err.contains("overlaps"), "{err}");
-        patch.add("Right".into(), 7, six()).unwrap(); // 7..=12 is adjacent, fine
-        assert_eq!(patch.list().len(), 2);
+        add(&mut fixtures, "Right".into(), 7, six()).unwrap(); // 7..=12 is adjacent, fine
+        assert_eq!(fixtures.len(), 2);
     }
 
     #[test]
     fn rejects_out_of_range() {
-        let patch = empty();
-        assert!(patch.add("x".into(), 511, six()).is_err()); // 511..=516 > 512
-        assert!(patch.add("x".into(), 0, six()).is_err());
-        assert!(patch.add("x".into(), 1, vec![]).is_err()); // no channels
+        let mut fixtures = vec![];
+        assert!(add(&mut fixtures, "x".into(), 511, six()).is_err()); // 511..=516 > 512
+        assert!(add(&mut fixtures, "x".into(), 0, six()).is_err());
+        assert!(add(&mut fixtures, "x".into(), 1, vec![]).is_err()); // no channels
     }
 
     #[test]
     fn update_can_move_a_fixture_onto_its_own_slots() {
-        let patch = empty();
-        let f = patch.add("Left".into(), 1, six()).unwrap();
-        patch.update(f.id, "Left".into(), 2, six()).unwrap(); // overlaps old self only — ok
-        assert_eq!(patch.list()[0].address, 2);
-        assert!(patch.update(uuid::Uuid::new_v4(), "ghost".into(), 1, six()).is_err());
+        let mut fixtures = vec![];
+        let f = add(&mut fixtures, "Left".into(), 1, six()).unwrap();
+        update(&mut fixtures, f.id, "Left".into(), 2, six()).unwrap(); // overlaps old self only — ok
+        assert_eq!(fixtures[0].address, 2);
+        assert!(update(&mut fixtures, uuid::Uuid::new_v4(), "ghost".into(), 1, six()).is_err());
     }
 
     #[test]
     fn remove_deletes_and_reports_missing() {
-        let patch = empty();
-        let f = patch.add("x".into(), 1, six()).unwrap();
-        patch.remove(f.id).unwrap();
-        assert!(patch.list().is_empty());
-        assert!(patch.remove(f.id).is_err());
+        let mut fixtures = vec![];
+        let f = add(&mut fixtures, "x".into(), 1, six()).unwrap();
+        remove(&mut fixtures, f.id).unwrap();
+        assert!(fixtures.is_empty());
+        assert!(remove(&mut fixtures, f.id).is_err());
     }
 }
