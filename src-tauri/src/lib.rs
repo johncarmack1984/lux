@@ -7,6 +7,7 @@ mod cmd;
 mod colors;
 mod devices;
 mod error;
+mod fixture;
 mod logger;
 mod remote;
 mod sync;
@@ -17,6 +18,7 @@ use channels::LuxChannels;
 use cmd::*;
 use devices::DmxOutput;
 use sync::*;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
@@ -25,6 +27,8 @@ pub async fn run() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     let builder = setup(tauri::Builder::default(), |app| {
+        // Load the saved fixture patch (or the default RGBAW@1) into state.
+        app.manage(fixture::load(app.handle()));
         remote::connect(app.handle());
         if let Err(e) = tray::build(app) {
             log::error!("tray setup failed: {e}");
