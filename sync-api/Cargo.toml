@@ -18,11 +18,14 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-dynamodb = "1"
-jsonwebtoken = "9"
-reqwest = { version = "0.12", default-features = false, features = [
+jsonwebtoken = "10"
+reqwest = { version = "0.13", default-features = false, features = [
     "json",
-    "rustls-tls",
+    "rustls-no-provider",
 ] }
+# rustls with no baked-in crypto provider; main() installs ring as the process
+# default, sidestepping the aws-lc-rs C build that reqwest's `rustls` feature pulls.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = [
     "fmt",
