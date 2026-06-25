@@ -2,6 +2,7 @@ import { createRootRoute, Link, Outlet } from "@tanstack/react-router";
 import { Toaster } from "@/components/ui/sonner";
 import { Updater } from "@/components/updater";
 import SetupSwitcher from "@/components/setup-switcher";
+import AccountMenu from "@/components/account-menu";
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -23,6 +24,9 @@ function RootLayout() {
           <Link to="/universe" className={navLink}>
             Universe
           </Link>
+          <div className="ml-auto">
+            <AccountMenu />
+          </div>
         </nav>
         <div className="flex flex-1 flex-col items-center">
           <Outlet />

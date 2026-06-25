@@ -38,6 +38,23 @@ pub struct Setup {
     /// sACN/E1.31 universe this setup transmits on (1..=63999).
     pub universe: u16,
     pub fixtures: Vec<Fixture>,
+    /// Server timestamp (epoch millis) from the last successful push or pull —
+    /// the optimistic-concurrency base for the next push. `None` until first
+    /// synced (so the cloud layer treats it as a create). Cloud-sync metadata;
+    /// defaults keep older `setups.json` readable.
+    #[serde(default)]
+    pub updated_at: Option<i64>,
+    /// Local edits not yet pushed to the cloud.
+    #[serde(default)]
+    pub dirty: bool,
+}
+
+impl Setup {
+    /// Whether this setup has changes the cloud doesn't have yet: explicit local
+    /// edits, or a setup that has never been synced.
+    fn needs_push(&self) -> bool {
+        self.dirty || self.updated_at.is_none()
+    }
 }
 
 /// The whole persisted store (`app_config_dir()/setups.json`).
@@ -52,6 +69,25 @@ pub struct SetupStore {
     #[specta(type = String)]
     pub active_setup_id: uuid::Uuid,
     pub setups: Vec<Setup>,
+    /// The signed-in account (email) this store is synced with, once claimed.
+    /// Lets us notice a *different* account signing in on the same device and
+    /// avoid leaking one user's setups into another's. `None` until first claim.
+    #[serde(default)]
+    pub bound_email: Option<String>,
+    /// Setups deleted locally that still need a tombstone pushed to the cloud so
+    /// the delete propagates to other devices. Drained as each push succeeds.
+    #[serde(default)]
+    pub pending_deletes: Vec<PendingDelete>,
+}
+
+/// A local delete awaiting a cloud tombstone.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingDelete {
+    #[specta(type = String)]
+    pub setup_id: uuid::Uuid,
+    /// The setup's last-known server timestamp, as the tombstone's concurrency base.
+    pub base_updated_at: Option<i64>,
 }
 
 /// A lightweight setup descriptor for the switcher UI — no fixtures, so listing
@@ -73,6 +109,8 @@ fn new_setup(name: impl Into<String>, universe: u16, fixtures: Vec<Fixture>) -> 
         name: name.into(),
         universe: normalize_universe(universe),
         fixtures,
+        updated_at: None,
+        dirty: false,
     }
 }
 
@@ -100,6 +138,8 @@ impl SetupStore {
             user_id: uuid::Uuid::new_v4(),
             active_setup_id: setup.id,
             setups: vec![setup],
+            bound_email: None,
+            pending_deletes: Vec::new(),
         }
     }
 
@@ -198,7 +238,10 @@ impl LuxSetups {
         channels: Vec<ChannelDef>,
     ) -> Result<(), String> {
         let mut store = self.store.lock().unwrap();
-        fixture::add(&mut store.active_mut().fixtures, name, address, channels).map(|_| ())
+        let active = store.active_mut();
+        fixture::add(&mut active.fixtures, name, address, channels)?;
+        active.dirty = true;
+        Ok(())
     }
 
     pub fn update_fixture(
@@ -209,12 +252,18 @@ impl LuxSetups {
         channels: Vec<ChannelDef>,
     ) -> Result<(), String> {
         let mut store = self.store.lock().unwrap();
-        fixture::update(&mut store.active_mut().fixtures, id, name, address, channels).map(|_| ())
+        let active = store.active_mut();
+        fixture::update(&mut active.fixtures, id, name, address, channels)?;
+        active.dirty = true;
+        Ok(())
     }
 
     pub fn remove_fixture(&self, id: uuid::Uuid) -> Result<(), String> {
         let mut store = self.store.lock().unwrap();
-        fixture::remove(&mut store.active_mut().fixtures, id)
+        let active = store.active_mut();
+        fixture::remove(&mut active.fixtures, id)?;
+        active.dirty = true;
+        Ok(())
     }
 
     // -- setup CRUD --
@@ -237,6 +286,7 @@ impl LuxSetups {
             .find(|s| s.id == id)
             .ok_or_else(|| format!("setup {id} not found"))?;
         setup.name = name;
+        setup.dirty = true;
         Ok(())
     }
 
@@ -248,20 +298,28 @@ impl LuxSetups {
             .find(|s| s.id == id)
             .ok_or_else(|| format!("setup {id} not found"))?;
         setup.universe = normalize_universe(universe);
+        setup.dirty = true;
         Ok(())
     }
 
     /// Delete a setup. Refuses to delete the only setup; if the active setup is
-    /// removed, the first remaining one becomes active.
+    /// removed, the first remaining one becomes active. A setup the cloud has
+    /// seen leaves a pending tombstone so the delete propagates to other devices.
     pub fn delete(&self, id: uuid::Uuid) -> Result<(), String> {
         let mut store = self.store.lock().unwrap();
         if store.setups.len() <= 1 {
             return Err("can't delete the only setup".into());
         }
-        if !store.setups.iter().any(|s| s.id == id) {
+        let Some(pos) = store.setups.iter().position(|s| s.id == id) else {
             return Err(format!("setup {id} not found"));
+        };
+        let removed = store.setups.remove(pos);
+        if removed.updated_at.is_some() {
+            store.pending_deletes.push(PendingDelete {
+                setup_id: id,
+                base_updated_at: removed.updated_at,
+            });
         }
-        store.setups.retain(|s| s.id != id);
         if store.active_setup_id == id {
             store.active_setup_id = store.setups[0].id;
         }
@@ -275,6 +333,77 @@ impl LuxSetups {
         }
         store.active_setup_id = id;
         Ok(())
+    }
+
+    // -- cloud sync helpers (driven by `crate::cloud`) --
+
+    /// Setups with changes the cloud doesn't have yet (clones, for pushing).
+    pub fn dirty_for_push(&self) -> Vec<Setup> {
+        let store = self.store.lock().unwrap();
+        store.setups.iter().filter(|s| s.needs_push()).cloned().collect()
+    }
+
+    /// Pending delete tombstones to push.
+    pub fn pending_deletes(&self) -> Vec<PendingDelete> {
+        self.store.lock().unwrap().pending_deletes.clone()
+    }
+
+    /// Record a successful push: store the server timestamp and clear dirty.
+    pub fn mark_pushed(&self, id: uuid::Uuid, updated_at: i64) {
+        let mut store = self.store.lock().unwrap();
+        if let Some(s) = store.setups.iter_mut().find(|s| s.id == id) {
+            s.updated_at = Some(updated_at);
+            s.dirty = false;
+        }
+    }
+
+    /// Drop a delivered delete tombstone.
+    pub fn clear_pending_delete(&self, setup_id: uuid::Uuid) {
+        self.store
+            .lock()
+            .unwrap()
+            .pending_deletes
+            .retain(|d| d.setup_id != setup_id);
+    }
+
+    /// Snapshot of all setups (clones), to feed reconcile.
+    pub fn all(&self) -> Vec<Setup> {
+        self.store.lock().unwrap().setups.clone()
+    }
+
+    /// The account email this store is currently synced with, if any.
+    pub fn bound_email(&self) -> Option<String> {
+        self.store.lock().unwrap().bound_email.clone()
+    }
+
+    /// Replace the working set with reconciled setups and bind it to `email`.
+    /// Keeps the store non-empty and `active_setup_id` valid.
+    pub fn replace_with_merged(&self, merged: Vec<Setup>, email: String) {
+        let mut store = self.store.lock().unwrap();
+        store.bound_email = Some(email);
+        if merged.is_empty() {
+            let seed = new_setup("Home", DEFAULT_UNIVERSE, fixture::default_fixtures());
+            store.active_setup_id = seed.id;
+            store.setups = vec![seed];
+            return;
+        }
+        let active_ok = merged.iter().any(|s| s.id == store.active_setup_id);
+        store.setups = merged;
+        if !active_ok {
+            store.active_setup_id = store.setups[0].id;
+        }
+    }
+
+    /// Forget cloud binding and sync metadata so a *different* account signing in
+    /// on this device can't push the previous user's setups into their cloud.
+    pub fn reset_for_new_account(&self) {
+        let mut store = self.store.lock().unwrap();
+        store.bound_email = None;
+        store.pending_deletes.clear();
+        for s in &mut store.setups {
+            s.updated_at = None;
+            s.dirty = false;
+        }
     }
 }
 

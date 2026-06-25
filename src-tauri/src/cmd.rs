@@ -1,4 +1,5 @@
 use crate::{
+    account::{AuthStatus, LuxAccount},
     buffer::{Buffer, LuxBuffer, UNIVERSE_SIZE},
     channel::LuxChannel,
     channels::LuxChannels,
@@ -72,6 +73,22 @@ pub trait CmdMethods {
     fn delete_setup(&self, app_handle: AppHandle, id: String)
         -> Result<Vec<SetupSummary>, String>;
     fn set_active_setup(&self, app_handle: AppHandle, id: String) -> Result<SetupSummary, String>;
+    // Accounts — Cognito identity (gates cloud sync; no-op when COGNITO_* unset).
+    fn auth_status(&self, app_handle: AppHandle) -> Result<AuthStatus, String>;
+    fn sign_up(&self, app_handle: AppHandle, email: String, password: String) -> Result<(), String>;
+    fn confirm_sign_up(
+        &self,
+        app_handle: AppHandle,
+        email: String,
+        code: String,
+    ) -> Result<(), String>;
+    fn sign_in(
+        &self,
+        app_handle: AppHandle,
+        email: String,
+        password: String,
+    ) -> Result<AuthStatus, String>;
+    fn sign_out(&self, app_handle: AppHandle) -> Result<AuthStatus, String>;
 }
 #[derive(ttipc::Event)]
 pub enum CmdEvent {
@@ -85,6 +102,9 @@ pub enum CmdEvent {
     SetupsChanged {
         setups: Vec<SetupSummary>,
         active_setup_id: String,
+    },
+    AuthChanged {
+        status: AuthStatus,
     },
 }
 
@@ -250,6 +270,44 @@ impl CmdMethods for CmdEndpoint {
         commit_setups(&app_handle, setups.inner())?;
         Ok(setups.active_summary())
     }
+
+    fn auth_status(&self, app_handle: AppHandle) -> Result<AuthStatus, String> {
+        Ok(app_handle.state::<LuxAccount>().status())
+    }
+
+    fn sign_up(&self, app_handle: AppHandle, email: String, password: String) -> Result<(), String> {
+        app_handle.state::<LuxAccount>().sign_up(email, password)
+    }
+
+    fn confirm_sign_up(
+        &self,
+        app_handle: AppHandle,
+        email: String,
+        code: String,
+    ) -> Result<(), String> {
+        app_handle
+            .state::<LuxAccount>()
+            .confirm_sign_up(email, code)
+    }
+
+    fn sign_in(
+        &self,
+        app_handle: AppHandle,
+        email: String,
+        password: String,
+    ) -> Result<AuthStatus, String> {
+        let status = app_handle.state::<LuxAccount>().sign_in(email, password)?;
+        emit_auth_changed(&app_handle, status.clone())?;
+        // Pull the account's setups (claiming local ones on first sign-in).
+        crate::cloud::schedule_sync(&app_handle);
+        Ok(status)
+    }
+
+    fn sign_out(&self, app_handle: AppHandle) -> Result<AuthStatus, String> {
+        let status = app_handle.state::<LuxAccount>().sign_out();
+        emit_auth_changed(&app_handle, status.clone())?;
+        Ok(status)
+    }
 }
 
 fn parse_fixture_id(id: &str) -> Result<uuid::Uuid, String> {
@@ -272,6 +330,7 @@ fn commit_patch(app: &AppHandle, setups: &LuxSetups) -> Result<Vec<Fixture>, Str
     }
     .emit(app)
     .map_err(|e| format!("Failed to emit patch_set event: {e}"))?;
+    crate::cloud::schedule_push(app);
     Ok(fixtures)
 }
 
@@ -285,7 +344,36 @@ fn commit_setups(app: &AppHandle, setups: &LuxSetups) -> Result<Vec<SetupSummary
     }
     .emit(app)
     .map_err(|e| format!("Failed to emit setups_changed event: {e}"))?;
+    crate::cloud::schedule_push(app);
     Ok(summaries)
+}
+
+/// Persist and broadcast the full setup state after a cloud pull changed it, and
+/// retarget the live output at the (possibly changed) active universe. Called by
+/// [`crate::cloud`] after reconciling a pull into the local store.
+pub fn broadcast_synced_state(app: &AppHandle) {
+    let setups = app.state::<LuxSetups>();
+    setup::save(app, &setups);
+    devices::set_active_universe(app, setups.active_universe());
+    let active_id = setups.active_id().to_string();
+    let _ = CmdEvent::SetupsChanged {
+        setups: setups.summaries(),
+        active_setup_id: active_id.clone(),
+    }
+    .emit(app);
+    let _ = CmdEvent::PatchSet {
+        setup_id: active_id,
+        fixtures: setups.active_fixtures(),
+    }
+    .emit(app);
+}
+
+/// Broadcast the new auth status so the nav/account UI updates reactively (also
+/// fired on a silent session restore at startup).
+fn emit_auth_changed(app: &AppHandle, status: AuthStatus) -> Result<(), String> {
+    CmdEvent::AuthChanged { status }
+        .emit(app)
+        .map_err(|e| format!("Failed to emit auth_changed event: {e}"))
 }
 
 /// Apply the consequences of the active setup changing: point the live sACN

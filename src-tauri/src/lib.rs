@@ -1,8 +1,10 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod account;
 mod buffer;
 mod channel;
 mod channels;
+mod cloud;
 mod cmd;
 mod colors;
 mod devices;
@@ -31,6 +33,10 @@ pub async fn run() {
         // Load the user's setups (migrating a legacy patch.json, or seeding the
         // default "Home" setup on first run) into state.
         app.manage(setup::load(app.handle()));
+        // Cognito accounts (no-op unless COGNITO_* is set); restore a signed-in
+        // session from the keychain in the background.
+        app.manage(account::LuxAccount::from_env());
+        account::restore_on_startup(app.handle());
         remote::connect(app.handle());
         if let Err(e) = tray::build(app) {
             log::error!("tray setup failed: {e}");
