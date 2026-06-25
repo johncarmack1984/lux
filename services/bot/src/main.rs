@@ -72,7 +72,8 @@ async fn handle(ctx: Arc<Ctx>, req: Request) -> Result<Response<Body>, Error> {
     let body = match req.body() {
         Body::Text(s) => s.clone().into_bytes(),
         Body::Binary(b) => b.clone(),
-        Body::Empty => Vec::new(),
+        // `Body` is #[non_exhaustive]; treat anything else (incl. Empty) as no body.
+        _ => Vec::new(),
     };
 
     // Discord rejects an endpoint that doesn't enforce this.

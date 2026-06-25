@@ -34,8 +34,9 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      # release-please uses release-type "simple", which bumps src-tauri/Cargo.toml
-      # but leaves the `lux` entry in src-tauri/Cargo.lock at the old version, so the
+      # release-please uses release-type "simple", which bumps the version in
+      # apps/desktop/src-tauri/Cargo.toml but leaves the `lux` entry in the root
+      # Cargo.lock at the old version, so the
       # lockfile shows up dirty on the next local `cargo` run. While a release PR is
       # open, sync the lockfile onto its branch so main never lands a stale lock.
       # Runs in this job by necessity: a push authored by GITHUB_TOKEN can't trigger
@@ -53,14 +54,14 @@ jobs:
           version=$(jq -r '."."' .release-please-manifest.json)
           # The `lux` workspace member has no checksum in the lock, so its version
           # is a pure text field — sync it without invoking cargo (no dep churn).
-          VER="$version" perl -0pi -e 's/(name = "lux"\nversion = ")[^"]*/$1$ENV{VER}/' src-tauri/Cargo.lock
-          if git diff --quiet -- src-tauri/Cargo.lock; then
+          VER="$version" perl -0pi -e 's/(name = "lux"\nversion = ")[^"]*/$1$ENV{VER}/' Cargo.lock
+          if git diff --quiet -- Cargo.lock; then
             echo "Cargo.lock already in sync at $version"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src-tauri/Cargo.lock
+          git add Cargo.lock
           git commit -m "chore: sync Cargo.lock to $version"
           git push origin "HEAD:$PR_BRANCH"
           echo "Synced Cargo.lock to $version on $PR_BRANCH"
@@ -89,6 +90,7 @@ jobs:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - run: bun install
+        working-directory: apps/desktop
 
       # Pull the updater signing key from AWS Secrets Manager via OIDC — no
       # long-lived AWS keys in GitHub. Written to a file so it never hits a log.
@@ -130,5 +132,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ runner.temp }}/updater.key
         with:
+          projectPath: apps/desktop
           tagName: ${{ env.TAG }}
           args: --target universal-apple-darwin

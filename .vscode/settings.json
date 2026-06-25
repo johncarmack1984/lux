@@ -7,7 +7,7 @@
     "**/.dev": true,
     "**/.next": true,
     "**/out": true,
-    "**/src-tauri/target": true,
+    "**/target": true,
     "**/bower_components": true
   },
   "tailwindCSS.experimental.classRegex": [
@@ -22,7 +22,7 @@
   "rust-analyzer.diagnostics.disabled": [],
   "rust-analyzer.debug.engine": "vadimcn.vscode-lldb",
   "rust-analyzer.files.watcher": "server",
-  "rust-analyzer.linkedProjects": ["./src-tauri/Cargo.toml"],
+  "rust-analyzer.linkedProjects": ["./Cargo.toml"],
   "rust-analyzer.restartServerOnConfigChange": true,
   "rust-analyzer.showUnlinkedFileNotification": false
 }

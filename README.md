@@ -7,12 +7,7 @@ Next.js + shadcn/ui front end to drive it. Lux controls an
 interface two ways — directly from the desktop UI, and remotely from a Discord
 bot over AWS IoT.
 
-The Rust side keeps a DMX channel buffer continuously synced to the hardware
-(`src-tauri/src/{buffer,channels,sync}.rs`) behind a device abstraction
-(`src-tauri/src/devices/`); the UI talks to it over
-**[tauri-typed-ipc](https://github.com/johncarmack1984/tauri-typed-ipc)** — a
-type-safe IPC crate I wrote — so the Rust↔TypeScript command layer is type-safe
-end to end.
+The Rust side keeps a DMX channel buffer continuously synced to the hardware (`apps/desktop/src-tauri/src/{buffer,channels,sync}.rs`) behind a device abstraction (`apps/desktop/src-tauri/src/devices/`); the UI talks to it over **[tauri-typed-ipc](https://github.com/johncarmack1984/tauri-typed-ipc)** — a type-safe IPC crate I wrote — so the Rust↔TypeScript command layer is type-safe end to end.
 
 ## Demo
 
@@ -28,7 +23,8 @@ Tailwind v4 · Enttec OpenDMX USB (DMX512 over serial)
 ## Run it
 
 ```bash
-cargo tauri dev
+cd apps/desktop
+bun run tauri dev
 ```
 
 ## Features

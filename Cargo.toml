@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = [
+    "apps/desktop/src-tauri",
+    "services/bot",
+    "services/sync-api",
+]
+
+# Dependencies shared across the desktop app and/or the Lambda services. Declared
+# once here; members opt in with `<dep>.workspace = true` (adding features as
+# needed). Bump a shared version in one place.
+[workspace.dependencies]
+tokio = "1.48"
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
+lambda_http = "1.2"
+
+# Small, optimized release binaries. Profiles must live at the workspace root, so
+# this now governs the Lambda services too — lto + opt-level "s" give them smaller,
+# faster-cold-start binaries, and panic = "abort" is fine for stateless handlers.
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+incremental = false
+opt-level = "s"
+
+# RUSTSEC-2024-0429: UB in glib's VariantStrIter::impl_get. tauri's Linux gtk
+# stack pins glib 0.18 and there is no tauri release on glib 0.20, so the advisory
+# can't be cleared by a version bump. Patch glib to a fork carrying the backported
+# fix. The branch resolves glib's gtk-rs-core siblings from crates.io, so this
+# single patch doesn't pull git *-sys crates that would duplicate the crates.io
+# ones and collide on `links`. Only the desktop app pulls glib; the Lambdas are
+# unaffected. Upstream PR: gtk-rs/gtk-rs-core#1991. Must be at the workspace root.
+[patch.crates-io]
+glib = { git = "https://github.com/johncarmack1984/gtk-rs-core", branch = "lux/glib-0.18-patch" }

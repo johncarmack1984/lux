@@ -12,21 +12,16 @@ publish = false
 # produces from this binary.
 
 [dependencies]
-lambda_http = "1.2"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-aws-config = { version = "1", features = ["behavior-version-latest"] }
+lambda_http.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+serde.workspace = true
+serde_json.workspace = true
+aws-config.workspace = true
 aws-sdk-dynamodb = "1"
 jsonwebtoken = "10"
-reqwest = { version = "0.13", default-features = false, features = [
-    "json",
-    "rustls-no-provider",
-] }
+reqwest.workspace = true
 # rustls with no baked-in crypto provider; main() installs ring as the process
 # default, sidestepping the aws-lc-rs C build that reqwest's `rustls` feature pulls.
-rustls = { version = "0.23", default-features = false, features = ["ring"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", default-features = false, features = [
-    "fmt",
-] }
+rustls.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
