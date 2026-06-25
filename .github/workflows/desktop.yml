@@ -1,0 +1,44 @@
+name: desktop
+
+# Fast PR preflight for the desktop app. Today it runs the one check that the
+# full Tauri build enforces but only on release tags: @tauri-apps/* JS packages
+# must share their major/minor with their Rust crate counterparts. Catching that
+# drift here (seconds) instead of in the release build (which only runs on a tag)
+# closes the gap that broke the 0.8.0 release. Path-filtered to the inputs that
+# can actually introduce a mismatch.
+
+on:
+  pull_request:
+    paths:
+      - 'apps/desktop/package.json'
+      - 'apps/desktop/bun.lockb'
+      - 'Cargo.lock'
+      - 'apps/desktop/scripts/check-tauri-versions.mjs'
+      - '.github/workflows/desktop.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/desktop/package.json'
+      - 'apps/desktop/bun.lockb'
+      - 'Cargo.lock'
+      - 'apps/desktop/scripts/check-tauri-versions.mjs'
+      - '.github/workflows/desktop.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  tauri-versions:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install
+
+      - name: check @tauri-apps JS <-> crate version match
+        run: bun run check:tauri-versions
