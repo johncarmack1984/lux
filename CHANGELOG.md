@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/johncarmack1984/lux/compare/v0.6.0...v0.6.1) (2026-06-25)
+
+
+### Bug Fixes
+
+* keep src-tauri/Cargo.lock in sync with the released version ([#58](https://github.com/johncarmack1984/lux/issues/58)) ([b3d3569](https://github.com/johncarmack1984/lux/commit/b3d356957a254344672bcb861b7132988b11030c))
+
 ## [0.6.0](https://github.com/johncarmack1984/lux/compare/v0.5.0...v0.6.0) (2026-06-25)
 
 
