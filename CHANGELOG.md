@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/johncarmack1984/lux/compare/v0.5.0...v0.6.0) (2026-06-25)
+
+
+### Features
+
+* add fixtures with patching, presets, and role-aware color mixing ([#57](https://github.com/johncarmack1984/lux/issues/57)) ([f3ea72f](https://github.com/johncarmack1984/lux/commit/f3ea72f6a0d3c1a721d6f1160b99dc03cb3950ad))
+* drive the full 512-channel DMX universe ([#55](https://github.com/johncarmack1984/lux/issues/55)) ([3040b8a](https://github.com/johncarmack1984/lux/commit/3040b8a1c0532a8dcb991ca90ab9d4957493fb8a))
+
 ## [0.5.0](https://github.com/johncarmack1984/lux/compare/v0.4.1...v0.5.0) (2026-06-24)
 
 
