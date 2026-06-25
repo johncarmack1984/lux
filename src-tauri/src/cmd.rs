@@ -298,6 +298,8 @@ impl CmdMethods for CmdEndpoint {
     ) -> Result<AuthStatus, String> {
         let status = app_handle.state::<LuxAccount>().sign_in(email, password)?;
         emit_auth_changed(&app_handle, status.clone())?;
+        // Pull the account's setups (claiming local ones on first sign-in).
+        crate::cloud::schedule_sync(&app_handle);
         Ok(status)
     }
 
@@ -328,6 +330,7 @@ fn commit_patch(app: &AppHandle, setups: &LuxSetups) -> Result<Vec<Fixture>, Str
     }
     .emit(app)
     .map_err(|e| format!("Failed to emit patch_set event: {e}"))?;
+    crate::cloud::schedule_push(app);
     Ok(fixtures)
 }
 
@@ -341,7 +344,28 @@ fn commit_setups(app: &AppHandle, setups: &LuxSetups) -> Result<Vec<SetupSummary
     }
     .emit(app)
     .map_err(|e| format!("Failed to emit setups_changed event: {e}"))?;
+    crate::cloud::schedule_push(app);
     Ok(summaries)
+}
+
+/// Persist and broadcast the full setup state after a cloud pull changed it, and
+/// retarget the live output at the (possibly changed) active universe. Called by
+/// [`crate::cloud`] after reconciling a pull into the local store.
+pub fn broadcast_synced_state(app: &AppHandle) {
+    let setups = app.state::<LuxSetups>();
+    setup::save(app, &setups);
+    devices::set_active_universe(app, setups.active_universe());
+    let active_id = setups.active_id().to_string();
+    let _ = CmdEvent::SetupsChanged {
+        setups: setups.summaries(),
+        active_setup_id: active_id.clone(),
+    }
+    .emit(app);
+    let _ = CmdEvent::PatchSet {
+        setup_id: active_id,
+        fixtures: setups.active_fixtures(),
+    }
+    .emit(app);
 }
 
 /// Broadcast the new auth status so the nav/account UI updates reactively (also

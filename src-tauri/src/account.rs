@@ -22,7 +22,7 @@ use aws_sdk_cognitoidentityprovider::Client;
 use aws_cognito_srp::{SrpClient, User};
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Manager};
 
 use crate::cmd::CmdEvent;
 
@@ -69,6 +69,9 @@ impl Session {
 /// Tauri-managed account state.
 pub struct LuxAccount {
     config: Option<Config>,
+    /// Base URL of the lux-sync-api Function URL (`LUX_SYNC_URL`); `None`
+    /// disables cloud sync even when auth is configured.
+    sync_url: Option<String>,
     session: Arc<Mutex<Session>>,
 }
 
@@ -104,10 +107,52 @@ impl LuxAccount {
             Some(c) => log::info!("accounts enabled (Cognito pool {})", c.pool_id),
             None => log::info!("accounts not configured; sign-in disabled (set COGNITO_* to enable)"),
         }
+        let sync_url = std::env::var("LUX_SYNC_URL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.trim_end_matches('/').to_string());
         LuxAccount {
             config,
+            sync_url,
             session: Arc::new(Mutex::new(Session::default())),
         }
+    }
+
+    /// Base URL of the sync API, if cloud sync is configured.
+    pub fn sync_url(&self) -> Option<String> {
+        self.sync_url.clone()
+    }
+
+    pub fn signed_in(&self) -> bool {
+        self.session.lock().unwrap().signed_in()
+    }
+
+    /// The signed-in account email, used as the local store's cloud-binding key.
+    pub fn email(&self) -> Option<String> {
+        self.session.lock().unwrap().email.clone()
+    }
+
+    /// The current (possibly soon-to-expire) id token, for a sync request.
+    pub fn current_id_token(&self) -> Option<String> {
+        self.session.lock().unwrap().id_token.clone()
+    }
+
+    /// Exchange the stored refresh token for fresh id/access tokens (called by
+    /// the sync layer on a 401). Updates the session and returns the new id token.
+    pub async fn refresh_id_token(&self) -> Result<String, String> {
+        let cfg = self.config()?;
+        let refresh = self
+            .session
+            .lock()
+            .unwrap()
+            .refresh_token
+            .clone()
+            .ok_or("not signed in")?;
+        let tokens = do_refresh(cfg, refresh).await?;
+        let mut session = self.session.lock().unwrap();
+        session.id_token = Some(tokens.id.clone());
+        session.access_token = Some(tokens.access);
+        Ok(tokens.id)
     }
 
     pub fn status(&self) -> AuthStatus {
@@ -172,7 +217,7 @@ impl LuxAccount {
 /// On launch, if a refresh token is in the keychain, silently refresh to a
 /// signed-in session and tell the UI. Failure (revoked/expired) is logged and
 /// the app stays signed-out — never fatal.
-pub fn restore_on_startup<R: Runtime>(app: &AppHandle<R>) {
+pub fn restore_on_startup(app: &AppHandle) {
     let state = app.state::<LuxAccount>();
     let Ok(cfg) = state.config() else { return };
     let Some(stored) = load_session() else { return };
@@ -195,6 +240,8 @@ pub fn restore_on_startup<R: Runtime>(app: &AppHandle<R>) {
                 };
                 let _ = CmdEvent::AuthChanged { status }.emit(&app);
                 log::info!("restored signed-in session from keychain");
+                // Pull any setups changed on other devices since last run.
+                crate::cloud::schedule_sync(&app);
             }
             Err(e) => log::warn!("could not restore session ({e}); staying signed out"),
         }

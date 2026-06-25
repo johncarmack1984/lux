@@ -4,6 +4,7 @@ mod account;
 mod buffer;
 mod channel;
 mod channels;
+mod cloud;
 mod cmd;
 mod colors;
 mod devices;

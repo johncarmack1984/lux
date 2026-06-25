@@ -51,6 +51,12 @@ uuid = { version = "1.18.1", features = [
     "v4",    # Lets you generate random UUIDs
     "serde", # Enable serialization/deserialization of UUIDs
 ] }
+# Cloud-sync HTTP client to the lux-sync-api Function URL (rustls to match the
+# app's single ring crypto provider).
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
 rumqttc = "0.25"
 # rumqttc pulls rustls 0.23, which panics at runtime unless exactly one crypto
 # provider feature is enabled. Pin ring (no cmake / aws-lc-sys C build).
