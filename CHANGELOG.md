@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/johncarmack1984/lux/compare/v0.6.1...v0.7.0) (2026-06-25)
+
+
+### Features
+
+* add named setups, each a fixture patch bound to a DMX universe ([#60](https://github.com/johncarmack1984/lux/issues/60)) ([8208e40](https://github.com/johncarmack1984/lux/commit/8208e40eec0e8e6669a781e45fe0be10365b8f9e))
+
 ## [0.6.1](https://github.com/johncarmack1984/lux/compare/v0.6.0...v0.6.1) (2026-06-25)
 
 
