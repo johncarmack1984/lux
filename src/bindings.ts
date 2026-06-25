@@ -28,6 +28,31 @@ export const cmd = {
   sync_state(): Promise<string> {
     return invoke("cmd.sync_state");
   },
+
+  /** @throws {string} */
+  list_presets(): Promise<FixturePreset[]> {
+    return invoke("cmd.list_presets");
+  },
+
+  /** @throws {string} */
+  get_patch(): Promise<Fixture[]> {
+    return invoke("cmd.get_patch");
+  },
+
+  /** @throws {string} */
+  add_fixture(name: string, address: number, channels: ChannelDef[]): Promise<Fixture[]> {
+    return invoke("cmd.add_fixture", { name, address, channels });
+  },
+
+  /** @throws {string} */
+  update_fixture(id: string, name: string, address: number, channels: ChannelDef[]): Promise<Fixture[]> {
+    return invoke("cmd.update_fixture", { id, name, address, channels });
+  },
+
+  /** @throws {string} */
+  remove_fixture(id: string): Promise<Fixture[]> {
+    return invoke("cmd.remove_fixture", { id });
+  },
 };
 
 export const sync = {
@@ -47,14 +72,18 @@ export const sync = {
   },
 };
 
-export type CmdEvent = { type: "channelDataSet"; channels: LuxChannel[] };
+export type CmdEvent = { type: "channelDataSet"; channels: LuxChannel[] } | { type: "patchSet"; fixtures: Fixture[] };
 
 export type SyncEvent = { type: "bufferSet"; buffer: number[] };
 
 export const events = {
   cmd: {
-    listen(callback: (event: CmdEvent) => void): Promise<() => void> {
-      return listen<{ channels: LuxChannel[] }>("cmd:channelDataSet", (event) => callback({ type: "channelDataSet", ...event.payload }));
+    async listen(callback: (event: CmdEvent) => void): Promise<() => void> {
+      const unlisten = await Promise.all([
+        listen<{ channels: LuxChannel[] }>("cmd:channelDataSet", (event) => callback({ type: "channelDataSet", ...event.payload })),
+        listen<{ fixtures: Fixture[] }>("cmd:patchSet", (event) => callback({ type: "patchSet", ...event.payload })),
+      ]);
+      return () => unlisten.forEach((un) => un());
     },
   },
 
@@ -76,6 +105,28 @@ export type Channel = {
 	channelNumber: number,
 	label: string,
 	labelColor: LuxLabelColor,
+};
+
+/**  One channel within a fixture. */
+export type ChannelDef = {
+	/**  Semantic role — drives the colour swatch / control affordance. */
+	role: LuxLabelColor,
+	label: string,
+};
+
+/**  A patched fixture: `channels.len()` consecutive slots from `address` (1-based). */
+export type Fixture = {
+	id: string,
+	name: string,
+	address: number,
+	channels: ChannelDef[],
+};
+
+/**  A built-in starting point for the "new fixture" flow. */
+export type FixturePreset = {
+	key: string,
+	name: string,
+	channels: ChannelDef[],
 };
 
 export type LuxBuffer = {

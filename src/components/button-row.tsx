@@ -14,13 +14,14 @@ export function setBuffer(buffer: number[]) {
     .catch((e) => toast.error(String(e)));
 }
 
+// A full 512-channel frame at one level overrides the whole universe; a 6-byte
+// fixture write (Default) only overlays the leading RGBAW slots.
+const universe = (level: number) => Array(512).fill(level);
+
 const buttons = [
   {
-    // Universe-wide: 512 zeros clear every channel, not just the RGBAW fixture
-    // (`set_buffer` overlays the leading slots, so a 6-byte write would leave
-    // raw channels 7..=512 lit).
     children: "⚫️ Blackout",
-    onClick: () => setBuffer(Array(512).fill(0)),
+    onClick: () => setBuffer(universe(0)),
   },
   {
     children: "✅ Default",
@@ -28,7 +29,7 @@ const buttons = [
   },
   {
     children: "💡 Full Bright",
-    onClick: () => setBuffer([255, 255, 255, 255, 255, 255]),
+    onClick: () => setBuffer(universe(255)),
   },
   // Planned feature
   // { children: "🌈 RGB Chase",

@@ -2,6 +2,7 @@ use crate::{
     buffer::{Buffer, LuxBuffer},
     channel::LuxChannel,
     channels::LuxChannels,
+    fixture::{self, ChannelDef, Fixture, FixturePreset, LuxPatch},
     sync::*,
 };
 use tauri::{AppHandle, Manager};
@@ -27,10 +28,29 @@ pub trait CmdMethods {
         new_metadata: LuxChannel,
     ) -> Result<LuxChannel, String>;
     fn sync_state(&self, app_handle: AppHandle) -> Result<String, String>;
+    fn list_presets(&self) -> Result<Vec<FixturePreset>, String>;
+    fn get_patch(&self, app_handle: AppHandle) -> Result<Vec<Fixture>, String>;
+    fn add_fixture(
+        &self,
+        app_handle: AppHandle,
+        name: String,
+        address: u16,
+        channels: Vec<ChannelDef>,
+    ) -> Result<Vec<Fixture>, String>;
+    fn update_fixture(
+        &self,
+        app_handle: AppHandle,
+        id: String,
+        name: String,
+        address: u16,
+        channels: Vec<ChannelDef>,
+    ) -> Result<Vec<Fixture>, String>;
+    fn remove_fixture(&self, app_handle: AppHandle, id: String) -> Result<Vec<Fixture>, String>;
 }
 #[derive(ttipc::Event)]
 pub enum CmdEvent {
     ChannelDataSet { channels: Vec<LuxChannel> },
+    PatchSet { fixtures: Vec<Fixture> },
 }
 
 #[derive(Clone)]
@@ -79,4 +99,57 @@ impl CmdMethods for CmdEndpoint {
         log::trace!("sync_state");
         SyncEndpoint.sync_state(app.clone())
     }
+
+    fn list_presets(&self) -> Result<Vec<FixturePreset>, String> {
+        Ok(fixture::presets())
+    }
+
+    fn get_patch(&self, app_handle: AppHandle) -> Result<Vec<Fixture>, String> {
+        Ok(app_handle.state::<LuxPatch>().list())
+    }
+
+    fn add_fixture(
+        &self,
+        app_handle: AppHandle,
+        name: String,
+        address: u16,
+        channels: Vec<ChannelDef>,
+    ) -> Result<Vec<Fixture>, String> {
+        let patch = app_handle.state::<LuxPatch>();
+        patch.add(name, address, channels)?;
+        commit_patch(&app_handle, patch.inner())
+    }
+
+    fn update_fixture(
+        &self,
+        app_handle: AppHandle,
+        id: String,
+        name: String,
+        address: u16,
+        channels: Vec<ChannelDef>,
+    ) -> Result<Vec<Fixture>, String> {
+        let id = uuid::Uuid::parse_str(&id).map_err(|e| format!("bad fixture id: {e}"))?;
+        let patch = app_handle.state::<LuxPatch>();
+        patch.update(id, name, address, channels)?;
+        commit_patch(&app_handle, patch.inner())
+    }
+
+    fn remove_fixture(&self, app_handle: AppHandle, id: String) -> Result<Vec<Fixture>, String> {
+        let id = uuid::Uuid::parse_str(&id).map_err(|e| format!("bad fixture id: {e}"))?;
+        let patch = app_handle.state::<LuxPatch>();
+        patch.remove(id)?;
+        commit_patch(&app_handle, patch.inner())
+    }
+}
+
+/// Persist the patch and broadcast it to the UI, returning the new fixture list.
+fn commit_patch(app: &AppHandle, patch: &LuxPatch) -> Result<Vec<Fixture>, String> {
+    fixture::save(app, patch);
+    let fixtures = patch.list();
+    CmdEvent::PatchSet {
+        fixtures: fixtures.clone(),
+    }
+    .emit(app)
+    .map_err(|e| format!("Failed to emit patch_set event: {e}"))?;
+    Ok(fixtures)
 }
