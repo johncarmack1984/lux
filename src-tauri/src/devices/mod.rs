@@ -182,6 +182,21 @@ impl DmxOutput {
         active.sink = sink;
         active.key = device.key();
     }
+
+    /// Rebuild the active sink to transmit on `universe`, when the active
+    /// transport is sACN. The persisted device `key` is deliberately left as the
+    /// detected node, so the tray highlight and device memory stay put — only the
+    /// wire universe follows the active setup.
+    fn retarget_universe(&self, universe: u16) {
+        let mut active = self.inner.lock().unwrap();
+        if active.transport == Transport::Sacn {
+            active.sink = build_sink(&Device {
+                transport: Transport::Sacn,
+                universe,
+                label: String::new(),
+            });
+        }
+    }
 }
 
 /// A sink that drops frames — active when nothing is selected or a transport
@@ -223,12 +238,27 @@ fn sacn_interface_override() -> Option<Ipv4Addr> {
 /// call on the UI thread from the tray handler.
 pub fn switch_to_device<R: Runtime>(app: &AppHandle<R>, device: &Device) {
     app.state::<DmxOutput>().set_device(device);
+    // The active setup owns the logical universe; the tray owns the transport. For
+    // a network node, transmit on the active setup's universe rather than the
+    // node's auto-detected one (they match by default, since a new setup defaults
+    // to universe 1 and a node reporting U1 lands there too).
+    if device.transport == Transport::Sacn {
+        let universe = app.state::<crate::setup::LuxSetups>().active_universe();
+        app.state::<DmxOutput>().retarget_universe(universe);
+    }
     persist_key(app, &device.key());
     let buffer = app.state::<crate::buffer::LuxBuffer>().buffer.lock().unwrap().clone();
     if let Err(e) = app.state::<DmxOutput>().render(&buffer) {
         log::trace!("post-switch render failed: {e}");
     }
     log::info!("active DMX output: {}", device.label);
+}
+
+/// Point the live sACN output at `universe` (a no-op for USB). Called when the
+/// active setup changes or its bound universe is edited, so output follows the
+/// setup without disturbing the tray's device selection.
+pub fn set_active_universe<R: Runtime>(app: &AppHandle<R>, universe: u16) {
+    app.state::<DmxOutput>().retarget_universe(universe);
 }
 
 /// Manual rescan (tray "Rescan"): one detection pass off the UI thread, then

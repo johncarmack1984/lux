@@ -1,8 +1,10 @@
 use crate::{
-    buffer::{Buffer, LuxBuffer},
+    buffer::{Buffer, LuxBuffer, UNIVERSE_SIZE},
     channel::LuxChannel,
     channels::LuxChannels,
-    fixture::{self, ChannelDef, Fixture, FixturePreset, LuxPatch},
+    devices::{self, DmxOutput},
+    fixture::{self, ChannelDef, Fixture, FixturePreset},
+    setup::{self, LuxSetups, SetupSummary},
     sync::*,
 };
 use tauri::{AppHandle, Manager};
@@ -29,6 +31,7 @@ pub trait CmdMethods {
     ) -> Result<LuxChannel, String>;
     fn sync_state(&self, app_handle: AppHandle) -> Result<String, String>;
     fn list_presets(&self) -> Result<Vec<FixturePreset>, String>;
+    // Fixtures — operate on the active setup's patch.
     fn get_patch(&self, app_handle: AppHandle) -> Result<Vec<Fixture>, String>;
     fn add_fixture(
         &self,
@@ -46,11 +49,43 @@ pub trait CmdMethods {
         channels: Vec<ChannelDef>,
     ) -> Result<Vec<Fixture>, String>;
     fn remove_fixture(&self, app_handle: AppHandle, id: String) -> Result<Vec<Fixture>, String>;
+    // Setups — a user's named (fixtures + universe) configurations.
+    fn list_setups(&self, app_handle: AppHandle) -> Result<Vec<SetupSummary>, String>;
+    fn create_setup(
+        &self,
+        app_handle: AppHandle,
+        name: String,
+        universe: u16,
+    ) -> Result<Vec<SetupSummary>, String>;
+    fn rename_setup(
+        &self,
+        app_handle: AppHandle,
+        id: String,
+        name: String,
+    ) -> Result<Vec<SetupSummary>, String>;
+    fn set_setup_universe(
+        &self,
+        app_handle: AppHandle,
+        id: String,
+        universe: u16,
+    ) -> Result<Vec<SetupSummary>, String>;
+    fn delete_setup(&self, app_handle: AppHandle, id: String)
+        -> Result<Vec<SetupSummary>, String>;
+    fn set_active_setup(&self, app_handle: AppHandle, id: String) -> Result<SetupSummary, String>;
 }
 #[derive(ttipc::Event)]
 pub enum CmdEvent {
-    ChannelDataSet { channels: Vec<LuxChannel> },
-    PatchSet { fixtures: Vec<Fixture> },
+    ChannelDataSet {
+        channels: Vec<LuxChannel>,
+    },
+    PatchSet {
+        setup_id: String,
+        fixtures: Vec<Fixture>,
+    },
+    SetupsChanged {
+        setups: Vec<SetupSummary>,
+        active_setup_id: String,
+    },
 }
 
 #[derive(Clone)]
@@ -105,7 +140,7 @@ impl CmdMethods for CmdEndpoint {
     }
 
     fn get_patch(&self, app_handle: AppHandle) -> Result<Vec<Fixture>, String> {
-        Ok(app_handle.state::<LuxPatch>().list())
+        Ok(app_handle.state::<LuxSetups>().active_fixtures())
     }
 
     fn add_fixture(
@@ -115,9 +150,9 @@ impl CmdMethods for CmdEndpoint {
         address: u16,
         channels: Vec<ChannelDef>,
     ) -> Result<Vec<Fixture>, String> {
-        let patch = app_handle.state::<LuxPatch>();
-        patch.add(name, address, channels)?;
-        commit_patch(&app_handle, patch.inner())
+        let setups = app_handle.state::<LuxSetups>();
+        setups.add_fixture(name, address, channels)?;
+        commit_patch(&app_handle, setups.inner())
     }
 
     fn update_fixture(
@@ -128,28 +163,153 @@ impl CmdMethods for CmdEndpoint {
         address: u16,
         channels: Vec<ChannelDef>,
     ) -> Result<Vec<Fixture>, String> {
-        let id = uuid::Uuid::parse_str(&id).map_err(|e| format!("bad fixture id: {e}"))?;
-        let patch = app_handle.state::<LuxPatch>();
-        patch.update(id, name, address, channels)?;
-        commit_patch(&app_handle, patch.inner())
+        let id = parse_fixture_id(&id)?;
+        let setups = app_handle.state::<LuxSetups>();
+        setups.update_fixture(id, name, address, channels)?;
+        commit_patch(&app_handle, setups.inner())
     }
 
     fn remove_fixture(&self, app_handle: AppHandle, id: String) -> Result<Vec<Fixture>, String> {
-        let id = uuid::Uuid::parse_str(&id).map_err(|e| format!("bad fixture id: {e}"))?;
-        let patch = app_handle.state::<LuxPatch>();
-        patch.remove(id)?;
-        commit_patch(&app_handle, patch.inner())
+        let id = parse_fixture_id(&id)?;
+        let setups = app_handle.state::<LuxSetups>();
+        setups.remove_fixture(id)?;
+        commit_patch(&app_handle, setups.inner())
+    }
+
+    fn list_setups(&self, app_handle: AppHandle) -> Result<Vec<SetupSummary>, String> {
+        Ok(app_handle.state::<LuxSetups>().summaries())
+    }
+
+    fn create_setup(
+        &self,
+        app_handle: AppHandle,
+        name: String,
+        universe: u16,
+    ) -> Result<Vec<SetupSummary>, String> {
+        let setups = app_handle.state::<LuxSetups>();
+        setups.create(name, universe)?;
+        commit_setups(&app_handle, setups.inner())
+    }
+
+    fn rename_setup(
+        &self,
+        app_handle: AppHandle,
+        id: String,
+        name: String,
+    ) -> Result<Vec<SetupSummary>, String> {
+        let id = parse_setup_id(&id)?;
+        let setups = app_handle.state::<LuxSetups>();
+        setups.rename(id, name)?;
+        commit_setups(&app_handle, setups.inner())
+    }
+
+    fn set_setup_universe(
+        &self,
+        app_handle: AppHandle,
+        id: String,
+        universe: u16,
+    ) -> Result<Vec<SetupSummary>, String> {
+        let id = parse_setup_id(&id)?;
+        let setups = app_handle.state::<LuxSetups>();
+        setups.set_universe(id, universe)?;
+        // Retuning the *active* setup's universe takes effect on the wire now;
+        // a non-active setup just stores the value for when it's next activated.
+        if setups.active_id() == id {
+            devices::set_active_universe(&app_handle, setups.active_universe());
+            rerender_current(&app_handle);
+        }
+        commit_setups(&app_handle, setups.inner())
+    }
+
+    fn delete_setup(
+        &self,
+        app_handle: AppHandle,
+        id: String,
+    ) -> Result<Vec<SetupSummary>, String> {
+        let id = parse_setup_id(&id)?;
+        let setups = app_handle.state::<LuxSetups>();
+        let was_active = setups.active_id() == id;
+        setups.delete(id)?;
+        // Deleting the active setup reassigns active inside the store; re-sync the
+        // output and UI to whatever became active, exactly like a manual switch.
+        if was_active {
+            activate(&app_handle, setups.inner())?;
+        }
+        commit_setups(&app_handle, setups.inner())
+    }
+
+    fn set_active_setup(
+        &self,
+        app_handle: AppHandle,
+        id: String,
+    ) -> Result<SetupSummary, String> {
+        let id = parse_setup_id(&id)?;
+        let setups = app_handle.state::<LuxSetups>();
+        setups.set_active(id)?;
+        activate(&app_handle, setups.inner())?;
+        commit_setups(&app_handle, setups.inner())?;
+        Ok(setups.active_summary())
     }
 }
 
-/// Persist the patch and broadcast it to the UI, returning the new fixture list.
-fn commit_patch(app: &AppHandle, patch: &LuxPatch) -> Result<Vec<Fixture>, String> {
-    fixture::save(app, patch);
-    let fixtures = patch.list();
+fn parse_fixture_id(id: &str) -> Result<uuid::Uuid, String> {
+    uuid::Uuid::parse_str(id).map_err(|e| format!("bad fixture id: {e}"))
+}
+
+fn parse_setup_id(id: &str) -> Result<uuid::Uuid, String> {
+    uuid::Uuid::parse_str(id).map_err(|e| format!("bad setup id: {e}"))
+}
+
+/// Persist the store and broadcast the active setup's patch to the UI, returning
+/// the new fixture list. The `setup_id` lets the UI ignore a `PatchSet` from a
+/// setup it has already switched away from.
+fn commit_patch(app: &AppHandle, setups: &LuxSetups) -> Result<Vec<Fixture>, String> {
+    setup::save(app, setups);
+    let fixtures = setups.active_fixtures();
     CmdEvent::PatchSet {
+        setup_id: setups.active_id().to_string(),
         fixtures: fixtures.clone(),
     }
     .emit(app)
     .map_err(|e| format!("Failed to emit patch_set event: {e}"))?;
     Ok(fixtures)
+}
+
+/// Persist the store and broadcast the setup list + active id to the UI.
+fn commit_setups(app: &AppHandle, setups: &LuxSetups) -> Result<Vec<SetupSummary>, String> {
+    setup::save(app, setups);
+    let summaries = setups.summaries();
+    CmdEvent::SetupsChanged {
+        setups: summaries.clone(),
+        active_setup_id: setups.active_id().to_string(),
+    }
+    .emit(app)
+    .map_err(|e| format!("Failed to emit setups_changed event: {e}"))?;
+    Ok(summaries)
+}
+
+/// Apply the consequences of the active setup changing: point the live sACN
+/// output at the new setup's universe, black out the universe so one setup's
+/// levels never bleed onto another's fixtures, and re-broadcast the new patch.
+fn activate(app: &AppHandle, setups: &LuxSetups) -> Result<(), String> {
+    devices::set_active_universe(app, setups.active_universe());
+    let mut buffer = app.state::<LuxBuffer>().inner().clone();
+    buffer.set(vec![0u8; UNIVERSE_SIZE], app.clone())?; // emits BufferSet + renders
+    CmdEvent::PatchSet {
+        setup_id: setups.active_id().to_string(),
+        fixtures: setups.active_fixtures(),
+    }
+    .emit(app)
+    .map_err(|e| format!("Failed to emit patch_set event: {e}"))?;
+    Ok(())
+}
+
+/// Re-send the current buffer to the active output without touching the UI —
+/// used after the live universe number changes so the new universe lights up
+/// with the levels already on screen.
+fn rerender_current(app: &AppHandle) {
+    let buffer = app.state::<LuxBuffer>().buffer.lock().unwrap().clone();
+    if let Err(e) = app.state::<DmxOutput>().render(&buffer) {
+        log::trace!("post-universe-change render failed: {e}");
+    }
 }

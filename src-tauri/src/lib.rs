@@ -10,6 +10,7 @@ mod error;
 mod fixture;
 mod logger;
 mod remote;
+mod setup;
 mod sync;
 mod tray;
 
@@ -27,8 +28,9 @@ pub async fn run() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     let builder = setup(tauri::Builder::default(), |app| {
-        // Load the saved fixture patch (or the default RGBAW@1) into state.
-        app.manage(fixture::load(app.handle()));
+        // Load the user's setups (migrating a legacy patch.json, or seeding the
+        // default "Home" setup on first run) into state.
+        app.manage(setup::load(app.handle()));
         remote::connect(app.handle());
         if let Err(e) = tray::build(app) {
             log::error!("tray setup failed: {e}");
