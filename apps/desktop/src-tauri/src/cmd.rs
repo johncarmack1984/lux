@@ -89,6 +89,10 @@ pub trait CmdMethods {
         password: String,
     ) -> Result<AuthStatus, String>;
     fn sign_out(&self, app_handle: AppHandle) -> Result<AuthStatus, String>;
+    // Cloud sync — current status for the indicator, and a manual pull (fired on
+    // window focus so remote edits land without waiting for a restart).
+    fn sync_status(&self, app_handle: AppHandle) -> Result<crate::cloud::SyncState, String>;
+    fn sync_now(&self, app_handle: AppHandle) -> Result<(), String>;
 }
 #[derive(ttipc::Event)]
 pub enum CmdEvent {
@@ -105,6 +109,9 @@ pub enum CmdEvent {
     },
     AuthChanged {
         status: AuthStatus,
+    },
+    SyncStatusChanged {
+        state: crate::cloud::SyncState,
     },
 }
 
@@ -307,6 +314,15 @@ impl CmdMethods for CmdEndpoint {
         let status = app_handle.state::<LuxAccount>().sign_out();
         emit_auth_changed(&app_handle, status.clone())?;
         Ok(status)
+    }
+
+    fn sync_status(&self, app_handle: AppHandle) -> Result<crate::cloud::SyncState, String> {
+        Ok(app_handle.state::<crate::cloud::LuxSync>().snapshot())
+    }
+
+    fn sync_now(&self, app_handle: AppHandle) -> Result<(), String> {
+        crate::cloud::schedule_sync(&app_handle);
+        Ok(())
     }
 }
 

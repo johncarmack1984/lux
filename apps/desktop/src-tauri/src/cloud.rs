@@ -15,16 +15,62 @@
 //!   the local setups into the account.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use std::time::Duration;
 
 use reqwest::{Client, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 use crate::account::LuxAccount;
+use crate::cmd::CmdEvent;
 use crate::fixture::Fixture;
 use crate::setup::{LuxSetups, PendingDelete, Setup};
+
+// --- sync status (drives the UI indicator) -----------------------------------
+
+/// Coarse cloud-sync state for the nav indicator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SyncState {
+    /// Signed out, or signed in with nothing left to sync.
+    #[default]
+    Idle,
+    /// A push or pull is in flight.
+    Syncing,
+    /// The last cycle completed and everything is flushed.
+    Synced,
+    /// The last attempt couldn't reach the cloud; a backoff retry is running.
+    Offline,
+}
+
+/// Tauri-managed sync state plus the cloud layer's concurrency guards.
+#[derive(Default)]
+pub struct LuxSync {
+    state: Mutex<SyncState>,
+    /// Held while a pull/push cycle runs, so focus-triggered syncs coalesce
+    /// instead of stacking up.
+    in_flight: AtomicBool,
+    /// Held while a backoff retry loop is alive, so only one runs at a time.
+    retrying: AtomicBool,
+}
+
+impl LuxSync {
+    /// The current state, for the `sync_status` command and event payloads.
+    pub fn snapshot(&self) -> SyncState {
+        *self.state.lock().unwrap()
+    }
+
+    /// Move to `state` and emit the change to the UI.
+    fn set(&self, app: &AppHandle, state: SyncState) {
+        *self.state.lock().unwrap() = state;
+        let _ = CmdEvent::SyncStatusChanged { state }.emit(app);
+    }
+}
 
 #[derive(Debug)]
 enum SyncError {
@@ -319,34 +365,101 @@ fn syncable(app: &AppHandle) -> bool {
     account.signed_in() && account.sync_url().is_some()
 }
 
+/// True when nothing is waiting to reach the cloud (no dirty setups, no pending
+/// delete tombstones).
+fn fully_flushed(app: &AppHandle) -> bool {
+    let setups = app.state::<LuxSetups>();
+    setups.dirty_for_push().is_empty() && setups.pending_deletes().is_empty()
+}
+
+/// Close out a push/pull cycle: `Synced` if everything reached the cloud, else
+/// `Offline` plus a background backoff retry so it keeps trying on its own.
+fn finish_cycle(app: &AppHandle) {
+    if fully_flushed(app) {
+        app.state::<LuxSync>().set(app, SyncState::Synced);
+    } else {
+        app.state::<LuxSync>().set(app, SyncState::Offline);
+        schedule_retry(app);
+    }
+}
+
 /// Flush local changes to the cloud in the background (called after a local
-/// mutation). No-op unless signed in with sync configured.
+/// mutation). No-op unless signed in, sync configured, and something to push.
 pub fn schedule_push(app: &AppHandle) {
-    if !syncable(app) {
+    if !syncable(app) || fully_flushed(app) {
         return;
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let client = Client::new();
         let (Some(base), Some(mut token)) = (
             app.state::<LuxAccount>().sync_url(),
             app.state::<LuxAccount>().current_id_token(),
         ) else {
             return;
         };
+        app.state::<LuxSync>().set(&app, SyncState::Syncing);
+        let client = Client::new();
         push_all(&app, &client, &base, &mut token).await;
+        finish_cycle(&app);
     });
 }
 
-/// Pull + reconcile + push in the background (called on sign-in and startup
-/// restore). No-op unless signed in with sync configured.
+/// Pull + reconcile + push in the background (called on sign-in, startup restore,
+/// and window focus). No-op unless signed in with sync configured. Coalesces: if
+/// a cycle is already running this is a no-op — that cycle ends with a push that
+/// picks up anything newly dirty.
 pub fn schedule_sync(app: &AppHandle) {
     if !syncable(app) {
         return;
     }
+    if app.state::<LuxSync>().in_flight.swap(true, Ordering::SeqCst) {
+        return;
+    }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
+        app.state::<LuxSync>().set(&app, SyncState::Syncing);
         pull_and_push(&app).await;
+        finish_cycle(&app);
+        app.state::<LuxSync>().in_flight.store(false, Ordering::SeqCst);
+    });
+}
+
+/// Keep retrying the push with exponential backoff until everything is flushed,
+/// the user signs out, or sync is disabled. Only one retry loop runs at a time,
+/// and a fresh local mutation's push is picked up by the same loop (it re-reads
+/// the dirty set each pass).
+fn schedule_retry(app: &AppHandle) {
+    if app.state::<LuxSync>().retrying.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        const BACKOFF_SECS: [u64; 5] = [5, 15, 30, 60, 120];
+        let mut attempt = 0usize;
+        loop {
+            if !syncable(&app) || fully_flushed(&app) {
+                break;
+            }
+            let wait = BACKOFF_SECS[attempt.min(BACKOFF_SECS.len() - 1)];
+            tokio::time::sleep(Duration::from_secs(wait)).await;
+            if !syncable(&app) {
+                break;
+            }
+            let client = Client::new();
+            let (Some(base), Some(mut token)) = (
+                app.state::<LuxAccount>().sync_url(),
+                app.state::<LuxAccount>().current_id_token(),
+            ) else {
+                break;
+            };
+            push_all(&app, &client, &base, &mut token).await;
+            if fully_flushed(&app) {
+                app.state::<LuxSync>().set(&app, SyncState::Synced);
+                break;
+            }
+            attempt += 1;
+        }
+        app.state::<LuxSync>().retrying.store(false, Ordering::SeqCst);
     });
 }
 

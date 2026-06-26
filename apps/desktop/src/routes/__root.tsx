@@ -3,6 +3,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { Updater } from "@/components/updater";
 import SetupSwitcher from "@/components/setup-switcher";
 import AccountMenu from "@/components/account-menu";
+import SyncIndicator from "@/components/sync-indicator";
+import useSyncOnFocus from "@/hooks/useSyncOnFocus";
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -12,6 +14,7 @@ const navLink =
   "text-sm font-medium text-muted-foreground transition-colors hover:text-foreground [&.active]:text-foreground";
 
 function RootLayout() {
+  useSyncOnFocus();
   return (
     <>
       <div className="flex min-h-screen flex-col sm:px-12">
@@ -24,7 +27,8 @@ function RootLayout() {
           <Link to="/universe" className={navLink}>
             Universe
           </Link>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-3">
+            <SyncIndicator />
             <AccountMenu />
           </div>
         </nav>
