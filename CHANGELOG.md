@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/johncarmack1984/lux/compare/v0.8.0...v0.9.0) (2026-06-26)
+
+
+### Features
+
+* sync-status indicator, pull-on-focus, and offline-retry backoff ([#73](https://github.com/johncarmack1984/lux/issues/73)) ([d57885f](https://github.com/johncarmack1984/lux/commit/d57885f6da772ba1366b515ad177cbd6581bd137))
+
 ## [0.8.0](https://github.com/johncarmack1984/lux/compare/v0.7.0...v0.8.0) (2026-06-25)
 
 
