@@ -23,12 +23,15 @@ lambda_http = "1.2"
 # Small, optimized release binaries. Profiles must live at the workspace root, so
 # this now governs the Lambda services too — lto + opt-level "s" give them smaller,
 # faster-cold-start binaries, and panic = "abort" is fine for stateless handlers.
+# This is Tauri's recommended smallest-binary profile (https://v2.tauri.app/concept/size);
+# strip = true drops debug symbols for a smaller .dmg (no crash symbolication, fine here).
 [profile.release]
 panic = "abort"
 codegen-units = 1
 lto = true
 incremental = false
 opt-level = "s"
+strip = true
 
 # RUSTSEC-2024-0429: UB in glib's VariantStrIter::impl_get. tauri's Linux gtk
 # stack pins glib 0.18 and there is no tauri release on glib 0.20, so the advisory
