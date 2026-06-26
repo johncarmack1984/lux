@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
     "check:tauri-versions": "bun scripts/check-tauri-versions.mjs",
     "tauri": "tauri"
   },
