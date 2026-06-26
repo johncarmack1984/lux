@@ -1,31 +1,40 @@
 name: desktop
 
-# Fast PR preflight for the desktop app. Today it runs the one check that the
-# full Tauri build enforces but only on release tags: @tauri-apps/* JS packages
-# must share their major/minor with their Rust crate counterparts. Catching that
-# drift here (seconds) instead of in the release build (which only runs on a tag)
-# closes the gap that broke the 0.8.0 release. Path-filtered to the inputs that
-# can actually introduce a mismatch.
+# PR + main gate for the desktop app and the workspace crates. Every check here
+# is something the release build (which only runs on a tag) would otherwise be
+# the first to enforce — so a regression slips all the way to a release before it
+# surfaces. Catching it on the PR (a few minutes) closes that gap:
+#   - tauri-versions: @tauri-apps/* JS packages must share their minor with their
+#     Rust crate counterparts (the drift that broke the 0.8.0 release).
+#   - frontend: production build (also generates routeTree.gen.ts) + typecheck + lint.
+#   - rust: cargo test across the workspace, including tests/bindings.rs — the
+#     drift guard that fails when src/bindings.ts is stale.
 
 on:
   pull_request:
     paths:
-      - 'apps/desktop/package.json'
-      - 'apps/desktop/bun.lockb'
+      - 'apps/desktop/**'
+      - 'services/**'
+      - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'apps/desktop/scripts/check-tauri-versions.mjs'
       - '.github/workflows/desktop.yml'
   push:
     branches: [main]
     paths:
-      - 'apps/desktop/package.json'
-      - 'apps/desktop/bun.lockb'
+      - 'apps/desktop/**'
+      - 'services/**'
+      - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'apps/desktop/scripts/check-tauri-versions.mjs'
       - '.github/workflows/desktop.yml'
 
 permissions:
   contents: read
+
+# Newer pushes to the same ref supersede in-flight runs (a PR and a main push use
+# different refs, so they never cancel each other).
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   tauri-versions:
@@ -42,3 +51,70 @@ jobs:
 
       - name: check @tauri-apps JS <-> crate version match
         run: bun run check:tauri-versions
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install
+
+      # vite build emits the production bundle and the gitignored
+      # routeTree.gen.ts that the typecheck depends on, so it runs first and
+      # doubles as a bundler/import check.
+      - run: bun run build
+
+      - run: bun run typecheck
+
+      - run: bun run lint
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Tauri's Rust crates link the system webkitgtk/gtk stack on Linux, so the
+      # -dev packages must be present for the *-sys crates to compile.
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            build-essential \
+            curl wget file
+
+      - uses: oven-sh/setup-bun@v2
+
+      # tauri::generate_context! embeds ../dist at compile time, so the frontend
+      # must be built before anything compiles the desktop crate (incl. its tests).
+      - name: Build frontend (for generate_context!)
+        working-directory: apps/desktop
+        run: |
+          bun install
+          bun run build
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Restore the compiled dependency tree (keyed on Cargo.lock); saved on main
+      # pushes, restored on PRs. Debug profile here, so this is a fast check — not
+      # the slow release build.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+
+      # Full workspace suite: desktop unit tests (incl. the cloud reconcile logic)
+      # plus tests/bindings.rs, which regenerates the IPC bindings and fails if
+      # src/bindings.ts is stale. --locked also asserts Cargo.lock is committed in
+      # sync. #[ignore]'d live-AWS round-trips are skipped (no credentials needed).
+      - name: cargo test
+        run: cargo test --workspace --locked
