@@ -89,6 +89,16 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
+      # Cache the compiled dependency tree. ~90% of this build is dependencies
+      # compiled from scratch, twice (once per arch), under the deliberately
+      # slow release profile (codegen-units = 1 + fat LTO — Tauri's recommended
+      # smallest-binary config, kept as-is). rust-cache restores those dep
+      # artifacts keyed on Cargo.lock, so only the workspace crates + the final
+      # LTO link recompile. The cache is scoped to the workspace-root target/.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+
       - run: bun install
         working-directory: apps/desktop
 
