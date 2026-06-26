@@ -60,6 +60,7 @@ pub async fn run() {
         .manage(default_buffer)
         .manage(default_channels)
         .manage(DmxOutput::default())
+        .manage(cloud::LuxSync::default())
         .invoke_handler(taurpc)
         .run(tauri::generate_context!())
         .expect("error while running tauri application")

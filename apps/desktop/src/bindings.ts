@@ -108,6 +108,16 @@ export const cmd = {
   sign_out(): Promise<AuthStatus> {
     return invoke("cmd.sign_out");
   },
+
+  /** @throws {string} */
+  sync_status(): Promise<SyncState> {
+    return invoke("cmd.sync_status");
+  },
+
+  /** @throws {string} */
+  sync_now(): Promise<null> {
+    return invoke("cmd.sync_now");
+  },
 };
 
 export const sync = {
@@ -127,7 +137,7 @@ export const sync = {
   },
 };
 
-export type CmdEvent = { type: "channelDataSet"; channels: LuxChannel[] } | { type: "patchSet"; setup_id: string; fixtures: Fixture[] } | { type: "setupsChanged"; setups: SetupSummary[]; active_setup_id: string } | { type: "authChanged"; status: AuthStatus };
+export type CmdEvent = { type: "channelDataSet"; channels: LuxChannel[] } | { type: "patchSet"; setup_id: string; fixtures: Fixture[] } | { type: "setupsChanged"; setups: SetupSummary[]; active_setup_id: string } | { type: "authChanged"; status: AuthStatus } | { type: "syncStatusChanged"; state: SyncState };
 
 export type SyncEvent = { type: "bufferSet"; buffer: number[] };
 
@@ -139,6 +149,7 @@ export const events = {
         listen<{ setup_id: string; fixtures: Fixture[] }>("cmd:patchSet", (event) => callback({ type: "patchSet", ...event.payload })),
         listen<{ setups: SetupSummary[]; active_setup_id: string }>("cmd:setupsChanged", (event) => callback({ type: "setupsChanged", ...event.payload })),
         listen<{ status: AuthStatus }>("cmd:authChanged", (event) => callback({ type: "authChanged", ...event.payload })),
+        listen<{ state: SyncState }>("cmd:syncStatusChanged", (event) => callback({ type: "syncStatusChanged", ...event.payload })),
       ]);
       return () => unlisten.forEach((un) => un());
     },
@@ -221,3 +232,14 @@ export type SetupSummary = {
 	fixtureCount: number,
 	active: boolean,
 };
+
+/**  Coarse cloud-sync state for the nav indicator. */
+export type SyncState = 
+/**  Signed out, or signed in with nothing left to sync. */
+"idle" | 
+/**  A push or pull is in flight. */
+"syncing" | 
+/**  The last cycle completed and everything is flushed. */
+"synced" | 
+/**  The last attempt couldn't reach the cloud; a backoff retry is running. */
+"offline";
