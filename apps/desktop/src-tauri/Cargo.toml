@@ -28,8 +28,6 @@ aws-sdk-cognitoidentityprovider = "1"
 aws-cognito-srp = "0.2.5"
 keyring = "4"
 dotenvy = "0.15.7"
-enttecopendmx = "0.1.1"
-libftd2xx = { version = "0.33.1", features = ["static"] }
 log = "^0.4.28"
 serde_json.workspace = true
 serde.workspace = true
@@ -40,7 +38,6 @@ tauri = { version = "~2.11", features = [
     "isolation",
     "image-ico",
     "image-png",
-    "tray-icon",
 ] }
 tauri-plugin-log = "2.7.1"
 tauri-plugin-shell = "2.3.3"
@@ -59,8 +56,25 @@ rumqttc = "0.25"
 # provider feature is enabled. The workspace pins ring; add the app's extra
 # features here (no cmake / aws-lc-sys C build).
 rustls = { workspace = true, features = ["logging", "std", "tls12"] }
-tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+
+# Desktop-only outputs and integrations with no iOS/Android equivalent: USB/FTDI
+# (Enttec Open DMX), the system tray, and the self-updater. Mobile drives output
+# over sACN, has no tray, and updates through the App Store. Gated on real
+# target_os so Cargo resolves these only when building for desktop; the matching
+# code is behind `#[cfg(desktop)]`.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+enttecopendmx = "0.1.1"
+libftd2xx = { version = "0.33.1", features = ["static"] }
+tauri = { version = "~2.11", features = ["tray-icon"] }
+tauri-plugin-updater = "2"
+
+# keyring's Apple Keychain backend requires the data-protection Keychain API on
+# iOS (the only Keychain iOS exposes); keyring's default `v1` feature enables the
+# backend but not `protected`. Pull the backend crate directly on iOS with that
+# feature — Cargo unifies it onto the same instance keyring uses.
+[target.'cfg(target_os = "ios")'.dependencies]
+apple-native-keyring-store = { version = "1", features = ["protected"] }
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.

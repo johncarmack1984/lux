@@ -14,6 +14,7 @@ mod logger;
 mod remote;
 mod setup;
 mod sync;
+#[cfg(desktop)]
 mod tray;
 
 use buffer::LuxBuffer;
@@ -38,6 +39,7 @@ pub async fn run() {
         app.manage(account::LuxAccount::from_env());
         account::restore_on_startup(app.handle());
         remote::connect(app.handle());
+        #[cfg(desktop)]
         if let Err(e) = tray::build(app) {
             log::error!("tray setup failed: {e}");
         }
@@ -52,15 +54,19 @@ pub async fn run() {
         .into_procedures()
         .merge(CmdEndpoint.into_procedures());
     let taurpc = ttipc::handler(router);
-    builder
+    let builder = builder
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(logger::logger().build())
         .manage(default_buffer)
         .manage(default_channels)
         .manage(DmxOutput::default())
-        .manage(cloud::LuxSync::default())
+        .manage(cloud::LuxSync::default());
+    // The self-updater is desktop-only (mobile updates ship through the App
+    // Store), so add its plugin only when building for desktop.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    builder
         .invoke_handler(taurpc)
         .run(tauri::generate_context!())
         .expect("error while running tauri application")

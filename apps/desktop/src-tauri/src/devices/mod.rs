@@ -9,6 +9,7 @@
 //! (`buffer::render`) stays transport-agnostic.
 
 pub mod discovery;
+#[cfg(desktop)]
 pub mod enttec_open_dmx_usb;
 pub mod sacn;
 
@@ -66,22 +67,27 @@ pub fn detect_devices() -> Vec<Device> {
     let mut devices = Vec::new();
 
     // USB: any FTDI device present means an Enttec-compatible interface is here.
-    match libftd2xx::list_devices() {
-        Ok(infos) if !infos.is_empty() => {
-            let detail = infos
-                .iter()
-                .map(|i| i.description.clone())
-                .find(|d| !d.is_empty())
-                .unwrap_or_else(|| "FT232".to_string());
-            log::info!("detected USB FTDI interface ({detail})");
-            devices.push(Device {
-                transport: Transport::Enttec,
-                universe: 1,
-                label: format!("Enttec Open DMX USB ({detail})"),
-            });
+    // Desktop-only — iOS/Android have no FTDI USB stack, so mobile finds outputs
+    // over the network only.
+    #[cfg(desktop)]
+    {
+        match libftd2xx::list_devices() {
+            Ok(infos) if !infos.is_empty() => {
+                let detail = infos
+                    .iter()
+                    .map(|i| i.description.clone())
+                    .find(|d| !d.is_empty())
+                    .unwrap_or_else(|| "FT232".to_string());
+                log::info!("detected USB FTDI interface ({detail})");
+                devices.push(Device {
+                    transport: Transport::Enttec,
+                    universe: 1,
+                    label: format!("Enttec Open DMX USB ({detail})"),
+                });
+            }
+            Ok(_) => {}
+            Err(e) => log::debug!("FTDI enumeration: {e:?}"),
         }
-        Ok(_) => {}
-        Err(e) => log::debug!("FTDI enumeration: {e:?}"),
     }
 
     // Network: Art-Net discovery — each output-capable node becomes an sACN device.
@@ -163,10 +169,15 @@ impl DmxOutput {
         self.inner.lock().unwrap().transport.needs_keepalive()
     }
 
+    // Read by the desktop tray to render its device menu. Mobile has no tray yet,
+    // so these are unused there until the in-app output picker lands — keep them
+    // present (the picker will read the same state) rather than gate them out.
+    #[cfg_attr(mobile, allow(dead_code))]
     pub fn active_key(&self) -> String {
         self.inner.lock().unwrap().key.clone()
     }
 
+    #[cfg_attr(mobile, allow(dead_code))]
     pub fn devices(&self) -> Vec<Device> {
         self.devices.lock().unwrap().clone()
     }
@@ -210,7 +221,11 @@ impl DmxSink for NullSink {
 
 fn build_sink(device: &Device) -> Arc<dyn DmxSink> {
     match device.transport {
+        #[cfg(desktop)]
         Transport::Enttec => Arc::new(enttec_open_dmx_usb::EnttecSink),
+        // No USB transport on mobile; a stray Enttec selection drops to silence.
+        #[cfg(mobile)]
+        Transport::Enttec => Arc::new(NullSink),
         Transport::Sacn => match sacn::SacnSink::new(device.universe, sacn_interface_override()) {
             Ok(sink) => Arc::new(sink),
             Err(e) => {
@@ -262,7 +277,9 @@ pub fn set_active_universe<R: Runtime>(app: &AppHandle<R>, universe: u16) {
 }
 
 /// Manual rescan (tray "Rescan"): one detection pass off the UI thread, then
-/// auto-select and rebuild the menu.
+/// auto-select and rebuild the menu. Tray-triggered today, so unused on mobile
+/// until the in-app output picker calls it.
+#[cfg_attr(mobile, allow(dead_code))]
 pub fn rescan<R: Runtime>(app: &AppHandle<R>) {
     let app = app.clone();
     std::thread::spawn(move || apply_detection(&app, detect_devices()));
@@ -298,6 +315,7 @@ fn apply_detection<R: Runtime>(app: &AppHandle<R>, devices: Vec<Device>) {
         if let Some(device) = active {
             switch_to_device(&app, &device);
         }
+        #[cfg(desktop)]
         if let Err(e) = crate::tray::refresh(&app) {
             log::warn!("tray refresh failed: {e}");
         }
