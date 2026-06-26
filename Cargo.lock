@@ -3383,6 +3383,7 @@ name = "lux"
 version = "0.9.0"
 dependencies = [
  "anyhow",
+ "apple-native-keyring-store",
  "aws-cognito-srp",
  "aws-config",
  "aws-sdk-cognitoidentityprovider",
