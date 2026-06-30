@@ -75,6 +75,10 @@ jobs:
 
   rust:
     runs-on: ubuntu-latest
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v7
 
@@ -105,12 +109,19 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      # Restore the compiled dependency tree (keyed on Cargo.lock); saved on main
-      # pushes, restored on PRs. Debug profile here, so this is a fast check — not
-      # the slow release build.
+      # Compilation cache, content-addressed per crate: a Cargo.lock bump — which
+      # invalidates rust-cache's whole target/ — still hits for every unchanged
+      # crate (the common PR case with lux's large AWS-SDK + Tauri trees). Backed
+      # by the GitHub Actions cache.
+      - uses: mozilla-actions/sccache-action@v0.0.10
+
+      # sccache owns compilation caching now, so rust-cache just keeps the cargo
+      # registry/index warm — cache-targets: false skips the big target/ dir, so
+      # this frequent job's GHA-cache footprint stays small.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "."
+          cache-targets: "false"
 
       # Full workspace suite: desktop unit tests (incl. the cloud reconcile logic)
       # plus tests/bindings.rs, which regenerates the IPC bindings and fails if
@@ -118,3 +129,7 @@ jobs:
       # sync. #[ignore]'d live-AWS round-trips are skipped (no credentials needed).
       - name: cargo test
         run: cargo test --workspace --locked
+
+      - name: sccache stats
+        if: ${{ always() }}
+        run: sccache --show-stats
