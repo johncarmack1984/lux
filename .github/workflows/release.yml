@@ -22,6 +22,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      id-token: write # AWS OIDC, to read the release-bot App key from Secrets Manager
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
@@ -31,15 +32,36 @@ jobs:
       # start new workflow runs, so a release PR opened by it — and the
       # Cargo.lock-sync push below — leave the `desktop` PR gate stuck "awaiting
       # approval". An App-token-authored PR/push triggers it normally.
-      # Falls back to GITHUB_TOKEN until RELEASE_APP_CLIENT_ID (variable) and
-      # RELEASE_APP_PRIVATE_KEY (secret) are set, so this is safe to land first.
+      # The App's Client ID is the RELEASE_APP_CLIENT_ID variable; its private
+      # key is read from AWS Secrets Manager via OIDC (no key stored in GitHub),
+      # matching how the macOS build below loads its signing material. All gated
+      # on that variable, falling back to GITHUB_TOKEN when it's unset.
+      - name: Configure AWS credentials (OIDC)
+        if: ${{ vars.RELEASE_APP_CLIENT_ID != '' }}
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::735853783919:role/lux-release-signing
+          aws-region: us-west-1
+
+      - name: Load release-bot App private key
+        if: ${{ vars.RELEASE_APP_CLIENT_ID != '' }}
+        # Multi-line PEM into $GITHUB_ENV via a heredoc; never echoed, so the key
+        # stays out of the logs (same posture as the macOS signing secrets).
+        run: |
+          key=$(aws secretsmanager get-secret-value --secret-id lux/release-app-private-key --query SecretString --output text)
+          {
+            echo "RELEASE_APP_PRIVATE_KEY<<__EOF__"
+            printf '%s\n' "$key"
+            echo "__EOF__"
+          } >> "$GITHUB_ENV"
+
       - name: Mint release token (GitHub App)
         id: app-token
         if: ${{ vars.RELEASE_APP_CLIENT_ID != '' }}
         uses: actions/create-github-app-token@v3
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          private-key: ${{ env.RELEASE_APP_PRIVATE_KEY }}
 
       - uses: actions/checkout@v7
         with:

@@ -1,6 +1,8 @@
-# Lets the lux repo's GitHub Actions read the Tauri updater signing key from
-# Secrets Manager at release time via OIDC — no long-lived AWS keys in GitHub.
-# The key itself lives only in AWS Secrets Manager (created out-of-band).
+# Lets the lux repo's GitHub Actions read release-time secrets from Secrets
+# Manager via OIDC — no long-lived AWS keys in GitHub. The secrets themselves
+# live only in AWS Secrets Manager (created out-of-band): the Tauri updater
+# signing key, the Apple signing material, and the release-bot GitHub App
+# private key (release-please mints an installation token from it).
 
 data "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
@@ -12,6 +14,10 @@ data "aws_secretsmanager_secret" "updater_signing_key" {
 
 data "aws_secretsmanager_secret" "apple_signing" {
   name = "lux/apple-signing"
+}
+
+data "aws_secretsmanager_secret" "release_app_private_key" {
+  name = "lux/release-app-private-key"
 }
 
 resource "aws_iam_role" "release_signing" {
@@ -46,6 +52,7 @@ resource "aws_iam_role_policy" "read_updater_signing_key" {
       Resource = [
         data.aws_secretsmanager_secret.updater_signing_key.arn,
         data.aws_secretsmanager_secret.apple_signing.arn,
+        data.aws_secretsmanager_secret.release_app_private_key.arn,
       ]
     }]
   })
