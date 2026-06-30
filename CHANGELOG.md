@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/johncarmack1984/lux/compare/v0.9.0...v0.10.0) (2026-06-30)
+
+
+### Features
+
+* in-app DMX output picker in the manage-setups popover ([#79](https://github.com/johncarmack1984/lux/issues/79)) ([1990588](https://github.com/johncarmack1984/lux/commit/1990588d2b6fcc79f3326b1aacc04de1f13fb8d2))
+
 ## [0.9.0](https://github.com/johncarmack1984/lux/compare/v0.8.0...v0.9.0) (2026-06-26)
 
 
