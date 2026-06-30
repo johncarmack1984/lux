@@ -1,8 +1,16 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { Check, ChevronsUpDown, Plus, Settings2, Trash2 } from "lucide-react";
+import {
+  Check,
+  ChevronsUpDown,
+  Plus,
+  RefreshCw,
+  Settings2,
+  Trash2,
+} from "lucide-react";
 import { createTauRPCProxy, type SetupSummary } from "@/bindings";
 import useSetups from "@/hooks/useSetups";
+import useDmxDevices from "@/hooks/useDmxDevices";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -29,12 +37,14 @@ const cmd = () => createTauRPCProxy().cmd;
 export default function SetupSwitcher() {
   const setups = useSetups();
   const active = setups?.find((s) => s.active) ?? null;
+  const dmxDevices = useDmxDevices();
 
   const [manageOpen, setManageOpen] = useState(false);
   const [editName, setEditName] = useState("");
   const [editUniverse, setEditUniverse] = useState(1);
   const [newName, setNewName] = useState("");
   const [newUniverse, setNewUniverse] = useState(1);
+  const [rescanning, setRescanning] = useState(false);
 
   if (!setups || !active) {
     return (
@@ -97,6 +107,24 @@ export default function SetupSwitcher() {
     } catch (e) {
       toast.error(String(e));
     }
+  };
+
+  const selectDevice = (key: string) => {
+    cmd()
+      .set_dmx_device(key)
+      .catch((e) => toast.error(String(e)));
+  };
+
+  // Detection runs ~3s on the backend and reports back via `dmxDevicesChanged`;
+  // show the spinner across that window rather than block on the call's return.
+  const rescanDevices = async () => {
+    setRescanning(true);
+    try {
+      await cmd().rescan_dmx_devices();
+    } catch (e) {
+      toast.error(String(e));
+    }
+    setTimeout(() => setRescanning(false), 3500);
   };
 
   return (
@@ -211,6 +239,55 @@ export default function SetupSwitcher() {
               >
                 <Plus className="mr-1 size-4" /> Create &amp; switch
               </Button>
+            </div>
+
+            <div className="h-px bg-border" />
+
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-muted-foreground">
+                  DMX output
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 gap-1 px-2 text-xs text-muted-foreground"
+                  onClick={rescanDevices}
+                  disabled={rescanning}
+                >
+                  <RefreshCw
+                    className={cn("size-3", rescanning && "animate-spin")}
+                  />
+                  Rescan
+                </Button>
+              </div>
+              {dmxDevices === null ? (
+                <p className="text-xs text-muted-foreground">Scanning…</p>
+              ) : dmxDevices.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No outputs found.</p>
+              ) : (
+                <div className="flex flex-col gap-0.5">
+                  {dmxDevices.map((d) => (
+                    <button
+                      key={d.key}
+                      type="button"
+                      onClick={() => selectDevice(d.key)}
+                      className={cn(
+                        "flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent",
+                        d.active && "bg-accent/50",
+                      )}
+                    >
+                      <Check
+                        className={cn(
+                          "size-4 shrink-0",
+                          d.active ? "opacity-100" : "opacity-0",
+                        )}
+                      />
+                      <span className="flex-1 truncate">{d.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </PopoverContent>
