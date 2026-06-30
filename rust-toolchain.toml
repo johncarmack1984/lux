@@ -1,0 +1,3 @@
+# Track the current stable Rust toolchain for local dev and CI.
+[toolchain]
+channel = "stable"
