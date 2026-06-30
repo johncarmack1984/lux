@@ -26,13 +26,31 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
+      # Authenticate as a GitHub App (when configured) instead of the default
+      # GITHUB_TOKEN. GitHub deliberately won't let GITHUB_TOKEN-authored events
+      # start new workflow runs, so a release PR opened by it — and the
+      # Cargo.lock-sync push below — leave the `desktop` PR gate stuck "awaiting
+      # approval". An App-token-authored PR/push triggers it normally.
+      # Falls back to GITHUB_TOKEN until RELEASE_APP_ID (variable) and
+      # RELEASE_APP_PRIVATE_KEY (secret) are set, so this is safe to land first.
+      - name: Mint release token (GitHub App)
+        id: app-token
+        if: ${{ vars.RELEASE_APP_ID != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v7
+        with:
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       - uses: googleapis/release-please-action@v5
         id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       # release-please uses release-type "simple", which bumps the version in
       # apps/desktop/src-tauri/Cargo.toml but leaves the `lux` entry in the root
