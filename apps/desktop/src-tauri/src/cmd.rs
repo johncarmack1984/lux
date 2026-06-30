@@ -3,7 +3,7 @@ use crate::{
     buffer::{Buffer, LuxBuffer, UNIVERSE_SIZE},
     channel::LuxChannel,
     channels::LuxChannels,
-    devices::{self, DmxOutput},
+    devices::{self, DmxDeviceInfo, DmxOutput},
     fixture::{self, ChannelDef, Fixture, FixturePreset},
     setup::{self, LuxSetups, SetupSummary},
     sync::*,
@@ -93,6 +93,15 @@ pub trait CmdMethods {
     // window focus so remote edits land without waiting for a restart).
     fn sync_status(&self, app_handle: AppHandle) -> Result<crate::cloud::SyncState, String>;
     fn sync_now(&self, app_handle: AppHandle) -> Result<(), String>;
+    // DMX output — the in-app device picker (the only output selector on mobile,
+    // where there's no tray). Mirrors the desktop tray's device menu.
+    fn list_dmx_devices(&self, app_handle: AppHandle) -> Result<Vec<DmxDeviceInfo>, String>;
+    fn set_dmx_device(
+        &self,
+        app_handle: AppHandle,
+        key: String,
+    ) -> Result<Vec<DmxDeviceInfo>, String>;
+    fn rescan_dmx_devices(&self, app_handle: AppHandle) -> Result<(), String>;
 }
 #[derive(ttipc::Event)]
 pub enum CmdEvent {
@@ -112,6 +121,9 @@ pub enum CmdEvent {
     },
     SyncStatusChanged {
         state: crate::cloud::SyncState,
+    },
+    DmxDevicesChanged {
+        devices: Vec<DmxDeviceInfo>,
     },
 }
 
@@ -324,6 +336,26 @@ impl CmdMethods for CmdEndpoint {
         crate::cloud::schedule_sync(&app_handle);
         Ok(())
     }
+
+    fn list_dmx_devices(&self, app_handle: AppHandle) -> Result<Vec<DmxDeviceInfo>, String> {
+        Ok(devices::device_list(&app_handle))
+    }
+
+    fn set_dmx_device(
+        &self,
+        app_handle: AppHandle,
+        key: String,
+    ) -> Result<Vec<DmxDeviceInfo>, String> {
+        devices::select_device(&app_handle, &key)?;
+        emit_dmx_devices_changed(&app_handle);
+        Ok(devices::device_list(&app_handle))
+    }
+
+    fn rescan_dmx_devices(&self, app_handle: AppHandle) -> Result<(), String> {
+        // Spawns a detection pass; the refreshed list arrives via DmxDevicesChanged.
+        devices::rescan(&app_handle);
+        Ok(())
+    }
 }
 
 fn parse_fixture_id(id: &str) -> Result<uuid::Uuid, String> {
@@ -390,6 +422,16 @@ fn emit_auth_changed(app: &AppHandle, status: AuthStatus) -> Result<(), String> 
     CmdEvent::AuthChanged { status }
         .emit(app)
         .map_err(|e| format!("Failed to emit auth_changed event: {e}"))
+}
+
+/// Build the current DMX device list and broadcast it so the in-app output
+/// picker reflects detection/selection changes. Generic over the runtime: the
+/// auto-detect path calls it from [`crate::devices::apply_detection`].
+pub fn emit_dmx_devices_changed<R: tauri::Runtime>(app: &AppHandle<R>) {
+    let _ = CmdEvent::DmxDevicesChanged {
+        devices: devices::device_list(app),
+    }
+    .emit(app);
 }
 
 /// Apply the consequences of the active setup changing: point the live sACN

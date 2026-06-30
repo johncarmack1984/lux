@@ -18,6 +18,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+use specta::Type;
 use tauri::{AppHandle, Manager, Runtime};
 
 /// A DMX output: take the fixture's channel bytes (lux uses 6: RGBAW + master)
@@ -59,6 +61,18 @@ impl Device {
             Transport::Sacn => format!("sacn:{}", self.universe),
         }
     }
+}
+
+/// A detected output as the front-end picker sees it: stable `key`, display
+/// `label`, and whether it's the active output. The desktop tray reads
+/// [`Device`] directly; this is the serializable view for the in-app picker,
+/// which is the only output selector on mobile (there's no tray).
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DmxDeviceInfo {
+    pub key: String,
+    pub label: String,
+    pub active: bool,
 }
 
 /// Detect available outputs: FTDI/USB (Enttec) and Art-Net/sACN network nodes.
@@ -169,15 +183,12 @@ impl DmxOutput {
         self.inner.lock().unwrap().transport.needs_keepalive()
     }
 
-    // Read by the desktop tray to render its device menu. Mobile has no tray yet,
-    // so these are unused there until the in-app output picker lands — keep them
-    // present (the picker will read the same state) rather than gate them out.
-    #[cfg_attr(mobile, allow(dead_code))]
+    // The active key + detected list, read by the desktop tray's device menu and
+    // the in-app output picker (the only selector on mobile, where there's no tray).
     pub fn active_key(&self) -> String {
         self.inner.lock().unwrap().key.clone()
     }
 
-    #[cfg_attr(mobile, allow(dead_code))]
     pub fn devices(&self) -> Vec<Device> {
         self.devices.lock().unwrap().clone()
     }
@@ -276,10 +287,40 @@ pub fn set_active_universe<R: Runtime>(app: &AppHandle<R>, universe: u16) {
     app.state::<DmxOutput>().retarget_universe(universe);
 }
 
-/// Manual rescan (tray "Rescan"): one detection pass off the UI thread, then
-/// auto-select and rebuild the menu. Tray-triggered today, so unused on mobile
-/// until the in-app output picker calls it.
-#[cfg_attr(mobile, allow(dead_code))]
+/// The detected outputs as the in-app picker sees them, with the active one
+/// flagged. Backs the `list_dmx_devices` command and the `DmxDevicesChanged`
+/// event payload.
+pub fn device_list<R: Runtime>(app: &AppHandle<R>) -> Vec<DmxDeviceInfo> {
+    let out = app.state::<DmxOutput>();
+    let active = out.active_key();
+    out.devices()
+        .into_iter()
+        .map(|d| {
+            let key = d.key();
+            DmxDeviceInfo {
+                active: key == active,
+                label: d.label,
+                key,
+            }
+        })
+        .collect()
+}
+
+/// Make the detected device identified by `key` the active output. Errors if no
+/// detected device has that key (e.g. it was unplugged since the last scan).
+pub fn select_device<R: Runtime>(app: &AppHandle<R>, key: &str) -> Result<(), String> {
+    let device = app
+        .state::<DmxOutput>()
+        .devices()
+        .into_iter()
+        .find(|d| d.key() == key)
+        .ok_or_else(|| format!("no DMX device with key {key:?}"))?;
+    switch_to_device(app, &device);
+    Ok(())
+}
+
+/// Manual rescan (the tray's "Rescan" and the in-app picker's): one detection
+/// pass off the UI thread, then auto-select and refresh the tray menu + picker.
 pub fn rescan<R: Runtime>(app: &AppHandle<R>) {
     let app = app.clone();
     std::thread::spawn(move || apply_detection(&app, detect_devices()));
@@ -319,6 +360,8 @@ fn apply_detection<R: Runtime>(app: &AppHandle<R>, devices: Vec<Device>) {
         if let Err(e) = crate::tray::refresh(&app) {
             log::warn!("tray refresh failed: {e}");
         }
+        // Keep the in-app output picker in sync with detection on every platform.
+        crate::cmd::emit_dmx_devices_changed(&app);
     });
 }
 

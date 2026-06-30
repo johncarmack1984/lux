@@ -118,6 +118,21 @@ export const cmd = {
   sync_now(): Promise<null> {
     return invoke("cmd.sync_now");
   },
+
+  /** @throws {string} */
+  list_dmx_devices(): Promise<DmxDeviceInfo[]> {
+    return invoke("cmd.list_dmx_devices");
+  },
+
+  /** @throws {string} */
+  set_dmx_device(key: string): Promise<DmxDeviceInfo[]> {
+    return invoke("cmd.set_dmx_device", { key });
+  },
+
+  /** @throws {string} */
+  rescan_dmx_devices(): Promise<null> {
+    return invoke("cmd.rescan_dmx_devices");
+  },
 };
 
 export const sync = {
@@ -137,7 +152,7 @@ export const sync = {
   },
 };
 
-export type CmdEvent = { type: "channelDataSet"; channels: LuxChannel[] } | { type: "patchSet"; setup_id: string; fixtures: Fixture[] } | { type: "setupsChanged"; setups: SetupSummary[]; active_setup_id: string } | { type: "authChanged"; status: AuthStatus } | { type: "syncStatusChanged"; state: SyncState };
+export type CmdEvent = { type: "channelDataSet"; channels: LuxChannel[] } | { type: "patchSet"; setup_id: string; fixtures: Fixture[] } | { type: "setupsChanged"; setups: SetupSummary[]; active_setup_id: string } | { type: "authChanged"; status: AuthStatus } | { type: "syncStatusChanged"; state: SyncState } | { type: "dmxDevicesChanged"; devices: DmxDeviceInfo[] };
 
 export type SyncEvent = { type: "bufferSet"; buffer: number[] };
 
@@ -150,6 +165,7 @@ export const events = {
         listen<{ setups: SetupSummary[]; active_setup_id: string }>("cmd:setupsChanged", (event) => callback({ type: "setupsChanged", ...event.payload })),
         listen<{ status: AuthStatus }>("cmd:authChanged", (event) => callback({ type: "authChanged", ...event.payload })),
         listen<{ state: SyncState }>("cmd:syncStatusChanged", (event) => callback({ type: "syncStatusChanged", ...event.payload })),
+        listen<{ devices: DmxDeviceInfo[] }>("cmd:dmxDevicesChanged", (event) => callback({ type: "dmxDevicesChanged", ...event.payload })),
       ]);
       return () => unlisten.forEach((un) => un());
     },
@@ -190,6 +206,18 @@ export type ChannelDef = {
 	/**  Semantic role — drives the colour swatch / control affordance. */
 	role: LuxLabelColor,
 	label: string,
+};
+
+/**
+ *  A detected output as the front-end picker sees it: stable `key`, display
+ *  `label`, and whether it's the active output. The desktop tray reads
+ *  [`Device`] directly; this is the serializable view for the in-app picker,
+ *  which is the only output selector on mobile (there's no tray).
+ */
+export type DmxDeviceInfo = {
+	key: string,
+	label: string,
+	active: boolean,
 };
 
 /**  A patched fixture: `channels.len()` consecutive slots from `address` (1-based). */
