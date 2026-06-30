@@ -12,9 +12,10 @@
 //! SDK client runs with `.no_credentials()` — end users never hold AWS keys. SRP
 //! keeps the password on-device: only a zero-knowledge proof crosses the wire.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use aws_config::BehaviorVersion;
+use aws_smithy_http_client::tls::{self, rustls_provider::CryptoMode};
 use aws_sdk_cognitoidentityprovider::config::Region;
 use aws_sdk_cognitoidentityprovider::error::{ProvideErrorMetadata, SdkError};
 use aws_sdk_cognitoidentityprovider::types::{AttributeType, AuthFlowType, ChallengeNameType};
@@ -269,8 +270,39 @@ pub fn restore_on_startup(app: &AppHandle) {
 
 // --- Cognito calls (unauthenticated; owned args so the future is 'static) -----
 
+/// The Mozilla CA set (webpki) as a single PEM bundle, built once.
+///
+/// The AWS SDK's default HTTP client trusts the platform *native* root store.
+/// iOS apps can't read the system CA store, so rustls parses zero roots and the
+/// SDK aborts (`debug_assert` in debug, empty trust store in release). Bundling
+/// the webpki roots makes TLS verification identical on every platform.
+fn webpki_pem_bundle() -> &'static [u8] {
+    static BUNDLE: OnceLock<Vec<u8>> = OnceLock::new();
+    BUNDLE.get_or_init(|| {
+        let mut pem = Vec::new();
+        for cert in webpki_root_certs::TLS_SERVER_ROOT_CERTS {
+            pem.extend_from_slice(
+                ::pem::encode(&::pem::Pem::new("CERTIFICATE", cert.as_ref().to_vec())).as_bytes(),
+            );
+        }
+        pem
+    })
+}
+
 async fn cognito_client(region: &str) -> Client {
+    // Trust the bundled webpki roots rather than the platform native store
+    // (which is unreadable on iOS). Crypto stays on ring, matching the app's
+    // process-default provider.
+    let tls_ctx = tls::TlsContext::builder()
+        .with_trust_store(tls::TrustStore::empty().with_pem_certificate(webpki_pem_bundle()))
+        .build()
+        .expect("build TLS context");
+    let http_client = aws_smithy_http_client::Builder::new()
+        .tls_provider(tls::Provider::Rustls(CryptoMode::Ring))
+        .tls_context(tls_ctx)
+        .build_https();
     let cfg = aws_config::defaults(BehaviorVersion::latest())
+        .http_client(http_client)
         .no_credentials()
         .region(Region::new(region.to_owned()))
         .load()
@@ -448,6 +480,36 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Proves the SDK client verifies Cognito's TLS cert using the bundled
+    /// webpki roots alone — the platform native store is never consulted (this
+    /// is what was broken on iOS, where it's unreadable). A bogus InitiateAuth
+    /// returns a *modeled* Cognito `ServiceError`, which can only happen after a
+    /// successful TLS handshake; a broken trust store surfaces as a
+    /// `DispatchFailure` instead. Ignored by default (needs network).
+    #[test]
+    #[ignore = "hits live Cognito over TLS; run with --ignored"]
+    fn webpki_roots_verify_cognito_tls() {
+        let cfg = load_config();
+        let result = block_on(async move {
+            cognito_client(&cfg.region)
+                .await
+                .initiate_auth()
+                .client_id(&cfg.client_id)
+                .auth_flow(AuthFlowType::UserSrpAuth)
+                .auth_parameters("USERNAME", "nobody@example.invalid")
+                .auth_parameters("SRP_A", "00")
+                .send()
+                .await
+        });
+        // Reaching Cognito at all proves the handshake verified its cert via the
+        // webpki roots (the native store is never consulted). A challenge (Ok) or
+        // a modeled `ServiceError` both qualify; only a `DispatchFailure` means
+        // the trust store couldn't verify the cert — the iOS native-roots break.
+        if let Err(SdkError::DispatchFailure(f)) = &result {
+            panic!("TLS via webpki roots failed (trust store broken): {f:?}");
+        }
+    }
 
     /// End-to-end SRP sign-in against the live Cognito pool. Ignored by default
     /// (needs network + an existing user). Run with the pool env + a test user:

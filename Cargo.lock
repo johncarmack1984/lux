@@ -3387,11 +3387,13 @@ dependencies = [
  "aws-cognito-srp",
  "aws-config",
  "aws-sdk-cognitoidentityprovider",
+ "aws-smithy-http-client",
  "dotenvy",
  "enttecopendmx",
  "keyring",
  "libftd2xx 0.33.1",
  "log",
+ "pem",
  "reqwest",
  "rumqttc",
  "rustls 0.23.41",
@@ -3410,6 +3412,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "uuid",
+ "webpki-root-certs",
 ]
 
 [[package]]
