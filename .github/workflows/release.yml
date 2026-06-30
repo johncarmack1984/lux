@@ -31,14 +31,14 @@ jobs:
       # start new workflow runs, so a release PR opened by it — and the
       # Cargo.lock-sync push below — leave the `desktop` PR gate stuck "awaiting
       # approval". An App-token-authored PR/push triggers it normally.
-      # Falls back to GITHUB_TOKEN until RELEASE_APP_ID (variable) and
+      # Falls back to GITHUB_TOKEN until RELEASE_APP_CLIENT_ID (variable) and
       # RELEASE_APP_PRIVATE_KEY (secret) are set, so this is safe to land first.
       - name: Mint release token (GitHub App)
         id: app-token
-        if: ${{ vars.RELEASE_APP_ID != '' }}
-        uses: actions/create-github-app-token@v2
+        if: ${{ vars.RELEASE_APP_CLIENT_ID != '' }}
+        uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.RELEASE_APP_ID }}
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
       - uses: actions/checkout@v7
