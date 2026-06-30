@@ -8,9 +8,13 @@ variable "device_id" {
   default     = "lux-1"
 }
 
-variable "discord_public_key" {
-  description = "Discord application public key (hex); the bot verifies request signatures with it."
-  type        = string
+# Discord application public key (hex); the bot Lambda verifies request
+# signatures with it. Sourced from Secrets Manager (lux/discord-public-key) so
+# plan/apply read it in CI via OIDC — no value committed to this public repo and
+# no gitignored tfvars. secret_string is a sensitive attribute, so it's redacted
+# in plan output.
+data "aws_secretsmanager_secret_version" "discord_public_key" {
+  secret_id = "lux/discord-public-key"
 }
 
 data "aws_caller_identity" "current" {}

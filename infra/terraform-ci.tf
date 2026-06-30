@@ -41,6 +41,23 @@ resource "aws_iam_role_policy_attachment" "terraform_plan_readonly" {
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 }
 
+# The plan reads lux/discord-public-key via a data source, so the plan role
+# needs GetSecretValue on just that one (public-key) secret — ReadOnlyAccess
+# deliberately excludes secret values. The apply role already covers it via its
+# broader secret:lux/* grant.
+resource "aws_iam_role_policy" "terraform_plan_discord_key" {
+  name = "read-discord-public-key"
+  role = aws_iam_role.terraform_plan.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+      Resource = "arn:aws:secretsmanager:*:${local.aws_account_id}:secret:lux/discord-public-key*"
+    }]
+  })
+}
+
 # --- apply role: curated write, main branch only -----------------------------
 
 resource "aws_iam_role" "terraform_apply" {
