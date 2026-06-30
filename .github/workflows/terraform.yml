@@ -1,8 +1,12 @@
 name: terraform
 
-# fmt + validate the infra root on PRs and pushes to main. No AWS credentials:
-# CI initializes providers without a backend (`terraform init -backend=false`)
-# and validates — no plan, no state access, no OIDC.
+# Infra runs in CI, not on a laptop. On PRs: fmt + validate, then a real `plan`
+# (read-only, via the lux-terraform-plan OIDC role) written to the run summary so
+# the diff is reviewable before merge. The matching `apply` does NOT run here —
+# it runs at release time, when the release-please version-bump PR is merged (see
+# the terraform-apply job in release.yml), via the separate lux-terraform-apply
+# role that only a workflow on main can assume. So an infra change merges first
+# and applies with the next release; its diff was the PR plan.
 
 on:
   pull_request:
@@ -37,3 +41,38 @@ jobs:
 
       - name: validate
         run: terraform validate -no-color
+
+  plan:
+    # PRs only: show the real diff. Read-only role + -lock=false (no state
+    # mutation, no lock contention). Apply is release-gated in release.yml.
+    if: ${{ github.event_name == 'pull_request' }}
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC: assume the read-only plan role
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::735853783919:role/lux-terraform-plan
+          aws-region: us-west-1
+
+      - uses: hashicorp/setup-terraform@v4
+
+      - name: init
+        run: terraform init -input=false
+
+      - name: plan
+        run: |
+          set -o pipefail
+          {
+            echo '### terraform plan'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          terraform plan -no-color -input=false -lock=false | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

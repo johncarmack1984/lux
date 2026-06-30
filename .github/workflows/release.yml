@@ -198,3 +198,36 @@ jobs:
       - name: sccache stats
         if: ${{ always() }}
         run: sccache --show-stats
+
+  # Apply the infra when a release is cut — i.e. when the release-please
+  # version-bump PR is merged (release_created). This is the ONLY place
+  # `terraform apply` runs; never on a laptop. The lux-terraform-apply role's
+  # trust is scoped to refs/heads/main, so only this main-branch run can assume
+  # it. Skipped on workflow_dispatch (manual macOS rebuilds) and on pushes that
+  # don't cut a release. An infra PR therefore merges first and applies here with
+  # the next release — its diff was reviewed as the terraform.yml PR plan.
+  terraform-apply:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC: assume the apply role
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::735853783919:role/lux-terraform-apply
+          aws-region: us-west-1
+
+      - uses: hashicorp/setup-terraform@v4
+
+      - name: init
+        run: terraform init -input=false
+
+      - name: apply
+        run: terraform apply -auto-approve -no-color -input=false
