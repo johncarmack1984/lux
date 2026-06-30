@@ -118,6 +118,9 @@ jobs:
       id-token: write # AWS OIDC, to read the updater signing key
     env:
       TAG: ${{ github.event.inputs.tag || needs.release-please.outputs.tag_name }}
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -128,6 +131,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      # Per-crate compilation cache (GitHub Actions backend), supplementing
+      # rust-cache: it still hits across a Cargo.lock bump for the universal
+      # build's per-arch dependency compilation, though the final fat-LTO link
+      # itself isn't cacheable.
+      - uses: mozilla-actions/sccache-action@v0.0.10
 
       # Cache the compiled dependency tree. ~90% of this build is dependencies
       # compiled from scratch, twice (once per arch), under the deliberately
@@ -185,3 +194,7 @@ jobs:
           projectPath: apps/desktop
           tagName: ${{ env.TAG }}
           args: --target universal-apple-darwin
+
+      - name: sccache stats
+        if: ${{ always() }}
+        run: sccache --show-stats
