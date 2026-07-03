@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.2](https://github.com/johncarmack1984/lux/compare/v0.12.1...v0.12.2) (2026-07-03)
+
+
+### Bug Fixes
+
+* **desktop:** persist the live universe across restarts ([#99](https://github.com/johncarmack1984/lux/issues/99)) ([a0c8e60](https://github.com/johncarmack1984/lux/commit/a0c8e6096e2165278b1c069fdd73e934019b762b))
+
 ## [0.12.1](https://github.com/johncarmack1984/lux/compare/v0.12.0...v0.12.1) (2026-07-03)
 
 
