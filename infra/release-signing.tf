@@ -31,10 +31,11 @@ resource "aws_iam_role" "release_signing" {
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-        }
-        # Only the lux repo's workflows may assume this role.
-        StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:johncarmack1984/lux:*"
+          # Main-ref only (not repo:…:*): this role reads the updater signing
+          # key — the key that signs artifacts existing installs auto-install —
+          # so no branch or PR workflow may ever assume it. Every consumer
+          # (release-please job, build-macos on push or dispatch) runs on main.
+          "token.actions.githubusercontent.com:sub" = "repo:johncarmack1984/lux:ref:refs/heads/main"
         }
       }
     }]

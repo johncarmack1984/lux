@@ -28,6 +28,7 @@ jobs:
   release-please:
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
       pull-requests: write
@@ -47,7 +48,7 @@ jobs:
       # on that variable, falling back to GITHUB_TOKEN when it's unset.
       - name: Configure AWS credentials (OIDC)
         if: ${{ vars.RELEASE_APP_CLIENT_ID != '' }}
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6
         with:
           role-to-assume: arn:aws:iam::735853783919:role/lux-release-signing
           aws-region: us-west-1
@@ -67,32 +68,30 @@ jobs:
       - name: Mint release token (GitHub App)
         id: app-token
         if: ${{ vars.RELEASE_APP_CLIENT_ID != '' }}
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ env.RELEASE_APP_PRIVATE_KEY }}
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           token: ${{ steps.app-token.outputs.token || github.token }}
 
-      - uses: googleapis/release-please-action@v5
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
           token: ${{ steps.app-token.outputs.token || github.token }}
 
-      # Re-run resilience: release-please publishes the GitHub release first,
-      # so if anything later in the run fails and the run is re-run, the second
-      # attempt sees the release as already existing, reports
-      # release_created=false, and the whole pipeline skips — leaving a
-      # published release with no deployed backend and no artifacts (the
-      # v0.12.2 failure). On a re-run attempt, resume shipping the manifest
-      # version iff its release exists with zero assets; a release with assets
-      # is done and must not be rebuilt (re-signing an already-served tag is
-      # the known updater-breaker).
-      - name: Resolve the release to ship (re-run resume)
+      # The pipeline keys off observable repo state, never off the action's
+      # memory of what it did (release-please publishes the release FIRST, so
+      # its release_created output is false on any later attempt — that
+      # stranded v0.12.2 as a published release with nothing behind it). Rule:
+      # an assetless release for the manifest version ships, whoever/whenever
+      # created it; a release WITH assets is finished and is never rebuilt —
+      # re-signing an already-served tag is the known updater-breaker.
+      - name: Resolve the release to ship (from repo state)
         id: effective
         env:
           GH_TOKEN: ${{ github.token }}
@@ -104,9 +103,8 @@ jobs:
             exit 0
           fi
           tag="v$(jq -r '."."' .release-please-manifest.json)"
-          if [ "${{ github.run_attempt }}" != "1" ] \
-            && [ "$(gh release view "$tag" --json assets --jq '.assets | length' 2>/dev/null)" = "0" ]; then
-            echo "::notice::resuming assetless release $tag (run attempt ${{ github.run_attempt }})"
+          if [ "$(gh release view "$tag" --json assets --jq '.assets | length' 2>/dev/null)" = "0" ]; then
+            echo "::notice::shipping assetless release $tag (attempt ${{ github.run_attempt }})"
             { echo "release_created=true"; echo "tag_name=$tag"; } >> "$GITHUB_OUTPUT"
           else
             { echo "release_created=false"; echo "tag_name="; } >> "$GITHUB_OUTPUT"
@@ -171,22 +169,26 @@ jobs:
     needs: [release-please, deploy-lambdas]
     if: ${{ always() && (github.event_name == 'workflow_dispatch' || (needs.release-please.outputs.release_created == 'true' && needs.deploy-lambdas.result == 'success')) }}
     runs-on: macos-latest
+    timeout-minutes: 60
     permissions:
       contents: write
       id-token: write # AWS OIDC, to read the updater signing key
+      deployments: write # record the updater publish (API, not environment: — see the record step)
     env:
       TAG: ${{ github.event.inputs.tag || needs.release-please.outputs.tag_name }}
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
       CARGO_INCREMENTAL: "0"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           ref: ${{ env.TAG }}
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: apps/desktop/package.json
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
@@ -194,7 +196,7 @@ jobs:
       # rust-cache: it still hits across a Cargo.lock bump for the universal
       # build's per-arch dependency compilation, though the final fat-LTO link
       # itself isn't cacheable.
-      - uses: mozilla-actions/sccache-action@v0.0.10
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
 
       # Cache the compiled dependency tree. ~90% of this build is dependencies
       # compiled from scratch, twice (once per arch), under the deliberately
@@ -202,7 +204,7 @@ jobs:
       # smallest-binary config, kept as-is). rust-cache restores those dep
       # artifacts keyed on Cargo.lock, so only the workspace crates + the final
       # LTO link recompile. The cache is scoped to the workspace-root target/.
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: "."
 
@@ -211,7 +213,7 @@ jobs:
 
       # Pull the updater signing key from AWS Secrets Manager via OIDC — no
       # long-lived AWS keys in GitHub. Written to a file so it never hits a log.
-      - uses: aws-actions/configure-aws-credentials@v6
+      - uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6
         with:
           role-to-assume: arn:aws:iam::735853783919:role/lux-release-signing
           aws-region: us-west-1
@@ -244,7 +246,7 @@ jobs:
           printf '%s' "$s" | jq -r '.api_key' > "$RUNNER_TEMP/asc_api_key.p8"
           echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/asc_api_key.p8" >> "$GITHUB_ENV"
 
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ runner.temp }}/updater.key
@@ -252,6 +254,25 @@ jobs:
           projectPath: apps/desktop
           tagName: ${{ env.TAG }}
           args: --target universal-apple-darwin
+
+      # Record what is live in the repo's Deployments view. Done via the API,
+      # NOT a job-level `environment:` key — that key rewrites the OIDC subject
+      # to repo:…:environment:…, which the role trusts (pinned to the main ref)
+      # would reject, breaking the AWS credentials above.
+      - name: Record updater deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ env.TAG }}
+        run: |
+          set -euo pipefail
+          body=$(jq -nc --arg ref "$GITHUB_SHA" --arg desc "$TAG" \
+            '{ref:$ref, environment:"updater", production_environment:true, auto_merge:false, required_contexts:[], description:$desc}')
+          id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/deployments" --input - <<<"$body" --jq '.id')
+          gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" \
+            -f state=success -f environment=updater -f environment_url=https://github.com/johncarmack1984/lux/releases/latest \
+            -f description="artifacts + latest.json published for $TAG" >/dev/null
+          echo "recorded updater deployment $id ($TAG)"
+
 
       - name: sccache stats
         if: ${{ always() }}
@@ -268,25 +289,29 @@ jobs:
     needs: [release-please, ci]
     if: ${{ needs.release-please.outputs.release_created == 'true' && needs.ci.result == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       id-token: write # OIDC: assume the apply role
+      deployments: write # record the infra deployment
     defaults:
       run:
         working-directory: infra
     steps:
       # The tag, not github.sha — the infra applied must be exactly the infra
       # the release's endpoints file and binaries were built against.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
-      - uses: aws-actions/configure-aws-credentials@v6
+      - uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6
         with:
           role-to-assume: arn:aws:iam::735853783919:role/lux-terraform-apply
           aws-region: us-west-1
 
-      - uses: hashicorp/setup-terraform@v4
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+        with:
+          terraform_version: 1.15.7
 
       - name: init
         run: terraform init -input=false
@@ -316,6 +341,25 @@ jobs:
           git diff --exit-code -- apps/desktop/src-tauri/endpoints.prod.json \
             || { echo "::error::this apply changed app-facing endpoints; regenerate endpoints.prod.json, commit, and release again."; exit 1; }
 
+      # Record what is live in the repo's Deployments view. Done via the API,
+      # NOT a job-level `environment:` key — that key rewrites the OIDC subject
+      # to repo:…:environment:…, which the role trusts (pinned to the main ref)
+      # would reject, breaking the AWS credentials above.
+      - name: Record infra deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          body=$(jq -nc --arg ref "$GITHUB_SHA" --arg desc "$TAG" \
+            '{ref:$ref, environment:"infra", production_environment:true, auto_merge:false, required_contexts:[], description:$desc}')
+          id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/deployments" --input - <<<"$body" --jq '.id')
+          gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" \
+            -f state=success -f environment=infra  \
+            -f description="terraform applied for $TAG" >/dev/null
+          echo "recorded infra deployment $id ($TAG)"
+
+
   # Ship the Lambda code — every release, from the release tag, after the infra
   # is in place. Deploying all three every time (even when only one changed)
   # keeps deployed code == main with no path-filter guesswork: workspace crates
@@ -326,8 +370,10 @@ jobs:
     needs: [release-please, terraform-apply]
     if: ${{ needs.release-please.outputs.release_created == 'true' && needs.terraform-apply.result == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
+      deployments: write # record the backend deployment
       id-token: write # OIDC: assume the lambda-deploy role
     env:
       TAG: ${{ needs.release-please.outputs.tag_name }}
@@ -335,7 +381,7 @@ jobs:
       SCCACHE_GHA_ENABLED: "true"
       CARGO_INCREMENTAL: "0"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           ref: ${{ env.TAG }}
 
@@ -345,7 +391,7 @@ jobs:
       # ring's C bits. Everything is pure Rust + ring, musl's happy path; if a
       # C-heavy dependency ever lands, revisit (that's the honest trigger for a
       # container-image build).
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch
         with:
           targets: x86_64-unknown-linux-musl
 
@@ -355,9 +401,9 @@ jobs:
       # Same caching pair as the desktop test gate: sccache owns per-crate
       # compilation (content-addressed, survives lockfile bumps), rust-cache
       # keeps the registry/index warm without caching target/.
-      - uses: mozilla-actions/sccache-action@v0.0.10
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: "."
           cache-targets: "false"
@@ -365,7 +411,7 @@ jobs:
       # The role is created by the terraform-apply job that just ran, so on the
       # very first release after it lands, STS may not see it instantly —
       # retry the assume instead of failing the release.
-      - uses: aws-actions/configure-aws-credentials@v6
+      - uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6
         with:
           role-to-assume: arn:aws:iam::735853783919:role/lux-lambda-deploy
           aws-region: us-west-1
@@ -421,3 +467,22 @@ jobs:
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{}' "$url")
           echo "bot answered $code"
           test "$code" = "401"
+
+      # Record what is live in the repo's Deployments view. Done via the API,
+      # NOT a job-level `environment:` key — that key rewrites the OIDC subject
+      # to repo:…:environment:…, which the role trusts (pinned to the main ref)
+      # would reject, breaking the AWS credentials above.
+      - name: Record backend deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ env.TAG }}
+        run: |
+          set -euo pipefail
+          body=$(jq -nc --arg ref "$GITHUB_SHA" --arg desc "$TAG" \
+            '{ref:$ref, environment:"backend", production_environment:true, auto_merge:false, required_contexts:[], description:$desc}')
+          id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/deployments" --input - <<<"$body" --jq '.id')
+          gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" \
+            -f state=success -f environment=backend  \
+            -f description="Lambdas deployed + smoked for $TAG" >/dev/null
+          echo "recorded backend deployment $id ($TAG)"
+
