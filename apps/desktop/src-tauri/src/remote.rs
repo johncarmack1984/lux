@@ -7,9 +7,11 @@
 //! `LuxBuffer::set`, which emits `SyncEvent::BufferSet`, so the desktop UI
 //! reacts to a remote command exactly as it does to a local one.
 //!
-//! Everything is read from the environment (see `src-tauri/.env.example`).
-//! If the `AWS_IOT_*` vars are absent, remote control is skipped and the
-//! rest of the app runs normally.
+//! Configured by the `remoteControl` section of the gitignored
+//! `endpoints.local.json` (device identity + mTLS material paths — see
+//! [`crate::endpoints`]); this is per-machine provisioning, so the generated
+//! prod config never carries it. When the section is absent, remote control is
+//! skipped and the rest of the app runs normally.
 
 use crate::buffer::{Buffer, LuxBuffer};
 use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS, TlsConfiguration, Transport};
@@ -33,19 +35,19 @@ struct Config {
 }
 
 fn load_config() -> Option<Config> {
-    let _ = dotenvy::dotenv();
-    let endpoint = std::env::var("AWS_IOT_ENDPOINT").ok()?;
-    let device_id = std::env::var("LUX_DEVICE_ID").unwrap_or_else(|_| "lux-1".into());
-    let ca = std::fs::read(std::env::var("AWS_IOT_ROOT_CA_PATH").ok()?).ok()?;
-    let cert = std::fs::read(std::env::var("AWS_IOT_CERT_PATH").ok()?).ok()?;
-    let key = std::fs::read(std::env::var("AWS_IOT_KEY_PATH").ok()?).ok()?;
+    let rc = crate::endpoints::effective().remote_control.clone()?;
+    let read = |what: &str, path: &str| {
+        std::fs::read(path)
+            .inspect_err(|e| log::warn!("remote control {what} unreadable at {path}: {e}"))
+            .ok()
+    };
     Some(Config {
-        topic: format!("lux/{device_id}/buffer/set"),
-        client_id: device_id,
-        endpoint,
-        ca,
-        cert,
-        key,
+        topic: format!("lux/{}/buffer/set", rc.device_id),
+        client_id: rc.device_id,
+        endpoint: rc.endpoint,
+        ca: read("root CA", &rc.root_ca_path)?,
+        cert: read("device cert", &rc.cert_path)?,
+        key: read("device key", &rc.key_path)?,
     })
 }
 
@@ -53,7 +55,7 @@ fn load_config() -> Option<Config> {
 pub fn connect<R: Runtime>(app: &AppHandle<R>) {
     let Some(cfg) = load_config() else {
         log::info!(
-            "AWS IoT not configured; remote control disabled (set AWS_IOT_* in .env to enable)"
+            "remote control not configured (no remoteControl in endpoints.local.json); disabled"
         );
         return;
     };

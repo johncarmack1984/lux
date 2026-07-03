@@ -76,3 +76,14 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           terraform plan -no-color -input=false -lock=false | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # The desktop app embeds endpoints.prod.json at compile time, so the
+      # committed file must always match the applied state — drift means shipped
+      # binaries would point somewhere stale. Regenerate and diff on every infra
+      # PR; the release apply re-checks after applying.
+      - name: endpoints drift gate
+        working-directory: ${{ github.workspace }}
+        run: |
+          scripts/gen-endpoints
+          git diff --exit-code -- apps/desktop/src-tauri/endpoints.prod.json \
+            || { echo "::error::endpoints.prod.json is stale — run scripts/gen-endpoints and commit it."; exit 1; }

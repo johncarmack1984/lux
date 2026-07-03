@@ -8,6 +8,7 @@ mod cloud;
 mod cmd;
 mod colors;
 mod devices;
+mod endpoints;
 mod error;
 mod fixture;
 mod logger;
@@ -35,9 +36,9 @@ pub async fn run() {
         // Load the user's setups (migrating a legacy patch.json, or seeding the
         // default "Home" setup on first run) into state.
         app.manage(setup::load(app.handle()));
-        // Cognito accounts (no-op unless COGNITO_* is set); restore a signed-in
-        // session from the keychain in the background.
-        app.manage(account::LuxAccount::from_env());
+        // Cognito accounts (no-op unless the endpoints file configures them);
+        // restore a signed-in session from the keychain in the background.
+        app.manage(account::LuxAccount::load());
         account::restore_on_startup(app.handle());
         remote::connect(app.handle());
         #[cfg(desktop)]

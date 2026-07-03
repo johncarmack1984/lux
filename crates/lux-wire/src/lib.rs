@@ -123,6 +123,12 @@ pub mod nudge {
     /// Name of the handshake header (and query param) carrying the Cognito ID
     /// token — the IoT authorizer's `token_key_name`.
     pub const TOKEN_KEY: &str = "x-lux-token";
+
+    /// Name of the IoT custom authorizer that gates nudge connections. Protocol
+    /// naming (like the topic scheme), not environment config: every stack
+    /// created from `infra/nudge.tf` registers its authorizer under exactly
+    /// this name — the Terraform literal carries a cross-reference comment.
+    pub const AUTHORIZER_NAME: &str = "lux-sync-auth";
 }
 
 // --- golden tests: the wire's own drift gate ---------------------------------

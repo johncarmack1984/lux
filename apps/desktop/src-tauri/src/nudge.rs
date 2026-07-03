@@ -18,10 +18,11 @@
 //! topic. The token is re-read (and on auth failures refreshed) on every
 //! reconnect attempt, vegify-style, with capped exponential backoff (1s→30s).
 //!
-//! Endpoint config follows the remote.rs contract — env-configured, else no-op
-//! (`LUX_NUDGE_ENDPOINT` / `LUX_NUDGE_AUTHORIZER`; a baked production default
-//! can land in `DEFAULT_NUDGE_ENDPOINT` once read from `terraform output
-//! iot_endpoint`). Runs while signed in; [`stop`] on sign-out.
+//! The IoT endpoint comes from [`crate::endpoints`] (the generated-and-embedded
+//! production config, `endpoints.local.json` for dev stacks) — missing means
+//! nudges are off and pull-based sync carries everything. The authorizer name
+//! is protocol, not environment (`lux_wire::nudge::AUTHORIZER_NAME`). Runs
+//! while signed in; [`stop`] on sign-out.
 
 use std::time::Duration;
 
@@ -33,31 +34,10 @@ use tauri::{AppHandle, Manager};
 use tokio::sync::watch;
 use uuid::Uuid;
 
-use crate::account::{env_or, webpki_pem_bundle, LuxAccount};
+use crate::account::{webpki_pem_bundle, LuxAccount};
 
-/// Production IoT data endpoint (`terraform output iot_endpoint`). Not a secret
-/// (same class as the baked Cognito/sync constants in account.rs — the
-/// authorizer only honors verified tokens). Empty = nudges disabled unless the
-/// env var is set.
-const DEFAULT_NUDGE_ENDPOINT: &str = "";
-/// Name of the IoT custom authorizer registered in infra/nudge.tf.
-const DEFAULT_NUDGE_AUTHORIZER: &str = "lux-sync-auth";
-
-struct Config {
-    endpoint: String,
-    authorizer: String,
-}
-
-fn load_config() -> Option<Config> {
-    let _ = dotenvy::dotenv();
-    let endpoint = env_or("LUX_NUDGE_ENDPOINT", DEFAULT_NUDGE_ENDPOINT);
-    if endpoint.is_empty() {
-        return None;
-    }
-    Some(Config {
-        endpoint,
-        authorizer: env_or("LUX_NUDGE_AUTHORIZER", DEFAULT_NUDGE_AUTHORIZER),
-    })
+fn nudge_endpoint() -> Option<String> {
+    Some(crate::endpoints::effective().nudge_endpoint.clone()).filter(|e| !e.is_empty())
 }
 
 /// Tauri-managed listener lifecycle. The watch value is a generation counter:
@@ -80,8 +60,8 @@ impl Default for LuxNudge {
 /// sign-in and after a startup session restore; no-op when nudges aren't
 /// configured or nobody is signed in.
 pub fn start(app: &AppHandle) {
-    let Some(cfg) = load_config() else {
-        log::info!("nudge channel not configured; realtime sync nudges disabled (set LUX_NUDGE_ENDPOINT to enable)");
+    let Some(endpoint) = nudge_endpoint() else {
+        log::info!("nudge endpoint not configured (endpoints file); realtime sync nudges disabled");
         return;
     };
     if !app.state::<LuxAccount>().signed_in() {
@@ -125,7 +105,8 @@ pub fn start(app: &AppHandle) {
                 return;
             };
             refresh_first =
-                run_connection(&app, &cfg, token, &sub, &mut generation, &mut backoff_secs).await;
+                run_connection(&app, &endpoint, token, &sub, &mut generation, &mut backoff_secs)
+                    .await;
             if *generation.borrow() != my_generation {
                 return;
             }
@@ -146,7 +127,7 @@ pub fn stop(app: &AppHandle) {
 /// caller refreshes the token before retrying.
 async fn run_connection(
     app: &AppHandle,
-    cfg: &Config,
+    endpoint: &str,
     token: String,
     sub: &str,
     generation: &mut watch::Receiver<u64>,
@@ -160,8 +141,8 @@ async fn run_connection(
         &Uuid::new_v4().simple().to_string()[..8]
     );
     let url = format!(
-        "wss://{}/mqtt?x-amz-customauthorizer-name={}",
-        cfg.endpoint, cfg.authorizer
+        "wss://{endpoint}/mqtt?x-amz-customauthorizer-name={}",
+        lux_wire::nudge::AUTHORIZER_NAME
     );
     let mut opts = MqttOptions::new(client_id, url, 443);
     opts.set_keep_alive(Duration::from_secs(30));

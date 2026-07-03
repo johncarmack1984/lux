@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Regenerate the desktop app's production endpoint config from applied
+# Terraform state — the single source of truth for environment values.
+#
+#   scripts/gen-endpoints        # writes apps/desktop/src-tauri/endpoints.prod.json
+#
+# Never hand-edit the JSON: the app embeds it at compile time
+# (src-tauri/src/endpoints.rs), and CI regenerates + diffs it on every infra PR
+# plan and again after the release apply, so drift between shipped binaries and
+# live infra fails a check instead of silently shipping. Keys are sorted and the
+# output is byte-deterministic so the diff is meaningful.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+out() { terraform -chdir=infra output -raw "$1"; }
+
+jq -Sn \
+  --arg cognitoRegion      "$(out cognito_region)" \
+  --arg cognitoUserPoolId  "$(out cognito_user_pool_id)" \
+  --arg cognitoAppClientId "$(out cognito_app_client_id)" \
+  --arg syncUrl            "$(out lux_sync_url)" \
+  --arg nudgeEndpoint      "$(out iot_endpoint)" \
+  '{
+    cognitoRegion:      $cognitoRegion,
+    cognitoUserPoolId:  $cognitoUserPoolId,
+    cognitoAppClientId: $cognitoAppClientId,
+    syncUrl:            $syncUrl,
+    nudgeEndpoint:      $nudgeEndpoint
+  }' > apps/desktop/src-tauri/endpoints.prod.json
+
+echo "wrote apps/desktop/src-tauri/endpoints.prod.json:"
+cat apps/desktop/src-tauri/endpoints.prod.json

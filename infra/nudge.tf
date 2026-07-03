@@ -80,7 +80,9 @@ resource "aws_lambda_permission" "lux_iot_authorizer_invoke" {
 
 # Signing is disabled: the desktop is a public client and can't hold a signing
 # key, so the Lambda's JWT verification is the gate — the same posture as the
-# sync-api's public Function URL with in-handler JWT. token_key_name must match
+# sync-api's public Function URL with in-handler JWT. Two protocol literals are
+# mirrored from lux-wire (rename = deliberate two-file change): `name` must
+# match lux_wire::nudge::AUTHORIZER_NAME and token_key_name must match
 # lux_wire::nudge::TOKEN_KEY (the app's handshake header).
 resource "aws_iot_authorizer" "lux_sync" {
   name                    = "lux-sync-auth"
@@ -105,14 +107,7 @@ resource "aws_iam_role_policy" "lux_sync_api_nudge" {
   })
 }
 
-# --- Outputs: write these into the app's env (src-tauri/.env) ---
-
-output "nudge_endpoint" {
-  description = "LUX_NUDGE_ENDPOINT for the app — the same ATS data endpoint as AWS_IOT_ENDPOINT."
-  value       = data.aws_iot_endpoint.ats.endpoint_address
-}
-
-output "nudge_authorizer" {
-  description = "LUX_NUDGE_AUTHORIZER for the app."
-  value       = aws_iot_authorizer.lux_sync.name
-}
+# No outputs here: the app-facing endpoint values flow through
+# scripts/gen-endpoints (the nudge endpoint is iot.tf's `iot_endpoint` output —
+# the same ATS host), and the authorizer name is protocol, fixed in
+# lux_wire::nudge::AUTHORIZER_NAME.

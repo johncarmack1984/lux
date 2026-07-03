@@ -248,13 +248,16 @@ fn build_sink(device: &Device) -> Arc<dyn DmxSink> {
 }
 
 /// Optional advanced override for which local NIC sends multicast (multi-homed
-/// machines); normally unset — the OS routes out the interface the node is on.
+/// machines); from `endpoints.local.json`, normally absent — the OS routes out
+/// the interface the node is on.
 fn sacn_interface_override() -> Option<Ipv4Addr> {
-    let _ = dotenvy::dotenv();
-    std::env::var("LUX_SACN_INTERFACE")
+    let raw = &crate::endpoints::effective().sacn_interface;
+    if raw.is_empty() {
+        return None;
+    }
+    raw.parse::<Ipv4Addr>()
+        .inspect_err(|e| log::warn!("ignoring invalid sacnInterface {raw:?}: {e}"))
         .ok()
-        .filter(|s| !s.is_empty())
-        .and_then(|s| s.parse::<Ipv4Addr>().ok())
 }
 
 // --- runtime selection + auto-detect ---------------------------------------

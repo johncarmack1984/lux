@@ -523,22 +523,23 @@ mod tests {
         assert!(merged.iter().any(|s| s.name == "Remote"));
     }
 
-    /// End-to-end create → list → tombstone against the live sync API. Ignored by
-    /// default (needs network + a real id token). Run with:
+    /// End-to-end create → list → tombstone against the live sync API (the
+    /// embedded endpoints config; `endpoints.local.json` to aim elsewhere).
+    /// Ignored by default (needs network + a real id token). Run with:
     /// ```sh
-    /// LUX_SYNC_URL=… LUX_TEST_ID_TOKEN=… \
-    /// cargo test cloud_round_trip_live -- --ignored --nocapture
+    /// LUX_TEST_ID_TOKEN=… cargo test cloud_round_trip_live -- --ignored --nocapture
     /// ```
     #[test]
-    #[ignore = "hits the live sync API; needs LUX_SYNC_URL + LUX_TEST_ID_TOKEN"]
+    #[ignore = "hits the live sync API; needs LUX_TEST_ID_TOKEN"]
     fn cloud_round_trip_live() {
         // reqwest 0.13 (rustls-no-provider) needs a process crypto provider before
         // building a Client; the app installs ring in lib.rs::run(), so mirror that here.
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let base = std::env::var("LUX_SYNC_URL")
-            .unwrap()
+        let base = crate::endpoints::effective()
+            .sync_url
             .trim_end_matches('/')
             .to_string();
+        assert!(!base.is_empty(), "endpoints config must set syncUrl");
         let token = std::env::var("LUX_TEST_ID_TOKEN").unwrap();
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
