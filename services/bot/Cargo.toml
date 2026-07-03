@@ -1,5 +1,9 @@
 [package]
-name = "lux-bot"
+# Package = binary = Lambda function name: the release deploy job builds with
+# `-p <name>` and deploys the artifact at target/lambda/<name>/ to the function
+# of the same name, and relies on all three lining up (as sync-api and the
+# iot-authorizer already do).
+name = "lux-discord-bot"
 version = "0.1.0"
 edition = "2021"
 publish = false
