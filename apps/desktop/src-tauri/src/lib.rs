@@ -33,6 +33,13 @@ pub async fn run() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     let builder = setup(tauri::Builder::default(), |app| {
+        // Restore the last-rendered universe so a restart brings the light back
+        // to how the user left it (the seed default below only covers first
+        // run). Done before autodetect spawns: selecting a device pushes the
+        // current buffer to the output, which renders the restored state.
+        if let Some(restored) = buffer::restore(app.handle()) {
+            *app.state::<LuxBuffer>().buffer.lock().unwrap() = restored;
+        }
         // Load the user's setups (migrating a legacy patch.json, or seeding the
         // default "Home" setup on first run) into state.
         app.manage(setup::load(app.handle()));
