@@ -106,12 +106,28 @@ jobs:
           git push origin "HEAD:$PR_BRANCH"
           echo "Synced Cargo.lock to $version on $PR_BRANCH"
 
-  # Builds the macOS app and attaches it to the release — after a release-please
-  # release, or on a manual dispatch for an existing tag. Unsigned for now
-  # (Gatekeeper will warn until Developer ID signing + notarization are wired in).
-  build-macos:
+  # The release gate: the same checks as the PR/main `desktop` workflow
+  # (tauri-versions, frontend build/typecheck/lint, cargo test --workspace),
+  # re-run against the exact release commit. Everything that ships — infra,
+  # Lambda code, the desktop bundle — is downstream of this job, so a red main
+  # cannot release.
+  ci:
     needs: release-please
-    if: ${{ always() && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/desktop.yml
+
+  # Builds, signs, and notarizes the macOS app and attaches it (plus the
+  # updater's latest.json) to the release — after a release-please release, or
+  # on a manual dispatch for an existing tag. On the release path this runs
+  # LAST, only after the Lambdas deployed and passed their smokes: the updater
+  # manifest publishing is what makes a release visible to users, so a release
+  # whose backend didn't ship never reaches them. Manual dispatch rebuilds an
+  # existing tag whose backend already shipped, so it skips those gates.
+  build-macos:
+    needs: [release-please, deploy-lambdas]
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (needs.release-please.outputs.release_created == 'true' && needs.deploy-lambdas.result == 'success')) }}
     runs-on: macos-latest
     permissions:
       contents: write
@@ -207,8 +223,8 @@ jobs:
   # don't cut a release. An infra PR therefore merges first and applies here with
   # the next release — its diff was reviewed as the terraform.yml PR plan.
   terraform-apply:
-    needs: release-please
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    needs: [release-please, ci]
+    if: ${{ needs.release-please.outputs.release_created == 'true' && needs.ci.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -229,5 +245,94 @@ jobs:
       - name: init
         run: terraform init -input=false
 
+      # One automatic retry: when an apply expands the apply role's own inline
+      # policy and creates resources needing the new grants in the same run,
+      # IAM propagation can lose the race. terraform apply is idempotent, so
+      # the second pass just finishes whatever the first couldn't.
       - name: apply
-        run: terraform apply -auto-approve -no-color -input=false
+        run: |
+          terraform apply -auto-approve -no-color -input=false || {
+            echo "::warning::apply failed once; retrying after IAM propagation delay"
+            sleep 20
+            terraform apply -auto-approve -no-color -input=false
+          }
+
+  # Ship the Lambda code — every release, from the release tag, after the infra
+  # is in place. Deploying all three every time (even when only one changed)
+  # keeps deployed code == main with no path-filter guesswork: workspace crates
+  # like lux-wire feed all of them, and a redeploy of unchanged code is a no-op.
+  # Each function then gets a smoke test that proves the new code actually cold
+  # starts and answers before the desktop artifacts are allowed to publish.
+  deploy-lambdas:
+    needs: [release-please, terraform-apply]
+    if: ${{ needs.release-please.outputs.release_created == 'true' && needs.terraform-apply.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC: assume the lambda-deploy role
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+
+      # cargo-lambda cross-links against an AL2023-compatible glibc via zig; a
+      # plain host build on ubuntu-latest links a newer glibc than the Lambda
+      # runtime ships and fails at cold start with missing symbol versions.
+      - name: Install cargo-lambda (+ zig for the AL2023-safe link)
+        run: pip3 install cargo-lambda ziglang
+
+      # The role is created by the terraform-apply job that just ran, so on the
+      # very first release after it lands, STS may not see it instantly —
+      # retry the assume instead of failing the release.
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::735853783919:role/lux-lambda-deploy
+          aws-region: us-west-1
+          retry-max-attempts: 6
+
+      - name: Build
+        run: cargo lambda build --release --x86-64 -p lux-sync-api -p lux-iot-authorizer -p lux-discord-bot
+
+      - name: Deploy
+        run: |
+          cargo lambda deploy lux-sync-api
+          cargo lambda deploy lux-iot-authorizer
+          cargo lambda deploy lux-discord-bot
+
+      # Unauthenticated 401s are this API's health check: a correct 401 with the
+      # typed error body proves the new binary cold-started (its init fetches
+      # the Cognito JWKS before serving) and is routing requests.
+      - name: Smoke sync-api
+        run: |
+          url=$(aws lambda get-function-url-config --function-name lux-sync-api --query FunctionUrl --output text)
+          code=$(curl -s -o /tmp/body -w '%{http_code}' "${url}setups")
+          cat /tmp/body; echo
+          test "$code" = "401" && grep -q '"error"' /tmp/body
+
+      # Invoke the authorizer directly with a garbage token: a well-formed
+      # deny proves it cold-started (JWKS fetch) and rejects bad tokens.
+      - name: Smoke iot-authorizer
+        run: |
+          aws lambda invoke --function-name lux-iot-authorizer \
+            --cli-binary-format raw-in-base64-out \
+            --payload '{"token":"smoke-test-garbage","protocolData":{"http":{"headers":{}}}}' \
+            /tmp/authorizer.json >/dev/null
+          cat /tmp/authorizer.json; echo
+          grep -q '"isAuthenticated":false' /tmp/authorizer.json
+
+      # The bot verifies Discord's ed25519 signature before anything else, so an
+      # unsigned request answering 401 proves the new code is up and checking.
+      - name: Smoke bot
+        run: |
+          url=$(aws lambda get-function-url-config --function-name lux-discord-bot --query FunctionUrl --output text)
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{}' "$url")
+          echo "bot answered $code"
+          test "$code" = "401"
