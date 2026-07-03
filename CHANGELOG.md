@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/johncarmack1984/lux/compare/v0.11.0...v0.12.0) (2026-07-03)
+
+
+### Features
+
+* environment values as generated data — endpoints.prod.json, no env files ([#93](https://github.com/johncarmack1984/lux/issues/93)) ([bd9bd00](https://github.com/johncarmack1984/lux/commit/bd9bd00c6e80f61c7d81b7e3ae316618d77f37ec))
+
 ## [0.11.0](https://github.com/johncarmack1984/lux/compare/v0.10.0...v0.11.0) (2026-07-03)
 
 
