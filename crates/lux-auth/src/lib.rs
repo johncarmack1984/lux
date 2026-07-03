@@ -1,10 +1,14 @@
-//! Cognito ID-token verification.
+//! Cognito ID-token verification, shared by every Lambda that gates on a
+//! user's identity (the sync API and the IoT nudge authorizer).
 //!
-//! The user pool's public signing keys (JWKS) are fetched once at cold start and
-//! used to verify the RS256 signature, issuer, audience, and expiry of every
-//! incoming token. The caller's `sub` is the only identity we trust — it keys
-//! the per-user DynamoDB partition, so a forged or another-pool token can never
-//! reach someone else's data.
+//! The user pool's public signing keys (JWKS) are fetched once at cold start
+//! and used to verify the RS256 signature, issuer, audience, and expiry of
+//! every incoming token. The caller's `sub` is the only identity we trust — it
+//! keys the per-user DynamoDB partition and the per-user nudge topic, so a
+//! forged or another-pool token can never reach someone else's data.
+//!
+//! Callers on reqwest's `rustls-no-provider` build must install a process
+//! crypto provider before [`Verifier::new`] performs the JWKS fetch.
 
 use std::collections::HashMap;
 
@@ -79,10 +83,13 @@ impl Verifier {
         validation.set_issuer(&[&self.issuer]);
         validation.set_audience(&[&self.client_id]);
 
-        let data = decode::<Claims>(token, key, &validation)
-            .map_err(|e| format!("invalid token: {e}"))?;
+        let data =
+            decode::<Claims>(token, key, &validation).map_err(|e| format!("invalid token: {e}"))?;
         if data.claims.token_use != "id" {
-            return Err(format!("expected an ID token, got {}", data.claims.token_use));
+            return Err(format!(
+                "expected an ID token, got {}",
+                data.claims.token_use
+            ));
         }
         Ok(data.claims)
     }

@@ -12,13 +12,15 @@ publish = false
 # produces from this binary.
 
 [dependencies]
+lux-auth = { path = "../../crates/lux-auth" }
+lux-wire = { path = "../../crates/lux-wire" }
 lambda_http.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 serde.workspace = true
 serde_json.workspace = true
 aws-config.workspace = true
 aws-sdk-dynamodb = "1"
-jsonwebtoken = "10"
+aws-sdk-iotdataplane = "1"
 reqwest.workspace = true
 # rustls with no baked-in crypto provider; main() installs ring as the process
 # default, sidestepping the aws-lc-rs C build that reqwest's `rustls` feature pulls.

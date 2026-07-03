@@ -1,0 +1,13 @@
+[package]
+name = "lux-wire"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# The desktop↔sync-api wire contract, declared once and depended on by both
+# sides (apps/desktop/src-tauri and services/sync-api), so the schema cannot
+# drift between them. Pure types + tiny helpers: serde only, no AWS, no HTTP.
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

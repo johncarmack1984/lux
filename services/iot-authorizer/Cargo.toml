@@ -1,0 +1,24 @@
+[package]
+name = "lux-iot-authorizer"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# AWS IoT custom authorizer for the change-nudge channel. The desktop connects
+# to IoT Core over MQTT-over-WebSocket carrying its Cognito ID token; IoT hands
+# the token to this Lambda, which verifies it (lux-auth) and returns an IoT
+# policy scoped to that user's own nudge topic and client-id prefix (lux-wire).
+# Built and deployed with cargo-lambda, like the sibling services.
+
+[dependencies]
+lux-auth = { path = "../../crates/lux-auth" }
+lux-wire = { path = "../../crates/lux-wire" }
+lambda_runtime = "1"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# rustls with no baked-in crypto provider; main() installs ring as the process
+# default before lux-auth's JWKS fetch performs any TLS (mirrors sync-api).
+rustls = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

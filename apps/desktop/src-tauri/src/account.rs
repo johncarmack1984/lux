@@ -43,7 +43,7 @@ const DEFAULT_SYNC_URL: &str = "https://ql2e5b4hdjnfsns467vesieul40vbvsb.lambda-
 
 /// Read `key` from the environment, falling back to a baked-in default. An unset
 /// *or empty* value yields the default, so a blank `.env` line can't disable it.
-fn env_or(key: &str, default: &str) -> String {
+pub(crate) fn env_or(key: &str, default: &str) -> String {
     std::env::var(key)
         .ok()
         .filter(|s| !s.is_empty())
@@ -260,8 +260,10 @@ pub fn restore_on_startup(app: &AppHandle) {
                 };
                 let _ = CmdEvent::AuthChanged { status }.emit(&app);
                 log::info!("restored signed-in session from keychain");
-                // Pull any setups changed on other devices since last run.
+                // Pull any setups changed on other devices since last run, and
+                // start listening for change nudges going forward.
                 crate::cloud::schedule_sync(&app);
+                crate::nudge::start(&app);
             }
             Err(e) => log::warn!("could not restore session ({e}); staying signed out"),
         }
@@ -276,7 +278,7 @@ pub fn restore_on_startup(app: &AppHandle) {
 /// iOS apps can't read the system CA store, so rustls parses zero roots and the
 /// SDK aborts (`debug_assert` in debug, empty trust store in release). Bundling
 /// the webpki roots makes TLS verification identical on every platform.
-fn webpki_pem_bundle() -> &'static [u8] {
+pub(crate) fn webpki_pem_bundle() -> &'static [u8] {
     static BUNDLE: OnceLock<Vec<u8>> = OnceLock::new();
     BUNDLE.get_or_init(|| {
         let mut pem = Vec::new();

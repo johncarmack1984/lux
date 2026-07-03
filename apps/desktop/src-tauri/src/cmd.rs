@@ -317,13 +317,16 @@ impl CmdMethods for CmdEndpoint {
     ) -> Result<AuthStatus, String> {
         let status = app_handle.state::<LuxAccount>().sign_in(email, password)?;
         emit_auth_changed(&app_handle, status.clone())?;
-        // Pull the account's setups (claiming local ones on first sign-in).
+        // Pull the account's setups (claiming local ones on first sign-in),
+        // then listen for change nudges from their other devices.
         crate::cloud::schedule_sync(&app_handle);
+        crate::nudge::start(&app_handle);
         Ok(status)
     }
 
     fn sign_out(&self, app_handle: AppHandle) -> Result<AuthStatus, String> {
         let status = app_handle.state::<LuxAccount>().sign_out();
+        crate::nudge::stop(&app_handle);
         emit_auth_changed(&app_handle, status.clone())?;
         Ok(status)
     }

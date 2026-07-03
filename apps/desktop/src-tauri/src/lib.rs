@@ -11,6 +11,7 @@ mod devices;
 mod error;
 mod fixture;
 mod logger;
+mod nudge;
 mod remote;
 mod setup;
 mod sync;
@@ -61,7 +62,8 @@ pub async fn run() {
         .manage(default_buffer)
         .manage(default_channels)
         .manage(DmxOutput::default())
-        .manage(cloud::LuxSync::default());
+        .manage(cloud::LuxSync::default())
+        .manage(nudge::LuxNudge::default());
     // The self-updater is desktop-only (mobile updates ship through the App
     // Store), so add its plugin only when building for desktop.
     #[cfg(desktop)]

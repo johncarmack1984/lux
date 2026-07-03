@@ -10,35 +10,9 @@
 use aws_sdk_dynamodb::error::SdkError;
 use aws_sdk_dynamodb::types::{AttributeValue, ReturnValue};
 use aws_sdk_dynamodb::Client;
-use serde::{Deserialize, Serialize};
+use lux_wire::{SetupRecord, UpsertSetupBody};
 use serde_json::Value;
 use std::collections::HashMap;
-
-/// Request body for an upsert. `baseUpdatedAt` is the client's last-known server
-/// timestamp for this setup — `None` means "create, fail if it already exists".
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpsertBody {
-    pub name: String,
-    pub universe: u16,
-    /// Opaque to the server — the app's `Vec<Fixture>`, round-tripped as JSON.
-    pub fixtures: Value,
-    #[serde(default)]
-    pub base_updated_at: Option<i64>,
-}
-
-/// A setup as returned by [`list`].
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SetupItem {
-    pub id: String,
-    pub name: String,
-    pub universe: u16,
-    pub fixtures: Value,
-    pub rev: i64,
-    pub updated_at: i64,
-    pub deleted: bool,
-}
 
 /// The result of a successful write: the new server timestamp + revision.
 #[derive(Debug)]
@@ -72,7 +46,7 @@ fn sk(setup_id: &str) -> String {
 }
 
 /// All of a user's setups, including tombstones (the client filters them).
-pub async fn list(ddb: &Client, table: &str, sub: &str) -> Result<Vec<SetupItem>, StoreError> {
+pub async fn list(ddb: &Client, table: &str, sub: &str) -> Result<Vec<SetupRecord>, StoreError> {
     let out = ddb
         .query()
         .table_name(table)
@@ -85,11 +59,13 @@ pub async fn list(ddb: &Client, table: &str, sub: &str) -> Result<Vec<SetupItem>
     let mut setups = Vec::new();
     for item in out.items() {
         // Only setup items; skip any per-user META row that may share the pk.
-        let Some(sk_val) = s(item, "sk") else { continue };
+        let Some(sk_val) = s(item, "sk") else {
+            continue;
+        };
         let Some(id) = sk_val.strip_prefix("SETUP#") else {
             continue;
         };
-        setups.push(SetupItem {
+        setups.push(SetupRecord {
             id: id.to_owned(),
             name: s(item, "name").unwrap_or_default(),
             universe: n(item, "universe").unwrap_or(1) as u16,
@@ -98,7 +74,10 @@ pub async fn list(ddb: &Client, table: &str, sub: &str) -> Result<Vec<SetupItem>
                 .unwrap_or(Value::Array(vec![])),
             rev: n(item, "rev").unwrap_or(0),
             updated_at: n(item, "updatedAt").unwrap_or(0),
-            deleted: item.get("deleted").and_then(|v| v.as_bool().ok().copied()).unwrap_or(false),
+            deleted: item
+                .get("deleted")
+                .and_then(|v| v.as_bool().ok().copied())
+                .unwrap_or(false),
         });
     }
     Ok(setups)
@@ -112,7 +91,7 @@ pub async fn upsert(
     table: &str,
     sub: &str,
     setup_id: &str,
-    body: &UpsertBody,
+    body: &UpsertSetupBody,
     now: i64,
 ) -> Result<WriteResult, StoreError> {
     let mut req = ddb
@@ -147,7 +126,9 @@ pub async fn upsert(
     };
 
     let out = req.send().await.map_err(conflict_or_internal)?;
-    let attrs = out.attributes().ok_or_else(|| StoreError::Internal("no attributes returned".into()))?;
+    let attrs = out
+        .attributes()
+        .ok_or_else(|| StoreError::Internal("no attributes returned".into()))?;
     Ok(WriteResult {
         updated_at: n(attrs, "updatedAt").unwrap_or(now),
         rev: n(attrs, "rev").unwrap_or(0),
@@ -188,7 +169,9 @@ pub async fn tombstone(
     };
 
     let out = req.send().await.map_err(conflict_or_internal)?;
-    let attrs = out.attributes().ok_or_else(|| StoreError::Internal("no attributes returned".into()))?;
+    let attrs = out
+        .attributes()
+        .ok_or_else(|| StoreError::Internal("no attributes returned".into()))?;
     Ok(n(attrs, "updatedAt").unwrap_or(now))
 }
 
@@ -212,7 +195,10 @@ fn conflict_or_internal<E, R>(err: SdkError<E, R>) -> StoreError
 where
     E: ConditionalCheck + std::fmt::Display,
 {
-    if err.as_service_error().is_some_and(|e| e.is_conditional_check()) {
+    if err
+        .as_service_error()
+        .is_some_and(|e| e.is_conditional_check())
+    {
         StoreError::Conflict
     } else {
         StoreError::Internal(err.to_string())
