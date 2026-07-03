@@ -33,8 +33,8 @@ jobs:
       pull-requests: write
       id-token: write # AWS OIDC, to read the release-bot App key from Secrets Manager
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
+      release_created: ${{ steps.effective.outputs.release_created }}
+      tag_name: ${{ steps.effective.outputs.tag_name }}
     steps:
       # Authenticate as a GitHub App (when configured) instead of the default
       # GITHUB_TOKEN. GitHub deliberately won't let GITHUB_TOKEN-authored events
@@ -82,6 +82,35 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
           token: ${{ steps.app-token.outputs.token || github.token }}
+
+      # Re-run resilience: release-please publishes the GitHub release first,
+      # so if anything later in the run fails and the run is re-run, the second
+      # attempt sees the release as already existing, reports
+      # release_created=false, and the whole pipeline skips — leaving a
+      # published release with no deployed backend and no artifacts (the
+      # v0.12.2 failure). On a re-run attempt, resume shipping the manifest
+      # version iff its release exists with zero assets; a release with assets
+      # is done and must not be rebuilt (re-signing an already-served tag is
+      # the known updater-breaker).
+      - name: Resolve the release to ship (re-run resume)
+        id: effective
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RP_CREATED: ${{ steps.release.outputs.release_created }}
+          RP_TAG: ${{ steps.release.outputs.tag_name }}
+        run: |
+          if [ "$RP_CREATED" = "true" ]; then
+            { echo "release_created=true"; echo "tag_name=$RP_TAG"; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          tag="v$(jq -r '."."' .release-please-manifest.json)"
+          if [ "${{ github.run_attempt }}" != "1" ] \
+            && [ "$(gh release view "$tag" --json assets --jq '.assets | length' 2>/dev/null)" = "0" ]; then
+            echo "::notice::resuming assetless release $tag (run attempt ${{ github.run_attempt }})"
+            { echo "release_created=true"; echo "tag_name=$tag"; } >> "$GITHUB_OUTPUT"
+          else
+            { echo "release_created=false"; echo "tag_name="; } >> "$GITHUB_OUTPUT"
+          fi
 
       # release-please uses release-type "simple", which bumps the version in
       # apps/desktop/src-tauri/Cargo.toml but leaves the `lux` entry in the root
