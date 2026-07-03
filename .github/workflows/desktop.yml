@@ -81,6 +81,40 @@ jobs:
 
       - run: bun run lint
 
+  # Build the three Lambda services exactly as the release deploy job will
+  # (static musl, release profile, same package names) — so a broken link, a
+  # renamed crate, or a musl-hostile dependency is a red PR check instead of a
+  # failed release run.
+  lambda-build:
+    runs-on: ubuntu-latest
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl-gcc
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - uses: mozilla-actions/sccache-action@v0.0.10
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+          cache-targets: "false"
+
+      - name: Build (static musl, release profile)
+        run: cargo build --release --target x86_64-unknown-linux-musl -p lux-sync-api -p lux-iot-authorizer -p lux-discord-bot
+
+      - name: sccache stats
+        if: ${{ always() }}
+        run: sccache --show-stats
+
   rust:
     runs-on: ubuntu-latest
     env:
