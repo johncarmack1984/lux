@@ -47,8 +47,12 @@ permissions:
 # whose push CI was cancelled after 4s by the release merge landing behind
 # it). github.workflow is the CALLER's name under workflow_call, so a
 # release-gate invocation groups separately from the push-triggered run.
+# The "-gate" suffix is load-bearing: without it, a release-run invocation
+# computes the group "release-<ref>" — the SAME group the calling release
+# run itself holds — and the called workflow deadlocks queueing behind its
+# own parent (GitHub kills the job at startup; broke the v0.12.2 run).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-gate-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
