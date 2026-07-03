@@ -18,6 +18,9 @@ tauri-build = { version = "2.5.2", features = ["isolation", "codegen"] }
 [dev-dependencies]
 tauri = { version = "^2.9.3", features = ["devtools", "test", "tracing"] }
 
+[lints]
+workspace = true
+
 [dependencies]
 anyhow = "1.0.100"
 # Cognito accounts (sign-up / SRP sign-in / refresh) + secure refresh-token

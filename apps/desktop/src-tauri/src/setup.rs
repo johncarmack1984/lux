@@ -12,6 +12,7 @@
 //! a legacy `patch.json`, [`load`] migrates it into a single "Home" setup and
 //! leaves the old file behind as `patch.json.migrated`.
 
+use crate::lock::LockPolicy;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -197,23 +198,23 @@ impl From<SetupStore> for LuxSetups {
 
 impl LuxSetups {
     pub fn summaries(&self) -> Vec<SetupSummary> {
-        self.store.lock().unwrap().summaries()
+        self.store.lock_or_recover().summaries()
     }
 
     pub fn active_id(&self) -> uuid::Uuid {
-        self.store.lock().unwrap().active_setup_id
+        self.store.lock_or_recover().active_setup_id
     }
 
     pub fn active_universe(&self) -> u16 {
-        self.store.lock().unwrap().active().universe
+        self.store.lock_or_recover().active().universe
     }
 
     pub fn active_fixtures(&self) -> Vec<Fixture> {
-        self.store.lock().unwrap().active().fixtures.clone()
+        self.store.lock_or_recover().active().fixtures.clone()
     }
 
     pub fn active_summary(&self) -> SetupSummary {
-        let store = self.store.lock().unwrap();
+        let store = self.store.lock_or_recover();
         let active = store.active();
         SetupSummary {
             id: active.id,
@@ -226,7 +227,7 @@ impl LuxSetups {
 
     /// Snapshot of the whole store, for persistence.
     pub fn snapshot(&self) -> SetupStore {
-        self.store.lock().unwrap().clone()
+        self.store.lock_or_recover().clone()
     }
 
     // -- fixture ops on the active setup --
@@ -237,7 +238,7 @@ impl LuxSetups {
         address: u16,
         channels: Vec<ChannelDef>,
     ) -> Result<(), String> {
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.lock_or_recover();
         let active = store.active_mut();
         fixture::add(&mut active.fixtures, name, address, channels)?;
         active.dirty = true;
@@ -251,7 +252,7 @@ impl LuxSetups {
         address: u16,
         channels: Vec<ChannelDef>,
     ) -> Result<(), String> {
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.lock_or_recover();
         let active = store.active_mut();
         fixture::update(&mut active.fixtures, id, name, address, channels)?;
         active.dirty = true;
@@ -259,7 +260,7 @@ impl LuxSetups {
     }
 
     pub fn remove_fixture(&self, id: uuid::Uuid) -> Result<(), String> {
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.lock_or_recover();
         let active = store.active_mut();
         fixture::remove(&mut active.fixtures, id)?;
         active.dirty = true;
@@ -273,13 +274,13 @@ impl LuxSetups {
         let name = clean_name(name)?;
         let setup = new_setup(name, universe, Vec::new());
         let id = setup.id;
-        self.store.lock().unwrap().setups.push(setup);
+        self.store.lock_or_recover().setups.push(setup);
         Ok(id)
     }
 
     pub fn rename(&self, id: uuid::Uuid, name: String) -> Result<(), String> {
         let name = clean_name(name)?;
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.lock_or_recover();
         let setup = store
             .setups
             .iter_mut()
@@ -291,7 +292,7 @@ impl LuxSetups {
     }
 
     pub fn set_universe(&self, id: uuid::Uuid, universe: u16) -> Result<(), String> {
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.lock_or_recover();
         let setup = store
             .setups
             .iter_mut()
@@ -306,7 +307,7 @@ impl LuxSetups {
     /// removed, the first remaining one becomes active. A setup the cloud has
     /// seen leaves a pending tombstone so the delete propagates to other devices.
     pub fn delete(&self, id: uuid::Uuid) -> Result<(), String> {
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.lock_or_recover();
         if store.setups.len() <= 1 {
             return Err("can't delete the only setup".into());
         }
@@ -327,7 +328,7 @@ impl LuxSetups {
     }
 
     pub fn set_active(&self, id: uuid::Uuid) -> Result<(), String> {
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.lock_or_recover();
         if !store.setups.iter().any(|s| s.id == id) {
             return Err(format!("setup {id} not found"));
         }
@@ -339,18 +340,18 @@ impl LuxSetups {
 
     /// Setups with changes the cloud doesn't have yet (clones, for pushing).
     pub fn dirty_for_push(&self) -> Vec<Setup> {
-        let store = self.store.lock().unwrap();
+        let store = self.store.lock_or_recover();
         store.setups.iter().filter(|s| s.needs_push()).cloned().collect()
     }
 
     /// Pending delete tombstones to push.
     pub fn pending_deletes(&self) -> Vec<PendingDelete> {
-        self.store.lock().unwrap().pending_deletes.clone()
+        self.store.lock_or_recover().pending_deletes.clone()
     }
 
     /// Record a successful push: store the server timestamp and clear dirty.
     pub fn mark_pushed(&self, id: uuid::Uuid, updated_at: i64) {
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.lock_or_recover();
         if let Some(s) = store.setups.iter_mut().find(|s| s.id == id) {
             s.updated_at = Some(updated_at);
             s.dirty = false;
@@ -360,26 +361,25 @@ impl LuxSetups {
     /// Drop a delivered delete tombstone.
     pub fn clear_pending_delete(&self, setup_id: uuid::Uuid) {
         self.store
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .pending_deletes
             .retain(|d| d.setup_id != setup_id);
     }
 
     /// Snapshot of all setups (clones), to feed reconcile.
     pub fn all(&self) -> Vec<Setup> {
-        self.store.lock().unwrap().setups.clone()
+        self.store.lock_or_recover().setups.clone()
     }
 
     /// The account email this store is currently synced with, if any.
     pub fn bound_email(&self) -> Option<String> {
-        self.store.lock().unwrap().bound_email.clone()
+        self.store.lock_or_recover().bound_email.clone()
     }
 
     /// Replace the working set with reconciled setups and bind it to `email`.
     /// Keeps the store non-empty and `active_setup_id` valid.
     pub fn replace_with_merged(&self, merged: Vec<Setup>, email: String) {
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.lock_or_recover();
         store.bound_email = Some(email);
         if merged.is_empty() {
             let seed = new_setup("Home", DEFAULT_UNIVERSE, fixture::default_fixtures());
@@ -397,7 +397,7 @@ impl LuxSetups {
     /// Forget cloud binding and sync metadata so a *different* account signing in
     /// on this device can't push the previous user's setups into their cloud.
     pub fn reset_for_new_account(&self) {
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.lock_or_recover();
         store.bound_email = None;
         store.pending_deletes.clear();
         for s in &mut store.setups {

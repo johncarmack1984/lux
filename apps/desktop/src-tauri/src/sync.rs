@@ -1,3 +1,4 @@
+use crate::lock::LockPolicy;
 use crate::{
     buffer::{Buffer, LuxBuffer},
     channels::LuxChannels,
@@ -23,7 +24,7 @@ impl SyncMethods for SyncEndpoint {
     fn sync_buffer(&self, app_handle: AppHandle) -> Result<LuxBuffer, String> {
         log::trace!("sync_buffer");
         let mut state = app_handle.state::<LuxBuffer>().inner().clone();
-        let buffer = state.buffer.lock().as_deref().unwrap().clone();
+        let buffer = state.buffer.lock_or_recover().clone();
         state.set(buffer, app_handle.clone())
     }
     fn sync_channels(&self, app_handle: AppHandle) -> Result<LuxChannels, String> {

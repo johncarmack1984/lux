@@ -1,3 +1,4 @@
+use crate::lock::LockPolicy;
 use std::sync::{Arc, Mutex};
 
 use crate::colors::LuxLabelColor;
@@ -29,16 +30,16 @@ impl LuxChannel {
     }
 
     pub fn get_channel_number(&self) -> u32 {
-        self.0.lock().unwrap().channel_number
+        self.0.lock_or_recover().channel_number
     }
 
     // pub fn _set(&self, data: LuxChannelData) {
-    //     let mut locked_data = self.lock().unwrap();
+    //     let mut locked_data = self.lock_or_recover();
     //     *locked_data = data;
     // }
 
     pub fn toogle_disabled(&mut self, disabled: bool) {
-        let mut locked_data = self.0.lock().unwrap();
+        let mut locked_data = self.0.lock_or_recover();
         locked_data.disabled = disabled;
     }
 }

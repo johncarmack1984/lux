@@ -1,3 +1,4 @@
+use crate::lock::LockPolicy;
 use crate::{devices::DmxOutput, sync::SyncEvent};
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -32,13 +33,13 @@ fn normalize(value: &[u8]) -> Buffer {
 
 impl From<LuxBuffer> for Buffer {
     fn from(value: LuxBuffer) -> Self {
-        value.buffer.lock().unwrap().clone()
+        value.buffer.lock_or_recover().clone()
     }
 }
 
 impl From<&LuxBuffer> for Buffer {
     fn from(value: &LuxBuffer) -> Self {
-        value.buffer.lock().unwrap().clone()
+        value.buffer.lock_or_recover().clone()
     }
 }
 
@@ -61,7 +62,7 @@ impl LuxBuffer {
         app: tauri::AppHandle<R>,
     ) -> Result<LuxBuffer, String> {
         let snapshot = {
-            let mut guard = self.buffer.lock().unwrap();
+            let mut guard = self.buffer.lock_or_recover();
             let n = incoming.len().min(guard.len());
             guard[..n].copy_from_slice(&incoming[..n]);
             guard.clone()
@@ -81,7 +82,7 @@ impl LuxBuffer {
             ));
         }
         let snapshot = {
-            let mut guard = self.buffer.lock().unwrap();
+            let mut guard = self.buffer.lock_or_recover();
             guard[channel_number - 1] = value;
             guard.clone()
         };
@@ -148,7 +149,7 @@ fn schedule_persist<R: Runtime>(app: &tauri::AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_millis(400)).await;
         PENDING.store(false, Ordering::SeqCst);
-        let snapshot: Buffer = app.state::<LuxBuffer>().buffer.lock().unwrap().clone();
+        let snapshot: Buffer = app.state::<LuxBuffer>().buffer.lock_or_recover().clone();
         save(&app, &snapshot);
     });
 }

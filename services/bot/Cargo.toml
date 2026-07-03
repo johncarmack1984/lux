@@ -12,6 +12,9 @@ publish = false
 # deployed with cargo-lambda; the runtime expects a `bootstrap` executable,
 # which cargo-lambda produces from this binary.
 
+[lints]
+workspace = true
+
 [dependencies]
 lambda_http.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

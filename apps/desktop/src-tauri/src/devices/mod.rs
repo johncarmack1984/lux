@@ -13,6 +13,7 @@ pub mod discovery;
 pub mod enttec_open_dmx_usb;
 pub mod sacn;
 
+use crate::lock::LockPolicy;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -175,31 +176,31 @@ impl DmxOutput {
     pub fn render(&self, channels: &[u8]) -> Result<(), String> {
         // Clone the Arc out of the lock so a (possibly slow) render doesn't hold
         // it — a tray switch can then proceed concurrently.
-        let sink = self.inner.lock().unwrap().sink.clone();
+        let sink = self.inner.lock_or_recover().sink.clone();
         sink.render(channels)
     }
 
     pub fn needs_keepalive(&self) -> bool {
-        self.inner.lock().unwrap().transport.needs_keepalive()
+        self.inner.lock_or_recover().transport.needs_keepalive()
     }
 
     // The active key + detected list, read by the desktop tray's device menu and
     // the in-app output picker (the only selector on mobile, where there's no tray).
     pub fn active_key(&self) -> String {
-        self.inner.lock().unwrap().key.clone()
+        self.inner.lock_or_recover().key.clone()
     }
 
     pub fn devices(&self) -> Vec<Device> {
-        self.devices.lock().unwrap().clone()
+        self.devices.lock_or_recover().clone()
     }
 
     fn set_devices(&self, devices: Vec<Device>) {
-        *self.devices.lock().unwrap() = devices;
+        *self.devices.lock_or_recover() = devices;
     }
 
     fn set_device(&self, device: &Device) {
         let sink = build_sink(device);
-        let mut active = self.inner.lock().unwrap();
+        let mut active = self.inner.lock_or_recover();
         active.transport = device.transport;
         active.sink = sink;
         active.key = device.key();
@@ -210,7 +211,7 @@ impl DmxOutput {
     /// detected node, so the tray highlight and device memory stay put — only the
     /// wire universe follows the active setup.
     fn retarget_universe(&self, universe: u16) {
-        let mut active = self.inner.lock().unwrap();
+        let mut active = self.inner.lock_or_recover();
         if active.transport == Transport::Sacn {
             active.sink = build_sink(&Device {
                 transport: Transport::Sacn,
@@ -276,7 +277,7 @@ pub fn switch_to_device<R: Runtime>(app: &AppHandle<R>, device: &Device) {
         app.state::<DmxOutput>().retarget_universe(universe);
     }
     persist_key(app, &device.key());
-    let buffer = app.state::<crate::buffer::LuxBuffer>().buffer.lock().unwrap().clone();
+    let buffer = app.state::<crate::buffer::LuxBuffer>().buffer.lock_or_recover().clone();
     if let Err(e) = app.state::<DmxOutput>().render(&buffer) {
         log::trace!("post-switch render failed: {e}");
     }
@@ -411,7 +412,7 @@ pub fn start_keepalive<R: Runtime>(app: &AppHandle<R>) {
                 continue;
             }
             // Copy out of the lock before the render so no guard is held across it.
-            let buffer = app.state::<crate::buffer::LuxBuffer>().buffer.lock().unwrap().clone();
+            let buffer = app.state::<crate::buffer::LuxBuffer>().buffer.lock_or_recover().clone();
             if let Err(e) = app.state::<DmxOutput>().render(&buffer) {
                 log::trace!("sACN keepalive render failed: {e}");
             }

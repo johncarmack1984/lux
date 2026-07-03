@@ -1,3 +1,4 @@
+use crate::lock::LockPolicy;
 use libftd2xx::DeviceInfo;
 use libftd2xx::DeviceType;
 use libftd2xx::FtStatus;
@@ -76,7 +77,7 @@ impl EnttecOpenDMX {
         };
 
         if let Some(ref ft) = ft {
-            let mut ftdi = ft.lock().unwrap();
+            let mut ftdi = ft.lock_or_recover();
             let device_info = ftdi.device_info().map_err(|e| format!("{:?}", e))?;
             let ftdi_status = ftdi.status().map_err(|e| format!("{:?}", e))?;
 
@@ -113,7 +114,7 @@ impl EnttecOpenDMX {
     /// Opens the connection with the Interface.
     pub fn open(&mut self) -> Result<(), FtStatus> {
         if let Some(ft) = self.ftdi.as_ref() {
-            let mut ftdi = ft.lock().unwrap();
+            let mut ftdi = ft.lock_or_recover();
             ftdi.reset()?;
             ftdi.set_baud_rate(BAUDRATE)?;
             ftdi.set_data_characteristics(BITS_8, STOP_BITS_2, PARITY_NONE)?;
@@ -151,10 +152,16 @@ impl EnttecOpenDMX {
     /// Renders the current buffer
     pub fn render(&mut self) -> Result<(), FtStatus> {
         if let Some(ft) = self.ftdi.as_ref() {
-            let mut ftdi = ft.lock().unwrap();
+            let mut ftdi = ft.lock_or_recover();
             ftdi.set_break_on()?;
             ftdi.set_break_off()?;
-            ftdi.write_all(&self.buffer.0).unwrap();
+            // A failed frame write (USB glitch, device yanked mid-render) is a
+            // render error like any other, not a reason to crash the app —
+            // the caller surfaces it and the next frame retries.
+            ftdi.write_all(&self.buffer.0).map_err(|e| {
+                log::warn!("enttec frame write failed: {e}");
+                FtStatus::IO_ERROR
+            })?;
             Ok(())
         } else {
             Err(FtStatus::DEVICE_NOT_FOUND) // Or any other appropriate error
@@ -165,18 +172,12 @@ impl EnttecOpenDMX {
     #[allow(dead_code)]
     pub fn close(&mut self) -> Result<(), FtStatus> {
         if let Some(ft) = self.ftdi.as_ref() {
-            let mut ftdi = ft.lock().unwrap();
+            let mut ftdi = ft.lock_or_recover();
             ftdi.close()?;
             Ok(())
         } else {
             Err(FtStatus::DEVICE_NOT_FOUND) // Or any other appropriate error
         }
-    }
-}
-
-impl Default for EnttecOpenDMX {
-    fn default() -> Self {
-        EnttecOpenDMX::new().unwrap()
     }
 }
 

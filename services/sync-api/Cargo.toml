@@ -11,6 +11,9 @@ publish = false
 # cargo-lambda; the runtime expects a `bootstrap` executable, which cargo-lambda
 # produces from this binary.
 
+[lints]
+workspace = true
+
 [dependencies]
 lux-auth = { path = "../../crates/lux-auth" }
 lux-wire = { path = "../../crates/lux-wire" }

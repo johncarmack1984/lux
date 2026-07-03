@@ -14,6 +14,7 @@
 //!   server `updatedAt`, then flush anything still dirty. First sign-in claims
 //!   the local setups into the account.
 
+use crate::lock::LockPolicy;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -62,12 +63,12 @@ pub struct LuxSync {
 impl LuxSync {
     /// The current state, for the `sync_status` command and event payloads.
     pub fn snapshot(&self) -> SyncState {
-        *self.state.lock().unwrap()
+        *self.state.lock_or_recover()
     }
 
     /// Move to `state` and emit the change to the UI.
     fn set(&self, app: &AppHandle, state: SyncState) {
-        *self.state.lock().unwrap() = state;
+        *self.state.lock_or_recover() = state;
         let _ = CmdEvent::SyncStatusChanged { state }.emit(app);
     }
 }
