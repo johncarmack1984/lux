@@ -285,22 +285,36 @@ jobs:
       id-token: write # OIDC: assume the lambda-deploy role
     env:
       TAG: ${{ needs.release-please.outputs.tag_name }}
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
 
+      # Static musl binaries: fully self-contained, so there is no glibc-version
+      # question on provided.al2023 at all — no cargo-lambda, no zig, just the
+      # same cargo the test gate uses, plus the musl target and musl-gcc for
+      # ring's C bits. Everything is pure Rust + ring, musl's happy path; if a
+      # C-heavy dependency ever lands, revisit (that's the honest trigger for a
+      # container-image build).
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl-gcc
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      # Same caching pair as the desktop test gate: sccache owns per-crate
+      # compilation (content-addressed, survives lockfile bumps), rust-cache
+      # keeps the registry/index warm without caching target/.
+      - uses: mozilla-actions/sccache-action@v0.0.10
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "."
-
-      # cargo-lambda cross-links against an AL2023-compatible glibc via zig; a
-      # plain host build on ubuntu-latest links a newer glibc than the Lambda
-      # runtime ships and fails at cold start with missing symbol versions.
-      - name: Install cargo-lambda (+ zig for the AL2023-safe link)
-        run: pip3 install cargo-lambda ziglang
+          cache-targets: "false"
 
       # The role is created by the terraform-apply job that just ran, so on the
       # very first release after it lands, STS may not see it instantly —
@@ -311,14 +325,26 @@ jobs:
           aws-region: us-west-1
           retry-max-attempts: 6
 
-      - name: Build
-        run: cargo lambda build --release --x86-64 -p lux-sync-api -p lux-iot-authorizer -p lux-discord-bot
+      - name: Build (static musl)
+        run: cargo build --release --target x86_64-unknown-linux-musl -p lux-sync-api -p lux-iot-authorizer -p lux-discord-bot
 
+      # provided.al2023 runs the zip's `bootstrap`; package each binary under
+      # that name and wait until Lambda finishes swapping code before smoking.
       - name: Deploy
         run: |
-          cargo lambda deploy lux-sync-api
-          cargo lambda deploy lux-iot-authorizer
-          cargo lambda deploy lux-discord-bot
+          for fn in lux-sync-api lux-iot-authorizer lux-discord-bot; do
+            staging=$(mktemp -d)
+            cp "target/x86_64-unknown-linux-musl/release/$fn" "$staging/bootstrap"
+            (cd "$staging" && zip -q9 function.zip bootstrap)
+            aws lambda update-function-code --function-name "$fn" \
+              --zip-file "fileb://$staging/function.zip" --query 'CodeSha256' --output text
+            aws lambda wait function-updated --function-name "$fn"
+            echo "deployed $fn"
+          done
+
+      - name: sccache stats
+        if: ${{ always() }}
+        run: sccache --show-stats
 
       # Unauthenticated 401s are this API's health check: a correct 401 with the
       # typed error body proves the new binary cold-started (its init fetches
