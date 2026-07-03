@@ -15,6 +15,15 @@ on:
 
 permissions: {}
 
+# Strictly one release run at a time, never cancelled: back-to-back merges to
+# main once raced two runs, and the EARLIER commit's run cut the release
+# (release-please acts on latest main, not its checkout) — so its gates ran one
+# commit behind the tag. Queueing serializes them; the tag-pinned checkouts
+# below make whichever run cuts the release gate/build the tag itself.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release-please:
     if: ${{ github.event_name == 'push' }}
@@ -117,6 +126,10 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/desktop.yml
+    with:
+      # Gate the tag itself, not this run's triggering sha — the two can differ
+      # when a race let an earlier push's run cut the release.
+      ref: ${{ needs.release-please.outputs.tag_name }}
 
   # Builds, signs, and notarizes the macOS app and attaches it (plus the
   # updater's latest.json) to the release — after a release-please release, or
@@ -233,7 +246,11 @@ jobs:
       run:
         working-directory: infra
     steps:
+      # The tag, not github.sha — the infra applied must be exactly the infra
+      # the release's endpoints file and binaries were built against.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:

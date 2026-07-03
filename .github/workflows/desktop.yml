@@ -31,18 +31,25 @@ on:
   # Reusable form: release.yml calls this as its gate, so nothing ships from a
   # release run unless the exact release commit passes the same checks as a PR.
   workflow_call:
+    inputs:
+      ref:
+        description: "Git ref to check out (empty = the triggering sha)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
-# Newer pushes to the same ref supersede in-flight runs (a PR and a main push use
-# different refs, so they never cancel each other). github.workflow is the
-# CALLER's name when this runs via workflow_call, so a release-gate invocation
-# groups separately from the push-triggered run of the same commit instead of
-# the two cancelling each other.
+# PRs supersede (a force-push cancels the stale run); pushes to main QUEUE
+# instead — every main commit must end with a completed CI record, so
+# back-to-back merges can't cancel each other's runs (that burned 69642ae,
+# whose push CI was cancelled after 4s by the release merge landing behind
+# it). github.workflow is the CALLER's name under workflow_call, so a
+# release-gate invocation groups separately from the push-triggered run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   tauri-versions:
@@ -52,6 +59,8 @@ jobs:
         working-directory: apps/desktop
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
 
       - uses: oven-sh/setup-bun@v2
 
@@ -67,6 +76,8 @@ jobs:
         working-directory: apps/desktop
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
 
       - uses: oven-sh/setup-bun@v2
 
@@ -93,6 +104,8 @@ jobs:
       CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -123,6 +136,8 @@ jobs:
       CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
 
       # Tauri's Rust crates link the system webkitgtk/gtk stack on Linux, so the
       # -dev packages must be present for the *-sys crates to compile.
