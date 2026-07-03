@@ -15,6 +15,7 @@ on:
     paths:
       - 'apps/desktop/**'
       - 'services/**'
+      - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/desktop.yml'
@@ -23,17 +24,24 @@ on:
     paths:
       - 'apps/desktop/**'
       - 'services/**'
+      - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/desktop.yml'
+  # Reusable form: release.yml calls this as its gate, so nothing ships from a
+  # release run unless the exact release commit passes the same checks as a PR.
+  workflow_call:
 
 permissions:
   contents: read
 
 # Newer pushes to the same ref supersede in-flight runs (a PR and a main push use
-# different refs, so they never cancel each other).
+# different refs, so they never cancel each other). github.workflow is the
+# CALLER's name when this runs via workflow_call, so a release-gate invocation
+# groups separately from the push-triggered run of the same commit instead of
+# the two cancelling each other.
 concurrency:
-  group: desktop-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

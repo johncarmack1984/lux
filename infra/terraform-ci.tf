@@ -217,6 +217,67 @@ resource "aws_iam_role_policy" "terraform_apply" {
   })
 }
 
+# --- lambda-deploy role: ship Lambda code on release, main branch only -------
+#
+# Assumed by release.yml's deploy-lambdas job (after terraform-apply, before the
+# desktop build), so deployed Lambda code always matches the release tag instead
+# of drifting behind manual `cargo lambda deploy` runs. Deliberately narrow:
+# update code + read config on the three lux functions, plus what the post-deploy
+# smoke tests need (the Function URLs, and a direct test invoke of the
+# authorizer's deny path). It cannot touch IAM, config, or any other resource.
+
+locals {
+  lux_lambda_functions = [
+    "arn:aws:lambda:*:${local.aws_account_id}:function:lux-sync-api",
+    "arn:aws:lambda:*:${local.aws_account_id}:function:lux-iot-authorizer",
+    "arn:aws:lambda:*:${local.aws_account_id}:function:lux-discord-bot",
+  ]
+}
+
+resource "aws_iam_role" "lambda_deploy" {
+  name = "lux-lambda-deploy"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Federated = data.aws_iam_openid_connect_provider.github.arn }
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          # Only a workflow running on main (the release deploy) may assume this.
+          "token.actions.githubusercontent.com:sub" = "${local.github_repo_sub}:ref:refs/heads/main"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "lambda_deploy" {
+  name = "lux-lambda-deploy"
+  role = aws_iam_role.lambda_deploy.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "DeployLuxLambdaCode"
+        Effect = "Allow"
+        Action = [
+          "lambda:GetFunction", "lambda:GetFunctionConfiguration",
+          "lambda:UpdateFunctionCode", "lambda:GetFunctionUrlConfig",
+        ]
+        Resource = local.lux_lambda_functions
+      },
+      {
+        Sid      = "SmokeInvokeAuthorizer"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = "arn:aws:lambda:*:${local.aws_account_id}:function:lux-iot-authorizer"
+      },
+    ]
+  })
+}
+
 output "terraform_plan_role_arn" {
   description = "role-to-assume for the terraform PR plan job (read-only)."
   value       = aws_iam_role.terraform_plan.arn
@@ -225,4 +286,9 @@ output "terraform_plan_role_arn" {
 output "terraform_apply_role_arn" {
   description = "role-to-assume for the terraform apply job (main only)."
   value       = aws_iam_role.terraform_apply.arn
+}
+
+output "lambda_deploy_role_arn" {
+  description = "role-to-assume for the release lambda-deploy job (main only)."
+  value       = aws_iam_role.lambda_deploy.arn
 }
