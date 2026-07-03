@@ -6,9 +6,12 @@
 # is upgradable).
 version: 2
 updates:
-  # Tauri desktop backend
+  # The whole Cargo workspace (desktop + crates/ + services/) resolves through
+  # the root Cargo.toml/Cargo.lock — one entry covers every member. (The old
+  # /src-tauri and /bot entries pointed at pre-monorepo paths and silently
+  # matched nothing.)
   - package-ecosystem: "cargo"
-    directory: "/src-tauri"
+    directory: "/"
     schedule:
       interval: "weekly"
     groups:
@@ -20,15 +23,6 @@ updates:
     ignore:
       - dependency-name: "tauri*"
       - dependency-name: "wry"
-
-  # Discord bot Lambda
-  - package-ecosystem: "cargo"
-    directory: "/bot"
-    schedule:
-      interval: "weekly"
-    groups:
-      cargo:
-        patterns: ["*"]
 
   # GitHub Actions used by the workflows
   - package-ecosystem: "github-actions"
