@@ -9,6 +9,21 @@ members = [
     "services/sync-api",
 ]
 
+# Shared lint policy; members opt in with `[lints] workspace = true`. Production
+# code must never unwrap — a lighting app degrades and logs, it doesn't crash
+# (locks recover from poisoning via lock::LockPolicy instead). The CI gate runs
+# `cargo clippy --workspace` on default targets, so deny-level lints fail PRs
+# while test code keeps idiomatic unwraps. `expect` stays legal: it documents an
+# invariant; a naked `unwrap` doesn't.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
+
 # Dependencies shared across the desktop app and/or the Lambda services. Declared
 # once here; members opt in with `<dep>.workspace = true` (adding features as
 # needed). Bump a shared version in one place.

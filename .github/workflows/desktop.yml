@@ -187,6 +187,14 @@ jobs:
       - name: cargo test
         run: cargo test --workspace --locked
 
+      # Lint gate: deny-level workspace lints fail this step (notably
+      # clippy::unwrap_used — production code must not unwrap; see
+      # [workspace.lints] in the root Cargo.toml). Default targets only, so
+      # test code keeps idiomatic unwraps; warn-level lints stay visible
+      # without blocking.
+      - name: cargo clippy
+        run: cargo clippy --workspace --locked
+
       - name: sccache stats
         if: ${{ always() }}
         run: sccache --show-stats

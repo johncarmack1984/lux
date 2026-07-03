@@ -8,6 +8,9 @@ publish = false
 # a user's identity (services/sync-api, services/iot-authorizer). The desktop
 # never depends on this crate — it holds tokens, it doesn't verify them.
 
+[lints]
+workspace = true
+
 [dependencies]
 jsonwebtoken = "10"
 reqwest = { workspace = true }

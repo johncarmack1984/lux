@@ -13,6 +13,7 @@
 //! SDK client runs with `.no_credentials()` — end users never hold AWS keys. SRP
 //! keeps the password on-device: only a zero-knowledge proof crosses the wire.
 
+use crate::lock::LockPolicy;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use aws_config::BehaviorVersion;
@@ -128,17 +129,17 @@ impl LuxAccount {
     }
 
     pub fn signed_in(&self) -> bool {
-        self.session.lock().unwrap().signed_in()
+        self.session.lock_or_recover().signed_in()
     }
 
     /// The signed-in account email, used as the local store's cloud-binding key.
     pub fn email(&self) -> Option<String> {
-        self.session.lock().unwrap().email.clone()
+        self.session.lock_or_recover().email.clone()
     }
 
     /// The current (possibly soon-to-expire) id token, for a sync request.
     pub fn current_id_token(&self) -> Option<String> {
-        self.session.lock().unwrap().id_token.clone()
+        self.session.lock_or_recover().id_token.clone()
     }
 
     /// Exchange the stored refresh token for fresh id/access tokens (called by
@@ -147,20 +148,19 @@ impl LuxAccount {
         let cfg = self.config()?;
         let refresh = self
             .session
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .refresh_token
             .clone()
             .ok_or("not signed in")?;
         let tokens = do_refresh(cfg, refresh).await?;
-        let mut session = self.session.lock().unwrap();
+        let mut session = self.session.lock_or_recover();
         session.id_token = Some(tokens.id.clone());
         session.access_token = Some(tokens.access);
         Ok(tokens.id)
     }
 
     pub fn status(&self) -> AuthStatus {
-        let session = self.session.lock().unwrap();
+        let session = self.session.lock_or_recover();
         AuthStatus {
             configured: self.config.is_some(),
             signed_in: session.signed_in(),
@@ -199,14 +199,14 @@ impl LuxAccount {
 
     pub fn sign_out(&self) -> AuthStatus {
         clear_session();
-        self.session.lock().unwrap().clear();
+        self.session.lock_or_recover().clear();
         self.status()
     }
 
     /// Store freshly-issued tokens. `email` is set on sign-in; left untouched on
     /// a silent refresh (it carries over from the restored session).
     fn apply(&self, tokens: Tokens, email: Option<String>) {
-        let mut session = self.session.lock().unwrap();
+        let mut session = self.session.lock_or_recover();
         session.id_token = Some(tokens.id);
         session.access_token = Some(tokens.access);
         if let Some(refresh) = tokens.refresh {
@@ -231,7 +231,7 @@ pub fn restore_on_startup(app: &AppHandle) {
         match do_refresh(cfg, stored.refresh_token).await {
             Ok(tokens) => {
                 {
-                    let mut s = session.lock().unwrap();
+                    let mut s = session.lock_or_recover();
                     s.id_token = Some(tokens.id);
                     s.access_token = Some(tokens.access);
                     s.refresh_token = load_session().map(|s| s.refresh_token);

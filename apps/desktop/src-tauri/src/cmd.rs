@@ -1,3 +1,4 @@
+use crate::lock::LockPolicy;
 use crate::{
     account::{AuthStatus, LuxAccount},
     buffer::{Buffer, LuxBuffer, UNIVERSE_SIZE},
@@ -457,7 +458,7 @@ fn activate(app: &AppHandle, setups: &LuxSetups) -> Result<(), String> {
 /// used after the live universe number changes so the new universe lights up
 /// with the levels already on screen.
 fn rerender_current(app: &AppHandle) {
-    let buffer = app.state::<LuxBuffer>().buffer.lock().unwrap().clone();
+    let buffer = app.state::<LuxBuffer>().buffer.lock_or_recover().clone();
     if let Err(e) = app.state::<DmxOutput>().render(&buffer) {
         log::trace!("post-universe-change render failed: {e}");
     }

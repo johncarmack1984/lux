@@ -11,6 +11,7 @@ mod devices;
 mod endpoints;
 mod error;
 mod fixture;
+mod lock;
 mod logger;
 mod nudge;
 mod remote;
@@ -19,6 +20,7 @@ mod sync;
 #[cfg(desktop)]
 mod tray;
 
+use crate::lock::LockPolicy;
 use buffer::LuxBuffer;
 use channels::LuxChannels;
 use cmd::*;
@@ -38,7 +40,7 @@ pub async fn run() {
         // run). Done before autodetect spawns: selecting a device pushes the
         // current buffer to the output, which renders the restored state.
         if let Some(restored) = buffer::restore(app.handle()) {
-            *app.state::<LuxBuffer>().buffer.lock().unwrap() = restored;
+            *app.state::<LuxBuffer>().buffer.lock_or_recover() = restored;
         }
         // Load the user's setups (migrating a legacy patch.json, or seeding the
         // default "Home" setup on first run) into state.

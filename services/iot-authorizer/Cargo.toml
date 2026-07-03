@@ -10,6 +10,9 @@ publish = false
 # policy scoped to that user's own nudge topic and client-id prefix (lux-wire).
 # Built and deployed with cargo-lambda, like the sibling services.
 
+[lints]
+workspace = true
+
 [dependencies]
 lux-auth = { path = "../../crates/lux-auth" }
 lux-wire = { path = "../../crates/lux-wire" }
