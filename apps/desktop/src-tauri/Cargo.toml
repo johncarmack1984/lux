@@ -33,7 +33,6 @@ aws-smithy-http-client = { version = "1", features = ["rustls-ring"] }
 webpki-root-certs = "1"
 pem = "3"
 keyring = "4"
-dotenvy = "0.15.7"
 log = "^0.4.28"
 serde_json.workspace = true
 serde.workspace = true

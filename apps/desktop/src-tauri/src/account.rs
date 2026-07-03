@@ -1,11 +1,12 @@
 //! Cognito accounts: sign-up, SRP sign-in, sign-out, and silent refresh, plus
 //! secure refresh-token storage in the OS keychain.
 //!
-//! Production Cognito + sync endpoints are baked in (the `DEFAULT_*` constants)
-//! so accounts work in distributed builds, which ship without a `.env`; env
-//! vars (or `src-tauri/.env` in dev) still override them. Sign-in stays optional
-//! — identity only gates cloud sync (Phase 3) and never sits in the live DMX
-//! path, so a network or auth outage can't affect output.
+//! All environment values (pool, client, region, sync URL) come from
+//! [`crate::endpoints`] — the generated-and-embedded production config, with
+//! `endpoints.local.json` overrides for dev stacks. Nothing is hardcoded here
+//! and nothing reads env. Sign-in stays optional — identity only gates cloud
+//! sync (Phase 3) and never sits in the live DMX path, so a network or auth
+//! outage can't affect output.
 //!
 //! Cognito's sign-up / InitiateAuth / RespondToAuthChallenge / refresh calls are
 //! *unauthenticated* (keyed by the public app-client id, not AWS SigV4), so the
@@ -30,28 +31,8 @@ use crate::cmd::CmdEvent;
 const KEYRING_SERVICE: &str = "com.johncarmack.lux";
 const KEYRING_USER: &str = "cognito-session";
 
-// Production Cognito + sync endpoints, baked in so accounts work in a released
-// `.app` (which ships without a `.env`). None of these are secrets: a public
-// Cognito app-client carries no client secret, the pool only honors
-// per-user-authenticated calls, and the sync Function URL verifies a JWT in the
-// handler — and all four are trivially extractable from any shipped binary
-// regardless. Runtime env vars override them for dev and alternate deployments.
-const DEFAULT_REGION: &str = "us-west-1";
-const DEFAULT_POOL_ID: &str = "us-west-1_jV7esPwmi";
-const DEFAULT_CLIENT_ID: &str = "2t2l4fn537ttb3vul39olt3of3";
-const DEFAULT_SYNC_URL: &str = "https://ql2e5b4hdjnfsns467vesieul40vbvsb.lambda-url.us-west-1.on.aws/";
-
-/// Read `key` from the environment, falling back to a baked-in default. An unset
-/// *or empty* value yields the default, so a blank `.env` line can't disable it.
-pub(crate) fn env_or(key: &str, default: &str) -> String {
-    std::env::var(key)
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| default.to_string())
-}
-
-/// Cognito configuration: baked-in production defaults (above), each overridable
-/// by the matching `COGNITO_*` env var for dev and alternate deployments.
+/// Cognito configuration, from [`crate::endpoints::effective`]. `None` when any
+/// piece is missing — accounts simply stay unconfigured.
 #[derive(Debug, Clone)]
 struct Config {
     region: String,
@@ -59,13 +40,15 @@ struct Config {
     client_id: String,
 }
 
-fn load_config() -> Config {
-    let _ = dotenvy::dotenv();
-    Config {
-        region: env_or("COGNITO_REGION", DEFAULT_REGION),
-        pool_id: env_or("COGNITO_USER_POOL_ID", DEFAULT_POOL_ID),
-        client_id: env_or("COGNITO_APP_CLIENT_ID", DEFAULT_CLIENT_ID),
-    }
+fn load_config() -> Option<Config> {
+    let endpoints = crate::endpoints::effective();
+    let config = Config {
+        region: endpoints.cognito_region.clone(),
+        pool_id: endpoints.cognito_user_pool_id.clone(),
+        client_id: endpoints.cognito_app_client_id.clone(),
+    };
+    (!config.region.is_empty() && !config.pool_id.is_empty() && !config.client_id.is_empty())
+        .then_some(config)
 }
 
 /// The signed-in session, held in memory. The refresh token is also persisted to
@@ -123,16 +106,17 @@ struct StoredSession {
 }
 
 impl LuxAccount {
-    pub fn from_env() -> Self {
+    pub fn load() -> Self {
         let config = load_config();
-        log::info!("accounts enabled (Cognito pool {})", config.pool_id);
-        let sync_url = Some(
-            env_or("LUX_SYNC_URL", DEFAULT_SYNC_URL)
-                .trim_end_matches('/')
-                .to_string(),
-        );
+        match &config {
+            Some(c) => log::info!("accounts enabled (Cognito pool {})", c.pool_id),
+            None => log::info!("accounts not configured (endpoints file has no Cognito values); sign-in disabled"),
+        }
+        let sync_url = Some(crate::endpoints::effective().sync_url.clone())
+            .filter(|url| !url.is_empty())
+            .map(|url| url.trim_end_matches('/').to_string());
         LuxAccount {
-            config: Some(config),
+            config,
             sync_url,
             session: Arc::new(Mutex::new(Session::default())),
         }
@@ -492,7 +476,7 @@ mod tests {
     #[test]
     #[ignore = "hits live Cognito over TLS; run with --ignored"]
     fn webpki_roots_verify_cognito_tls() {
-        let cfg = load_config();
+        let cfg = load_config().expect("endpoints.prod.json must configure Cognito");
         let result = block_on(async move {
             cognito_client(&cfg.region)
                 .await
@@ -513,21 +497,18 @@ mod tests {
         }
     }
 
-    /// End-to-end SRP sign-in against the live Cognito pool. Ignored by default
-    /// (needs network + an existing user). Run with the pool env + a test user:
+    /// End-to-end SRP sign-in against the live Cognito pool (the embedded
+    /// endpoints config; drop an `endpoints.local.json` in `src-tauri/` to aim
+    /// elsewhere). Ignored by default (needs network + an existing user); the
+    /// test user's credentials are the only inputs and stay on the command line:
     /// ```sh
-    /// COGNITO_REGION=… COGNITO_USER_POOL_ID=… COGNITO_APP_CLIENT_ID=… \
     /// LUX_TEST_EMAIL=… LUX_TEST_PASSWORD=… \
     /// cargo test srp_sign_in_live -- --ignored --nocapture
     /// ```
     #[test]
-    #[ignore = "hits live Cognito; needs env + a real user"]
+    #[ignore = "hits live Cognito; needs a real user's credentials"]
     fn srp_sign_in_live() {
-        let cfg = Config {
-            region: std::env::var("COGNITO_REGION").unwrap(),
-            pool_id: std::env::var("COGNITO_USER_POOL_ID").unwrap(),
-            client_id: std::env::var("COGNITO_APP_CLIENT_ID").unwrap(),
-        };
+        let cfg = load_config().expect("endpoints config must configure Cognito");
         let email = std::env::var("LUX_TEST_EMAIL").unwrap();
         let password = std::env::var("LUX_TEST_PASSWORD").unwrap();
         let tokens = block_on(do_sign_in(cfg, email, password)).expect("SRP sign-in failed");

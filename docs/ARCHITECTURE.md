@@ -18,6 +18,10 @@ Every wire is declared once and drift-guarded — a mismatch is a compile/CI fai
 - Desktop ↔ sync-api: `crates/lux-wire`, depended on by both sides; golden tests pin the exact JSON. No hand-maintained mirrors anywhere.
 - Cognito verification shared by the identity-gated Lambdas: `crates/lux-auth`.
 
+## Configuration (environment as data)
+
+The code is environment-agnostic: every environment value — Cognito pool/client/region, the sync URL, the IoT nudge endpoint — lives in `apps/desktop/src-tauri/endpoints.prod.json`, machine-generated from Terraform outputs by `scripts/gen-endpoints`, committed, and embedded at compile time. It is drift-gated twice: infra PR plans regenerate and diff it, and the release apply re-checks it before any Lambda or artifact ships — so a stale value fails a check instead of shipping. A gitignored `endpoints.local.json` overrides any subset for dev stacks and carries machine-local config (remote-control device identity + mTLS material paths, the sACN interface override). There are no env files; the only hardcoded names in source are protocol identifiers owned by `lux-wire` (topic scheme, token header, authorizer name).
+
 ## Sync model (server-authoritative, nudged pull)
 
 Setups are edited locally (offline-first) and pushed with optimistic concurrency; the server assigns `updatedAt` (last-writer-wins) and deletes are soft tombstones. Pulls reconcile on sign-in, startup, window focus, and reconnect, with exponential-backoff retry while offline.

@@ -1,0 +1,7 @@
+{
+  "cognitoAppClientId": "2t2l4fn537ttb3vul39olt3of3",
+  "cognitoRegion": "us-west-1",
+  "cognitoUserPoolId": "us-west-1_jV7esPwmi",
+  "nudgeEndpoint": "a3ql2117uqly38-ats.iot.us-west-1.amazonaws.com",
+  "syncUrl": "https://ql2e5b4hdjnfsns467vesieul40vbvsb.lambda-url.us-west-1.on.aws/"
+}

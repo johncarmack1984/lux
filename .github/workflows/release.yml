@@ -257,6 +257,19 @@ jobs:
             terraform apply -auto-approve -no-color -input=false
           }
 
+      # Post-apply drift gate: if this apply changed an app-facing endpoint
+      # value, the tag's embedded endpoints.prod.json no longer matches live
+      # infra — block the Lambdas and artifacts (the desktop would ship pointing
+      # somewhere stale). Recovery: run scripts/gen-endpoints, commit, release
+      # again. Endpoint-changing applies are rare (resource recreation); every
+      # other release sails through.
+      - name: endpoints drift gate
+        working-directory: ${{ github.workspace }}
+        run: |
+          scripts/gen-endpoints
+          git diff --exit-code -- apps/desktop/src-tauri/endpoints.prod.json \
+            || { echo "::error::this apply changed app-facing endpoints; regenerate endpoints.prod.json, commit, and release again."; exit 1; }
+
   # Ship the Lambda code — every release, from the release tag, after the infra
   # is in place. Deploying all three every time (even when only one changed)
   # keeps deployed code == main with no path-filter guesswork: workspace crates
