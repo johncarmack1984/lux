@@ -1,7 +1,10 @@
 use crate::{devices::DmxOutput, sync::SyncEvent};
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tauri::{Manager, Runtime};
 
 /// A full DMX512 universe is 512 one-byte slots. Lux drives the whole universe:
@@ -89,15 +92,79 @@ impl LuxBuffer {
     /// optimistically — *before* the render, which may hit the network (sACN) or
     /// have no device attached — then push it to the active DMX output. Leading
     /// the render keeps the sliders from snapping back to a lagging value
-    /// mid-drag when a network node is in the path.
+    /// mid-drag when a network node is in the path. Persistence is scheduled
+    /// before the render too: the state changed even if no output accepts it,
+    /// and the user expects the levels they set to survive a restart either way.
     fn commit<R: Runtime>(
         &self,
         snapshot: Buffer,
         app: tauri::AppHandle<R>,
     ) -> Result<LuxBuffer, String> {
         emit_buffer(snapshot.clone(), &app)?;
+        schedule_persist(&app);
         render(&snapshot, &app)?;
         Ok(self.clone())
+    }
+}
+
+// --- persistence (app_config_dir/buffer.json) --------------------------------
+
+/// Restore the last-rendered universe from disk, so a restart brings the light
+/// back to how the user left it instead of the seed default. `None` on first
+/// run or unreadable data (the caller keeps its default; a corrupt file is
+/// logged, not fatal — persistence never sits in the live DMX path).
+pub fn restore<R: Runtime>(app: &tauri::AppHandle<R>) -> Option<Buffer> {
+    restore_from(&app.path().app_config_dir().ok()?.join("buffer.json"))
+}
+
+fn restore_from(path: &Path) -> Option<Buffer> {
+    let json = std::fs::read_to_string(path).ok()?;
+    match parse_buffer(&json) {
+        Ok(buffer) => Some(buffer),
+        Err(e) => {
+            log::warn!("buffer.json unreadable ({e}); starting from the default buffer");
+            None
+        }
+    }
+}
+
+/// Parse a persisted buffer and normalize it to exactly [`UNIVERSE_SIZE`] slots,
+/// so a file from an older (shorter-buffer) version still restores cleanly.
+fn parse_buffer(json: &str) -> Result<Buffer, serde_json::Error> {
+    serde_json::from_str::<Vec<u8>>(json).map(|values| normalize(&values))
+}
+
+/// Debounced write of the live buffer. A slider drag calls `set` dozens of
+/// times a second, so writes coalesce: the first change queues one writer,
+/// which sleeps briefly and then snapshots whatever the buffer holds by the
+/// time it wakes — later changes inside the window ride along for free.
+/// Best-effort, like the setups store.
+fn schedule_persist<R: Runtime>(app: &tauri::AppHandle<R>) {
+    static PENDING: AtomicBool = AtomicBool::new(false);
+    if PENDING.swap(true, Ordering::SeqCst) {
+        return; // a writer is already queued and will pick this change up
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        PENDING.store(false, Ordering::SeqCst);
+        let snapshot: Buffer = app.state::<LuxBuffer>().buffer.lock().unwrap().clone();
+        save(&app, &snapshot);
+    });
+}
+
+fn save<R: Runtime>(app: &tauri::AppHandle<R>, buffer: &Buffer) {
+    let Ok(dir) = app.path().app_config_dir() else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(&dir);
+    match serde_json::to_string(buffer) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(dir.join("buffer.json"), json) {
+                log::warn!("could not persist the buffer: {e}");
+            }
+        }
+        Err(e) => log::warn!("could not serialize the buffer: {e}"),
     }
 }
 
@@ -112,4 +179,36 @@ fn emit_buffer<R: Runtime>(buffer: Buffer, app: &tauri::AppHandle<R>) -> Result<
     SyncEvent::BufferSet { buffer }
         .emit(app)
         .map_err(|e| format!("Failed to emit buffer_set event: {}", e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_buffer_normalizes_short_and_long_inputs() {
+        // A pre-universe 6-slot file still restores, padded to the full universe.
+        let short = parse_buffer("[121,255,255,0,0,42]").unwrap();
+        assert_eq!(short.len(), UNIVERSE_SIZE);
+        assert_eq!(&short[..6], &[121, 255, 255, 0, 0, 42]);
+        assert!(short[6..].iter().all(|&v| v == 0));
+
+        // An oversized file truncates rather than panicking downstream.
+        let long = parse_buffer(&serde_json::to_string(&vec![7u8; 600]).unwrap()).unwrap();
+        assert_eq!(long.len(), UNIVERSE_SIZE);
+        assert!(long.iter().all(|&v| v == 7));
+    }
+
+    #[test]
+    fn parse_buffer_rejects_garbage() {
+        assert!(parse_buffer("not json").is_err());
+        assert!(parse_buffer(r#"{"buffer":[1]}"#).is_err());
+        // Out-of-range slot values are a type error (u8), not a silent clamp.
+        assert!(parse_buffer("[300]").is_err());
+    }
+
+    #[test]
+    fn restore_from_missing_file_is_none() {
+        assert!(restore_from(Path::new("/nonexistent/buffer.json")).is_none());
+    }
 }
