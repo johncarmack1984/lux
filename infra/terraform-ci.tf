@@ -133,6 +133,10 @@ resource "aws_iam_role_policy" "terraform_apply" {
           "lambda:GetPolicy", "lambda:CreateFunctionUrlConfig", "lambda:GetFunctionUrlConfig",
           "lambda:UpdateFunctionUrlConfig", "lambda:DeleteFunctionUrlConfig",
           "lambda:TagResource", "lambda:UntagResource", "lambda:ListTags",
+          # Provider refresh reads code-signing config on every function refresh
+          # (discovered on the first CI apply — plan never catches these because
+          # the plan role runs on ReadOnlyAccess, which includes all reads).
+          "lambda:GetFunctionCodeSigningConfig",
         ]
         Resource = "arn:aws:lambda:*:${local.aws_account_id}:function:lux*"
       },
@@ -164,6 +168,9 @@ resource "aws_iam_role_policy" "terraform_apply" {
           "iot:DeleteCertificate", "iot:CreatePolicy", "iot:GetPolicy", "iot:DeletePolicy",
           "iot:ListPolicyVersions", "iot:ListTargetsForPolicy", "iot:AttachPolicy", "iot:DetachPolicy",
           "iot:ListAttachedPolicies", "iot:AttachThingPrincipal", "iot:DetachThingPrincipal",
+          # Provider refresh reads thing-principal attachments via the V2 API
+          # (first-CI-apply discovery, like GetFunctionCodeSigningConfig above).
+          "iot:ListThingPrincipalsV2",
           # The nudge channel's custom authorizer (nudge.tf).
           "iot:CreateAuthorizer", "iot:DescribeAuthorizer", "iot:UpdateAuthorizer", "iot:DeleteAuthorizer",
           "iot:TagResource", "iot:UntagResource", "iot:ListTagsForResource",
@@ -202,9 +209,14 @@ resource "aws_iam_role_policy" "terraform_apply" {
         Resource = "*"
       },
       {
-        Sid      = "ReadLuxSecrets"
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+        Sid    = "ReadLuxSecrets"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret",
+          # Provider refresh reads each secret's resource policy (first-CI-apply
+          # discovery, like GetFunctionCodeSigningConfig above).
+          "secretsmanager:GetResourcePolicy",
+        ]
         Resource = "arn:aws:secretsmanager:*:${local.aws_account_id}:secret:lux/*"
       },
       {
