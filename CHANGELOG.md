@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/johncarmack1984/lux/compare/v0.10.0...v0.11.0) (2026-07-03)
+
+
+### Features
+
+* **sync:** shared wire contract + realtime change nudges over IoT WebSocket ([#89](https://github.com/johncarmack1984/lux/issues/89)) ([68b882b](https://github.com/johncarmack1984/lux/commit/68b882bfb4e1472c6965b243ad1c2af25a14eeec))
+
 ## [0.10.0](https://github.com/johncarmack1984/lux/compare/v0.9.0...v0.10.0) (2026-06-30)
 
 
