@@ -3458,7 +3458,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "lux-bot"
+name = "lux-discord-bot"
 version = "0.1.0"
 dependencies = [
  "aws-config",
