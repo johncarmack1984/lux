@@ -57,7 +57,15 @@ uuid = { version = "1.18.1", features = [
 # Cloud-sync HTTP client to the lux-sync-api Function URL; shares the workspace
 # reqwest (rustls-no-provider, riding the app's process-default ring provider).
 reqwest.workspace = true
-rumqttc = "0.25"
+# The desktop↔sync-api wire contract — the same crate the Lambda serializes
+# with, so the two sides cannot drift (see crates/lux-wire).
+lux-wire = { path = "../../../crates/lux-wire" }
+# base64url payload decode of our own Cognito ID token (topic addressing only —
+# verification stays server-side in the IoT authorizer / sync-api).
+base64 = "0.22"
+# `websocket` for the change-nudge channel: MQTT over WebSocket to IoT Core
+# (remote control keeps using native MQTT + mutual TLS below).
+rumqttc = { version = "0.25", features = ["websocket"] }
 # rumqttc pulls rustls 0.23, which panics at runtime unless exactly one crypto
 # provider feature is enabled. The workspace pins ring; add the app's extra
 # features here (no cmake / aws-lc-sys C build).

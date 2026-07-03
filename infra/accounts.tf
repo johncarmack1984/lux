@@ -163,6 +163,8 @@ resource "aws_lambda_function" "lux_sync_api" {
       COGNITO_APP_CLIENT_ID = aws_cognito_user_pool_client.lux_app.id
       COGNITO_REGION        = data.aws_region.current.region
       DYNAMODB_TABLE        = aws_dynamodb_table.lux_sync.name
+      # Change nudges (nudge.tf): where to publish after a committed write.
+      IOT_ENDPOINT = data.aws_iot_endpoint.ats.endpoint_address
     }
   }
 }

@@ -164,6 +164,8 @@ resource "aws_iam_role_policy" "terraform_apply" {
           "iot:DeleteCertificate", "iot:CreatePolicy", "iot:GetPolicy", "iot:DeletePolicy",
           "iot:ListPolicyVersions", "iot:ListTargetsForPolicy", "iot:AttachPolicy", "iot:DetachPolicy",
           "iot:ListAttachedPolicies", "iot:AttachThingPrincipal", "iot:DetachThingPrincipal",
+          # The nudge channel's custom authorizer (nudge.tf).
+          "iot:CreateAuthorizer", "iot:DescribeAuthorizer", "iot:UpdateAuthorizer", "iot:DeleteAuthorizer",
           "iot:TagResource", "iot:UntagResource", "iot:ListTagsForResource",
         ]
         Resource = "arn:aws:iot:*:${local.aws_account_id}:*"

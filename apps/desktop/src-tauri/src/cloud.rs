@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
+use lux_wire::{ListSetupsResponse, SetupRecord, TombstoneResponse, UpsertSetupBody, WriteResponse};
 use reqwest::{Client, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -28,7 +29,6 @@ use uuid::Uuid;
 
 use crate::account::LuxAccount;
 use crate::cmd::CmdEvent;
-use crate::fixture::Fixture;
 use crate::setup::{LuxSetups, PendingDelete, Setup};
 
 // --- sync status (drives the UI indicator) -----------------------------------
@@ -91,44 +91,12 @@ impl std::fmt::Display for SyncError {
     }
 }
 
-// --- wire types (match sync-api/src/store.rs) --------------------------------
-
-#[derive(Deserialize)]
-struct ListResponse {
-    setups: Vec<CloudSetup>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CloudSetup {
-    id: String,
-    name: String,
-    universe: u16,
-    /// Opaque on the wire; deserialized into `Vec<Fixture>` by `cloud_to_setup`.
-    fixtures: serde_json::Value,
-    updated_at: i64,
-    #[serde(default)]
-    deleted: bool,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct UpsertBody<'a> {
-    name: &'a str,
-    universe: u16,
-    fixtures: &'a Vec<Fixture>,
-    base_updated_at: Option<i64>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WriteResponse {
-    updated_at: i64,
-}
+// The wire types live in `lux-wire` — the same crate the sync-api Lambda
+// serializes with, so the two sides cannot drift (the review's P0).
 
 // --- pure merge logic (unit-tested) -----------------------------------------
 
-fn cloud_to_setup(c: &CloudSetup) -> Option<Setup> {
+fn cloud_to_setup(c: &SetupRecord) -> Option<Setup> {
     Some(Setup {
         id: Uuid::parse_str(&c.id).ok()?,
         name: c.name.clone(),
@@ -143,8 +111,8 @@ fn cloud_to_setup(c: &CloudSetup) -> Option<Setup> {
 /// `updatedAt`. Local-only never-synced setups are kept (to be pushed); remote
 /// tombstones remove; remote-only setups are added; a dirty local edit on the
 /// latest base is kept and re-pushed, but loses to a newer remote change.
-fn reconcile(local: Vec<Setup>, remote: &[CloudSetup]) -> Vec<Setup> {
-    let remote_by_id: HashMap<Uuid, &CloudSetup> = remote
+fn reconcile(local: Vec<Setup>, remote: &[SetupRecord]) -> Vec<Setup> {
+    let remote_by_id: HashMap<Uuid, &SetupRecord> = remote
         .iter()
         .filter_map(|c| Uuid::parse_str(&c.id).ok().map(|id| (id, c)))
         .collect();
@@ -188,14 +156,14 @@ fn reconcile(local: Vec<Setup>, remote: &[CloudSetup]) -> Vec<Setup> {
 
 // --- HTTP (one call each; owned token so the future is self-contained) -------
 
-async fn list(client: &Client, base: &str, token: String) -> Result<Vec<CloudSetup>, SyncError> {
+async fn list(client: &Client, base: &str, token: String) -> Result<Vec<SetupRecord>, SyncError> {
     let resp = client
-        .get(format!("{base}/setups"))
+        .get(format!("{base}/{}", lux_wire::SETUPS_SEGMENT))
         .bearer_auth(token)
         .send()
         .await
         .map_err(|e| SyncError::Other(e.to_string()))?;
-    let body: ListResponse = read_json(resp).await?;
+    let body: ListSetupsResponse = read_json(resp).await?;
     Ok(body.setups)
 }
 
@@ -205,14 +173,15 @@ async fn upsert(
     token: String,
     setup: &Setup,
 ) -> Result<WriteResponse, SyncError> {
-    let body = UpsertBody {
-        name: &setup.name,
+    let body = UpsertSetupBody {
+        name: setup.name.clone(),
         universe: setup.universe,
-        fixtures: &setup.fixtures,
+        fixtures: serde_json::to_value(&setup.fixtures)
+            .map_err(|e| SyncError::Other(e.to_string()))?,
         base_updated_at: setup.updated_at,
     };
     let resp = client
-        .put(format!("{base}/setups/{}", setup.id))
+        .put(format!("{base}/{}/{}", lux_wire::SETUPS_SEGMENT, setup.id))
         .bearer_auth(token)
         .json(&body)
         .send()
@@ -227,9 +196,9 @@ async fn tombstone(
     token: String,
     delete: &PendingDelete,
 ) -> Result<(), SyncError> {
-    let mut url = format!("{base}/setups/{}", delete.setup_id);
+    let mut url = format!("{base}/{}/{}", lux_wire::SETUPS_SEGMENT, delete.setup_id);
     if let Some(base_updated_at) = delete.base_updated_at {
-        url.push_str(&format!("?baseUpdatedAt={base_updated_at}"));
+        url.push_str(&format!("?{}={base_updated_at}", lux_wire::BASE_UPDATED_AT_QUERY));
     }
     let resp = client
         .delete(url)
@@ -237,7 +206,7 @@ async fn tombstone(
         .send()
         .await
         .map_err(|e| SyncError::Other(e.to_string()))?;
-    let _: serde_json::Value = read_json(resp).await?;
+    let _: TombstoneResponse = read_json(resp).await?;
     Ok(())
 }
 
@@ -478,12 +447,13 @@ mod tests {
         }
     }
 
-    fn cloud_setup(id: u128, name: &str, updated_at: i64, deleted: bool) -> CloudSetup {
-        CloudSetup {
+    fn cloud_setup(id: u128, name: &str, updated_at: i64, deleted: bool) -> SetupRecord {
+        SetupRecord {
             id: Uuid::from_u128(id).to_string(),
             name: name.into(),
             universe: 1,
             fixtures: serde_json::json!([]),
+            rev: 1,
             updated_at,
             deleted,
         }

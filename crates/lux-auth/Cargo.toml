@@ -1,0 +1,14 @@
+[package]
+name = "lux-auth"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Server-side Cognito ID-token verification, shared by the Lambdas that gate on
+# a user's identity (services/sync-api, services/iot-authorizer). The desktop
+# never depends on this crate — it holds tokens, it doesn't verify them.
+
+[dependencies]
+jsonwebtoken = "10"
+reqwest = { workspace = true }
+serde = { workspace = true }
