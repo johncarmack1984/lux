@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/johncarmack1984/lux/compare/v0.12.0...v0.12.1) (2026-07-03)
+
+
+### Bug Fixes
+
+* **bot:** rename the crate to lux-discord-bot to match its Lambda function ([#95](https://github.com/johncarmack1984/lux/issues/95)) ([a22fcf6](https://github.com/johncarmack1984/lux/commit/a22fcf60154c5b105addbd21824b759efd443ab9))
+
 ## [0.12.0](https://github.com/johncarmack1984/lux/compare/v0.11.0...v0.12.0) (2026-07-03)
 
 
