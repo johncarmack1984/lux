@@ -15,13 +15,13 @@
     "react-dom": "^19"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.1.17",
+    "@tailwindcss/vite": "^4.3.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@vitejs/plugin-react": "^5",
-    "eslint": "^9",
-    "tailwindcss": "^4.1.17",
-    "typescript": "^5",
-    "vite": "^7"
+    "@vitejs/plugin-react": "^6",
+    "eslint": "^10",
+    "tailwindcss": "^4.3.2",
+    "typescript": "^6",
+    "vite": "^8"
   }
 }

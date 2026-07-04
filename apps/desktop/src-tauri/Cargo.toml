@@ -22,7 +22,7 @@ tauri = { version = "^2.9.3", features = ["devtools", "test", "tracing"] }
 workspace = true
 
 [dependencies]
-anyhow = "1.0.100"
+anyhow = "1.0.103"
 # Cognito accounts (sign-up / SRP sign-in / refresh) + secure refresh-token
 # storage. Cognito's auth ops are unauthenticated, so the client runs with
 # `.no_credentials()` — end users never need AWS keys.
@@ -36,7 +36,7 @@ aws-smithy-http-client = { version = "1", features = ["rustls-ring"] }
 webpki-root-certs = "1"
 pem = "3"
 keyring = "4"
-log = "^0.4.28"
+log = "^0.4.33"
 serde_json.workspace = true
 serde.workspace = true
 strum = { version = "0.28.0", features = ["derive"] }
@@ -48,11 +48,11 @@ tauri = { version = "~2.11", features = [
     "image-png",
 ] }
 tauri-plugin-log = "2.7.1"
-tauri-plugin-shell = "2.3.3"
+tauri-plugin-shell = "2.3.5"
 ttipc = { package = "tauri-typed-ipc", version = "0.1", features = ["export"] }
-thiserror = "2.0.17"
+thiserror = "2.0.18"
 tokio = { workspace = true, features = ["full"] }
-uuid = { version = "1.18.1", features = [
+uuid = { version = "1.23.4", features = [
     "v4",    # Lets you generate random UUIDs
     "serde", # Enable serialization/deserialization of UUIDs
 ] }

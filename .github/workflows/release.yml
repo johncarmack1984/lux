@@ -204,7 +204,7 @@ jobs:
       # smallest-binary config, kept as-is). rust-cache restores those dep
       # artifacts keyed on Cargo.lock, so only the workspace crates + the final
       # LTO link recompile. The cache is scoped to the workspace-root target/.
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: "."
 
@@ -403,7 +403,7 @@ jobs:
       # keeps the registry/index warm without caching target/.
       - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: "."
           cache-targets: "false"
