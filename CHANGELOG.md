@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.13.1](https://github.com/johncarmack1984/lux/compare/v0.13.0...v0.13.1) (2026-07-04)
+
+
+### Bug Fixes
+
+* **ci:** guard the site CloudFront alias lookup against null aliases ([#113](https://github.com/johncarmack1984/lux/issues/113)) ([99eb934](https://github.com/johncarmack1984/lux/commit/99eb93465a24c55ec0ee984066eef57af182420c))
+* **desktop:** reflect account and patch state on iOS ([#114](https://github.com/johncarmack1984/lux/issues/114)) ([0f47a5f](https://github.com/johncarmack1984/lux/commit/0f47a5f092df9e33324fcb37167c7ccbe9607cee))
+* **desktop:** reflect DMX, sync, and channel state on iOS ([#116](https://github.com/johncarmack1984/lux/issues/116)) ([0e24fab](https://github.com/johncarmack1984/lux/commit/0e24fab8679d98d019adafcc2703a2dcb98f5658))
+* **desktop:** register the data-protection keychain store on iOS ([#112](https://github.com/johncarmack1984/lux/issues/112)) ([cd8ebd1](https://github.com/johncarmack1984/lux/commit/cd8ebd18ed09955dadde57656d9750b3db69f4e9))
+* **sync-api:** install a JWT crypto backend so verification works ([#118](https://github.com/johncarmack1984/lux/issues/118)) ([c003af9](https://github.com/johncarmack1984/lux/commit/c003af9a17a3fc32e607d21568dde42ce7eb3a66))
+
 ## [0.13.0](https://github.com/johncarmack1984/lux/compare/v0.12.2...v0.13.0) (2026-07-04)
 
 
