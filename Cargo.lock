@@ -3423,6 +3423,7 @@ dependencies = [
  "base64 0.22.1",
  "enttecopendmx",
  "keyring",
+ "keyring-core",
  "libftd2xx 0.33.1",
  "log",
  "lux-wire",
