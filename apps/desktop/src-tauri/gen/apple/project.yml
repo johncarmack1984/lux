@@ -73,6 +73,11 @@ targets:
         RUST_LOG: info
     settings:
       base:
+        # Device signing: Xcode's automatic management, pinned to the team so
+        # an `xcodegen generate` can never strip what Xcode configured. The
+        # dev cert/profile live in the developer account, not the repo.
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: T3UN6N5K6Z
         ENABLE_BITCODE: false
         ARCHS: [arm64]
         VALID_ARCHS: arm64 
