@@ -36,7 +36,7 @@ impl SyncMethods for SyncEndpoint {
         log::trace!("sync_state");
         SyncEndpoint.sync_buffer(app_handle.clone())?;
         SyncEndpoint.sync_channels(app_handle)?;
-        let msg = format!("State synced!");
+        let msg = "State synced!".to_string();
         log::trace!("{:?}", msg);
         Ok(msg)
     }

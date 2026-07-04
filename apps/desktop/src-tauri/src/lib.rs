@@ -92,7 +92,10 @@ where
     R: tauri::Runtime,
     F: FnOnce(&tauri::App<R>) + Send + 'static,
 {
-    builder.setup(move |app| Ok(setup(app)))
+    builder.setup(move |app| {
+        setup(app);
+        Ok(())
+    })
 }
 
 pub fn ttipc_bindings() -> ttipc::Bindings {

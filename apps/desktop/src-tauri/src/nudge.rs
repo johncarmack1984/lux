@@ -96,7 +96,6 @@ pub fn start(app: &AppHandle) {
             } else {
                 account.current_id_token()
             };
-            drop(account);
             let Some(token) = token else { return };
             let Some(sub) = jwt_sub(&token) else {
                 log::warn!(

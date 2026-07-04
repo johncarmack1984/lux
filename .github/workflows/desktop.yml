@@ -212,10 +212,10 @@ jobs:
       # Lint gate: deny-level workspace lints fail this step (notably
       # clippy::unwrap_used — production code must not unwrap; see
       # [workspace.lints] in the root Cargo.toml). Default targets only, so
-      # test code keeps idiomatic unwraps; warn-level lints stay visible
-      # without blocking.
+      # test code keeps idiomatic unwraps. `-D warnings` fails the build on any
+      # warning, so clippy's default-warn lints can't slip through unnoticed.
       - name: cargo clippy
-        run: cargo clippy --workspace --locked
+        run: cargo clippy --workspace --locked -- -D warnings
 
       - name: sccache stats
         if: ${{ always() }}
