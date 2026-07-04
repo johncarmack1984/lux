@@ -54,8 +54,10 @@ jobs:
       - name: Invalidate CloudFront
         run: |
           set -euo pipefail
+          # `Aliases.Items &&` short-circuits distributions with no aliases,
+          # where Items is null — contains(null, ...) otherwise errors out.
           dist_id=$(aws cloudfront list-distributions \
-            --query "DistributionList.Items[?contains(Aliases.Items, 'lux.johncarmack.com')].Id | [0]" \
+            --query "DistributionList.Items[?Aliases.Items && contains(Aliases.Items, 'lux.johncarmack.com')].Id | [0]" \
             --output text)
           if [ -z "$dist_id" ] || [ "$dist_id" = "None" ]; then
             echo "no distribution with alias lux.johncarmack.com — has infra/site.tf applied?" >&2
