@@ -33,6 +33,10 @@ targets:
   lux_iOS:
     type: application
     platform: iOS
+    # Keeps the generated product reference named lux.app (matching
+    # PRODUCT_NAME and the scheme's runnable) — without it xcodegen names the
+    # product after the target, and Xcode's Run action asserts on the mismatch.
+    productName: lux
     sources:
       - path: Sources
       - path: Assets.xcassets
