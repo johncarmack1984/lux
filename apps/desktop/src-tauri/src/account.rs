@@ -473,6 +473,31 @@ fn sdk_err<E: ProvideErrorMetadata, R>(e: SdkError<E, R>) -> String {
 
 // --- keychain (refresh token at rest) ---------------------------------------
 
+/// Register the credential store that [`keyring`] uses. Call once at startup,
+/// before any keychain access (session restore or sign-in).
+///
+/// `keyring`'s `v1` feature auto-registers a default store for macOS, Windows,
+/// and Linux, but its `set_credential_store` (keyring 4.1.2 `src/v1.rs`) has no
+/// branch for iOS — so on iOS no default store is ever set and every keychain
+/// read/write fails with `NoDefaultStore`, silently losing the signed-in
+/// session across launches. iOS only exposes the data-protection Keychain, so
+/// register the `protected` store as the default here.
+#[cfg(target_os = "ios")]
+pub fn init_keychain() {
+    match apple_native_keyring_store::protected::Store::new() {
+        Ok(store) => {
+            keyring_core::set_default_store(store);
+            log::info!("registered the iOS data-protection Keychain store");
+        }
+        Err(e) => log::error!("could not register the iOS Keychain store: {e}"),
+    }
+}
+
+/// No-op off iOS: `keyring`'s `v1` feature self-registers the platform store
+/// (macOS Keychain, Windows Credential Manager, Linux Secret Service).
+#[cfg(not(target_os = "ios"))]
+pub fn init_keychain() {}
+
 fn keyring_entry() -> Result<keyring::Entry, keyring::Error> {
     keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
 }

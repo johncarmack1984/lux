@@ -47,6 +47,9 @@ pub async fn run() {
         app.manage(setup::load(app.handle()));
         // Cognito accounts (no-op unless the endpoints file configures them);
         // restore a signed-in session from the keychain in the background.
+        // Register the Keychain store first — on iOS nothing else does, and the
+        // restore below reads from it.
+        account::init_keychain();
         app.manage(account::LuxAccount::load());
         account::restore_on_startup(app.handle());
         remote::connect(app.handle());
