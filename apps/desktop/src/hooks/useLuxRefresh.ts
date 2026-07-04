@@ -1,19 +1,27 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { FIXTURES_QUERY_KEY } from "./useFixtures";
 import { SETUPS_QUERY_KEY } from "./useSetups";
+import { CHANNELS_QUERY_KEY } from "./useChannelsMetaData";
+import { BUFFER_QUERY_KEY } from "./useBuffer";
 
 /**
- * Refetch the fixture + setup views after a mutation. The backend's `patchSet`
- * and `setupsChanged` events aren't reliably delivered to the webview on iOS,
- * so a mutation refreshes authoritatively instead of relying on them. Both keys
- * refresh together because they're coupled — switching a setup swaps the
- * active patch, and adding a fixture changes the active setup's fixture count.
+ * Refetch the reactive views a fixture/setup mutation can affect. The backend's
+ * `patchSet` / `setupsChanged` / `channelDataSet` / `bufferSet` events aren't
+ * reliably delivered to the webview on iOS, so a mutation refreshes
+ * authoritatively instead of relying on them. All four keys refresh together
+ * because they're coupled — switching a setup swaps the active patch, its
+ * channel labels, and the live buffer; patching a fixture changes the fixture
+ * count and the channel metadata.
  */
 export default function useLuxRefresh() {
   const queryClient = useQueryClient();
   return () =>
-    Promise.all([
-      queryClient.invalidateQueries({ queryKey: FIXTURES_QUERY_KEY }),
-      queryClient.invalidateQueries({ queryKey: SETUPS_QUERY_KEY }),
-    ]);
+    Promise.all(
+      [
+        FIXTURES_QUERY_KEY,
+        SETUPS_QUERY_KEY,
+        CHANNELS_QUERY_KEY,
+        BUFFER_QUERY_KEY,
+      ].map((queryKey) => queryClient.invalidateQueries({ queryKey }))
+    );
 }

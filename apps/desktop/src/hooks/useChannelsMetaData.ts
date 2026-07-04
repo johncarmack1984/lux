@@ -1,37 +1,27 @@
 import type { LuxChannel } from "@/global";
-import { trace } from "@tauri-apps/plugin-log";
-import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { createTauRPCProxy } from "@/bindings";
 
-function useChannelData() {
-  const [channelData, setChannelData] = useState<LuxChannel[] | null>(null);
+/** Query key for the channel metadata (label + color per channel). */
+export const CHANNELS_QUERY_KEY = ["channels"] as const;
 
-  useEffect(() => {
-    const taurpc = createTauRPCProxy();
-    let active = true;
-
-    // Fetch the current channels directly so the grid populates even if the
-    // startup sync event fires before this listener is attached. The listener
-    // then keeps it live for later updates.
-    taurpc.sync
-      .sync_channels()
-      .then((c) => {
-        if (active) setChannelData(c.channels);
-      })
-      .catch((e) => trace(`sync_channels failed: ${e}`));
-
-    const unlisten = taurpc.cmd.event.on((event) => {
-      if (event.type !== "channelDataSet") return;
-      setChannelData(event.channels);
-    });
-
-    return () => {
-      active = false;
-      unlisten.then((f) => f());
-    };
-  }, []);
-
-  return channelData;
+/**
+ * The 512 channels' metadata (label + color). `null` until the first read.
+ *
+ * This changes only when fixtures are patched — which the backend echoes on the
+ * `channelDataSet` event, undelivered to the webview on iOS. So it refreshes
+ * with the fixture views (see useLuxRefresh), plus refetch-on-focus for
+ * cloud-synced changes, rather than relying on the event.
+ */
+function useChannelData(): LuxChannel[] | null {
+  const { data } = useQuery({
+    queryKey: CHANNELS_QUERY_KEY,
+    queryFn: () =>
+      createTauRPCProxy()
+        .sync.sync_channels()
+        .then((c) => c.channels),
+  });
+  return data ?? null;
 }
 
 export default useChannelData;

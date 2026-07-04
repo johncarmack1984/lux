@@ -1,39 +1,24 @@
-import { useEffect, useState } from "react";
-import { trace } from "@tauri-apps/plugin-log";
+import { useQuery } from "@tanstack/react-query";
 import { createTauRPCProxy, type DmxDeviceInfo } from "@/bindings";
 
+/** Query key for the detected DMX outputs. */
+export const DMX_DEVICES_QUERY_KEY = ["dmxDevices"] as const;
+
 /**
- * The detected DMX outputs and which one is active. Fetches on mount and stays
- * live via the `dmxDevicesChanged` event the backend emits on auto-detect,
- * rescan, or a manual pick. `null` while the first fetch is in flight.
+ * The detected DMX outputs and which one is active. `null` while the first read
+ * is in flight. Backs the in-app output picker — the only output selector on
+ * mobile, where there's no system tray.
  *
- * This backs the in-app output picker — the only output selector on mobile,
- * where there's no system tray.
+ * The backend emits `dmxDevicesChanged` on auto-detect / rescan / pick, but it
+ * doesn't reach the webview on iOS. So poll a few times just after mount to
+ * catch the ~3s startup auto-detect, then stop; the setup switcher invalidates
+ * this key after a pick or a rescan.
  */
-export default function useDmxDevices() {
-  const [devices, setDevices] = useState<DmxDeviceInfo[] | null>(null);
-
-  useEffect(() => {
-    const taurpc = createTauRPCProxy();
-    let active = true;
-
-    taurpc.cmd
-      .list_dmx_devices()
-      .then((d) => {
-        if (active) setDevices(d);
-      })
-      .catch((e) => trace(`list_dmx_devices failed: ${e}`));
-
-    const unlisten = taurpc.cmd.event.on((event) => {
-      if (event.type !== "dmxDevicesChanged") return;
-      setDevices(event.devices);
-    });
-
-    return () => {
-      active = false;
-      unlisten.then((f) => f());
-    };
-  }, []);
-
-  return devices;
+export default function useDmxDevices(): DmxDeviceInfo[] | null {
+  const { data } = useQuery({
+    queryKey: DMX_DEVICES_QUERY_KEY,
+    queryFn: () => createTauRPCProxy().cmd.list_dmx_devices(),
+    refetchInterval: (query) => (query.state.dataUpdateCount < 3 ? 2500 : false),
+  });
+  return data ?? null;
 }

@@ -1,37 +1,42 @@
-import { attachConsole } from "@tauri-apps/plugin-log";
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createTauRPCProxy } from "@/bindings";
 
-function useBuffer() {
-  const [buffer, setBuffer] = useState<number[] | null>(null);
+/** Query key for the live DMX buffer (the current value of every channel). */
+export const BUFFER_QUERY_KEY = ["buffer"] as const;
+
+/**
+ * The live DMX buffer — the current value of every channel. `null` until the
+ * first read resolves.
+ *
+ * Faders keep their own optimistic state so dragging is always smooth; this
+ * query reflects changes made elsewhere. The channel-value setter pushes the
+ * buffer it gets back straight into the cache (see lib/actions), which is what
+ * keeps it current on iOS. On desktop the `bufferSet` event is also honored as
+ * a fast path so out-of-band changes — a remote command over IoT — still show
+ * live; that event just never reaches the webview on iOS.
+ */
+export default function useBuffer(): number[] | null {
+  const queryClient = useQueryClient();
+
+  const { data } = useQuery({
+    queryKey: BUFFER_QUERY_KEY,
+    queryFn: () =>
+      createTauRPCProxy()
+        .sync.sync_buffer()
+        .then((b) => b.buffer),
+  });
 
   useEffect(() => {
-    const taurpc = createTauRPCProxy();
-    let active = true;
-    const consoleAttached = attachConsole();
-
-    // Fetch the current buffer directly so the UI reflects state on load even if
-    // the startup sync event fires before this listener is attached.
-    taurpc.sync
-      .sync_buffer()
-      .then((b) => {
-        if (active) setBuffer(b.buffer);
-      })
-      .catch(() => {});
-
-    const unlisten = taurpc.sync.event.on((event) => {
-      if (event.type !== "bufferSet") return;
-      setBuffer(event.buffer);
+    const unlisten = createTauRPCProxy().sync.event.on((event) => {
+      if (event.type === "bufferSet") {
+        queryClient.setQueryData(BUFFER_QUERY_KEY, event.buffer);
+      }
     });
-
     return () => {
-      active = false;
       unlisten.then((f) => f());
-      consoleAttached.then((detach) => detach());
     };
-  }, []);
+  }, [queryClient]);
 
-  return buffer;
+  return data ?? null;
 }
-
-export default useBuffer;
