@@ -1,0 +1,25 @@
+{
+  "name": "@lux/ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "lux's shared design system: shadcn-style components on Base UI primitives, plus the token sheet. Consumed by apps/site today; apps/desktop adopts incrementally.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./styles.css": "./src/styles.css"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.6",
+    "class-variance-authority": "^0.7",
+    "clsx": "^2",
+    "tailwind-merge": "^3"
+  },
+  "peerDependencies": {
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19"
+  }
+}

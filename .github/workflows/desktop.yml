@@ -14,19 +14,27 @@ on:
   pull_request:
     paths:
       - 'apps/desktop/**'
+      - 'apps/site/**'
+      - 'packages/**'
       - 'services/**'
       - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'package.json'
+      - 'bun.lock'
       - '.github/workflows/desktop.yml'
   push:
     branches: [main]
     paths:
       - 'apps/desktop/**'
+      - 'apps/site/**'
+      - 'packages/**'
       - 'services/**'
       - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'package.json'
+      - 'bun.lock'
       - '.github/workflows/desktop.yml'
   # Reusable form: release.yml calls this as its gate, so nothing ships from a
   # release run unless the exact release commit passes the same checks as a PR.
@@ -212,3 +220,17 @@ jobs:
       - name: sccache stats
         if: ${{ always() }}
         run: sccache --show-stats
+
+  # The product site + shared UI package: typecheck and production build, so a
+  # PR can't land something the deploy workflow (site.yml) would choke on.
+  site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - run: bun install
+      - run: bun run --cwd apps/site typecheck
+      - run: bun run --cwd apps/site build
