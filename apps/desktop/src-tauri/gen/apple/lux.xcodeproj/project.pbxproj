@@ -41,7 +41,6 @@
 		4AF4BAEB9E80F20D9EF0EC9F /* remote.rs */ = {isa = PBXFileReference; path = remote.rs; sourceTree = "<group>"; };
 		543D41562DCA3689CFF2DA17 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		623B61A7992B3DBDF95053BC /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
-		6463DB4B6F1A260E25A692FC /* lux_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = lux_iOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6494611D9DAF8D55704BE2D4 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		65519633ACBE62859637CE34 /* error.rs */ = {isa = PBXFileReference; path = error.rs; sourceTree = "<group>"; };
 		6DF90FDE7A6A99B512BF4C9A /* account.rs */ = {isa = PBXFileReference; path = account.rs; sourceTree = "<group>"; };
@@ -58,6 +57,7 @@
 		A9B6FEEEB4E81F8CA6417A1B /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		ACC92720A312E5EC94D6BD32 /* cmd.rs */ = {isa = PBXFileReference; path = cmd.rs; sourceTree = "<group>"; };
 		ADC061DF4CBF154936DD8BE9 /* colors.rs */ = {isa = PBXFileReference; path = colors.rs; sourceTree = "<group>"; };
+		D19521C0023ADBB8F8E9AA7B /* lux.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = lux.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DCBE693964070B3DB25263B2 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
 		E6628D23D43C715526F8BEDC /* lux_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = lux_iOS.entitlements; sourceTree = "<group>"; };
 		FD3A418F87082A7A1D1FBA17 /* logger.rs */ = {isa = PBXFileReference; path = logger.rs; sourceTree = "<group>"; };
@@ -188,7 +188,7 @@
 		CBBE790730D4C83654C616B0 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				6463DB4B6F1A260E25A692FC /* lux_iOS.app */,
+				D19521C0023ADBB8F8E9AA7B /* lux.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -223,7 +223,7 @@
 			packageProductDependencies = (
 			);
 			productName = lux_iOS;
-			productReference = 6463DB4B6F1A260E25A692FC /* lux_iOS.app */;
+			productReference = D19521C0023ADBB8F8E9AA7B /* lux.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -233,7 +233,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 1430;
+				LastUpgradeCheck = 2660;
 				TargetAttributes = {
 					392BACEAAF50AF6DADBDCF14 = {
 						DevelopmentTeam = T3UN6N5K6Z;
@@ -386,6 +386,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = T3UN6N5K6Z;
 				ENABLE_BITCODE = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -475,6 +476,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = T3UN6N5K6Z;
 				ENABLE_BITCODE = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",

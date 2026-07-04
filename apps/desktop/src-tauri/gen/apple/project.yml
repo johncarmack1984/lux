@@ -3,6 +3,12 @@ options:
   bundleIdPrefix: com.johncarmack.lux
   deploymentTarget:
     iOS: 14.0
+  # Stamps LastUpgradeCheck/LastUpgradeVersion as already reviewed by Xcode 26,
+  # so it stops offering "Update to recommended settings" — those
+  # recommendations are wrong for this generated project (script sandboxing
+  # breaks the Rust build phase, auto-architectures fights the per-arch
+  # libapp.a layout).
+  xcodeVersion: "26.6"
 fileGroups: [../../src]
 configs:
   debug: debug
@@ -27,6 +33,10 @@ targets:
   lux_iOS:
     type: application
     platform: iOS
+    # Keeps the generated product reference named lux.app (matching
+    # PRODUCT_NAME and the scheme's runnable) — without it xcodegen names the
+    # product after the target, and Xcode's Run action asserts on the mismatch.
+    productName: lux
     sources:
       - path: Sources
       - path: Assets.xcassets
@@ -78,6 +88,10 @@ targets:
         # dev cert/profile live in the developer account, not the repo.
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: T3UN6N5K6Z
+        # Explicitly off: the "Build Rust Code" phase writes cargo's target/
+        # and Externals/, far outside any sandbox a script phase may declare.
+        # An accepted Xcode "recommended settings" pass once flipped this on.
+        ENABLE_USER_SCRIPT_SANDBOXING: false
         ENABLE_BITCODE: false
         ARCHS: [arm64]
         VALID_ARCHS: arm64 
