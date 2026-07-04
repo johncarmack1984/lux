@@ -1,0 +1,64 @@
+name: site
+
+# Deploys lux.johncarmack.com: build apps/site, sync to the site bucket, and
+# invalidate CloudFront. Infrastructure (bucket, distribution, cert, DNS) is
+# Terraform's (infra/site.tf); this workflow only ships files. The distribution
+# is resolved by alias at run time — state, not memory.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/site/**"
+      - "packages/ui/**"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: site-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - run: bun install
+
+      - run: bun run --cwd apps/site build
+
+      - uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6
+        with:
+          role-to-assume: arn:aws:iam::735853783919:role/lux-site-deploy
+          aws-region: us-west-1
+
+      - name: Sync to S3
+        run: |
+          set -euo pipefail
+          # Hashed assets cache long; HTML revalidates so deploys land promptly.
+          aws s3 sync apps/site/dist "s3://lux-johncarmack-com" --delete \
+            --exclude "*.html" --cache-control "public,max-age=604800"
+          aws s3 sync apps/site/dist "s3://lux-johncarmack-com" \
+            --exclude "*" --include "*.html" \
+            --cache-control "no-cache" \
+            --content-type "text/html; charset=utf-8"
+
+      - name: Invalidate CloudFront
+        run: |
+          set -euo pipefail
+          dist_id=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?contains(Aliases.Items, 'lux.johncarmack.com')].Id | [0]" \
+            --output text)
+          if [ -z "$dist_id" ] || [ "$dist_id" = "None" ]; then
+            echo "no distribution with alias lux.johncarmack.com — has infra/site.tf applied?" >&2
+            exit 1
+          fi
+          aws cloudfront create-invalidation --distribution-id "$dist_id" --paths "/*"

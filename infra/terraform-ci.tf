@@ -220,6 +220,69 @@ resource "aws_iam_role_policy" "terraform_apply" {
         Resource = "arn:aws:secretsmanager:*:${local.aws_account_id}:secret:lux/*"
       },
       {
+        # The product site's bucket (site.tf). Reads are broad on our own
+        # bucket because the provider refreshes every bucket sub-resource;
+        # writes are the specific ones Terraform manages.
+        Sid    = "ManageSiteBucket"
+        Effect = "Allow"
+        Action = [
+          "s3:CreateBucket", "s3:DeleteBucket", "s3:Get*", "s3:List*",
+          "s3:PutBucketPolicy", "s3:DeleteBucketPolicy",
+          "s3:PutBucketPublicAccessBlock", "s3:PutBucketTagging",
+          "s3:PutBucketOwnershipControls", "s3:PutEncryptionConfiguration",
+          "s3:PutBucketVersioning", "s3:PutBucketAcl",
+        ]
+        Resource = [
+          "arn:aws:s3:::lux-johncarmack-com",
+          "arn:aws:s3:::lux-johncarmack-com/*",
+        ]
+      },
+      {
+        # CloudFront has no create-time resource ARNs to scope to.
+        Sid    = "ManageSiteCloudFront"
+        Effect = "Allow"
+        Action = [
+          "cloudfront:CreateDistribution", "cloudfront:CreateDistributionWithTags",
+          "cloudfront:GetDistribution", "cloudfront:UpdateDistribution",
+          "cloudfront:DeleteDistribution", "cloudfront:TagResource",
+          "cloudfront:UntagResource", "cloudfront:ListTagsForResource",
+          "cloudfront:CreateOriginAccessControl", "cloudfront:GetOriginAccessControl",
+          "cloudfront:UpdateOriginAccessControl", "cloudfront:DeleteOriginAccessControl",
+          "cloudfront:CreateFunction", "cloudfront:DescribeFunction",
+          "cloudfront:GetFunction", "cloudfront:UpdateFunction",
+          "cloudfront:DeleteFunction", "cloudfront:PublishFunction",
+        ]
+        Resource = "*"
+      },
+      {
+        # ACM likewise: RequestCertificate has no a-priori ARN.
+        Sid    = "ManageSiteCertificate"
+        Effect = "Allow"
+        Action = [
+          "acm:RequestCertificate", "acm:DescribeCertificate",
+          "acm:DeleteCertificate", "acm:ListTagsForCertificate",
+          "acm:AddTagsToCertificate",
+        ]
+        Resource = "*"
+      },
+      {
+        # Only the johncarmack.com zone; the site's A/AAAA + cert-validation
+        # records live there (site.tf).
+        Sid    = "ManageSiteDns"
+        Effect = "Allow"
+        Action = [
+          "route53:GetHostedZone", "route53:ListResourceRecordSets",
+          "route53:ChangeResourceRecordSets", "route53:ListTagsForResource",
+        ]
+        Resource = "arn:aws:route53:::hostedzone/Z2H7X9SMXZDQEI"
+      },
+      {
+        Sid      = "ReadSiteDnsLookups"
+        Effect   = "Allow"
+        Action   = ["route53:ListHostedZones", "route53:GetChange"]
+        Resource = "*"
+      },
+      {
         Sid      = "CallerIdentity"
         Effect   = "Allow"
         Action   = "sts:GetCallerIdentity"

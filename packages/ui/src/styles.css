@@ -1,0 +1,85 @@
+/* @lux/ui — THE lux stylesheet. Tokens, Tailwind theme mapping, and base
+   element styles, exported once and imported by every app's single css file
+   (apps declare only their own page-specific classes on top).
+
+   Dark-locked on purpose: the product lives in dark rooms, light is the
+   accent. Semantic names follow the shadcn convention so the desktop app can
+   adopt this sheet without renaming; --lux-ch-* are the DMX channel colors
+   (semantic, not decoration: R G B Amber White + the no-color Dimmer). */
+
+:root {
+  color-scheme: dark;
+
+  --background: #0b0d10;
+  --foreground: #e8eaed;
+  --card: #12151a;
+  --card-foreground: #e8eaed;
+  --muted: #171b21;
+  --muted-foreground: #9aa1ab;
+  --border: #232830;
+  --primary: #e8a33d;
+  --primary-foreground: #1a1206;
+  --ring: #e8a33d;
+  --radius: 10px;
+
+  --lux-ch-r: #e5484d;
+  --lux-ch-g: #46a758;
+  --lux-ch-b: #3e8fdd;
+  --lux-ch-a: #e8a33d;
+  --lux-ch-w: #e8eaed;
+  --lux-ch-dim: #6b7280;
+
+  --font-sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+    monospace;
+}
+
+/* Tailwind v4 reads this when the sheet is imported after `tailwindcss`,
+   giving every consuming app the same utility names. */
+@theme inline {
+  --color-surface: var(--card);
+  --color-ink: var(--foreground);
+  --color-mut: var(--muted-foreground);
+  --color-line: var(--border);
+  --color-accent: var(--primary);
+  --color-accent-ink: var(--primary-foreground);
+  --color-ch-r: var(--lux-ch-r);
+  --color-ch-g: var(--lux-ch-g);
+  --color-ch-b: var(--lux-ch-b);
+  --color-ch-a: var(--lux-ch-a);
+  --color-ch-w: var(--lux-ch-w);
+  --color-ch-dim: var(--lux-ch-dim);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+*,
+*::before,
+*::after {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  letter-spacing: 0.02em;
+}
+
+.chip {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  color: var(--primary);
+}
