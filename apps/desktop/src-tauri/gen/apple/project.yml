@@ -30,7 +30,11 @@ targets:
     sources:
       - path: Sources
       - path: Assets.xcassets
+      # Externals holds gitignored build products (libapp.a); exclude them all
+      # so regeneration never sweeps a stale artifact into the bundle as a
+      # resource and the pbxproj stays independent of local build state.
       - path: Externals
+        excludes: ["**"]
       - path: lux_iOS
       - path: assets
         buildPhase: resources
@@ -40,6 +44,11 @@ targets:
       path: lux_iOS/Info.plist
       properties:
         LSRequiresIPhoneOS: true
+        # xcodegen regenerates Info.plist from these properties — every custom
+        # key must live here, or a `xcodegen generate` run silently drops it.
+        NSLocalNetworkUsageDescription: lux discovers and controls DMX lighting nodes (Art-Net / sACN) on your local network.
+        # Only standard-exempt TLS (rustls); skips the per-build export question.
+        ITSAppUsesNonExemptEncryption: false
         UILaunchStoryboardName: LaunchScreen
         UIRequiredDeviceCapabilities: [arm64, metal]
         UISupportedInterfaceOrientations:
@@ -51,8 +60,11 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 0.9.0
-        CFBundleVersion: "0.9.0"
+        # Cosmetic: `tauri ios build` restamps both values (source Info.plist
+        # included) from tauri.conf.json's version on every build, so these only
+        # need to be valid, not current.
+        CFBundleShortVersionString: 0.12.2
+        CFBundleVersion: "0.12.2"
     entitlements:
       path: lux_iOS/lux_iOS.entitlements
     scheme:
