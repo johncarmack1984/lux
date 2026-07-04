@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.0](https://github.com/johncarmack1984/lux/compare/v0.12.2...v0.13.0) (2026-07-04)
+
+
+### Features
+
+* in-app account deletion ([#106](https://github.com/johncarmack1984/lux/issues/106)) ([8158859](https://github.com/johncarmack1984/lux/commit/8158859353a1a1595f04418347b03146920bc118))
+* product site at lux.johncarmack.com + shared @lux/ui package ([#109](https://github.com/johncarmack1984/lux/issues/109)) ([68f71a3](https://github.com/johncarmack1984/lux/commit/68f71a31db45b55fa87f9621db2c94bf8f59288e))
+
 ## [0.12.2](https://github.com/johncarmack1984/lux/compare/v0.12.1...v0.12.2) (2026-07-03)
 
 
