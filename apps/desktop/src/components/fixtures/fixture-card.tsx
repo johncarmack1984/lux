@@ -2,14 +2,10 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import { createTauRPCProxy, type Fixture } from "@/bindings";
+import useLuxRefresh from "@/hooks/useLuxRefresh";
 import { Button } from "@/components/ui/button";
 import FixtureChannel from "./fixture-channel";
 import FixtureColor from "./fixture-color";
-
-const removeFixture = (id: string) =>
-  createTauRPCProxy()
-    .cmd.remove_fixture(id)
-    .catch((e) => toast.error(String(e)));
 
 const COLOR_ROLES = ["Red", "Green", "Blue"] as const;
 
@@ -26,8 +22,15 @@ export default function FixtureCard({
     channels.some((c) => c.role === role)
   );
 
-  // Inline-editable name; persists on blur/Enter, reverts on Escape, and stays
-  // in sync as the rename echoes back through the patchSet event.
+  const refresh = useLuxRefresh();
+
+  const removeFixture = () =>
+    createTauRPCProxy()
+      .cmd.remove_fixture(id)
+      .then(refresh)
+      .catch((e) => toast.error(String(e)));
+
+  // Inline-editable name; persists on blur/Enter, reverts on Escape.
   const [draft, setDraft] = useState(name);
   useEffect(() => setDraft(name), [name]);
 
@@ -39,6 +42,7 @@ export default function FixtureCard({
     }
     createTauRPCProxy()
       .cmd.update_fixture(id, trimmed, address, channels)
+      .then(refresh)
       .catch((e) => toast.error(String(e)));
   };
 
@@ -72,7 +76,7 @@ export default function FixtureCard({
           size="icon"
           className="size-8 shrink-0 text-muted-foreground/60 hover:text-foreground"
           aria-label={`Remove ${name}`}
-          onClick={() => removeFixture(id)}
+          onClick={() => removeFixture()}
         >
           <Trash2 className="size-4" />
         </Button>

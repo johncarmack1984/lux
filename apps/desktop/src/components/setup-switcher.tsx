@@ -11,6 +11,7 @@ import {
 import { createTauRPCProxy, type SetupSummary } from "@/bindings";
 import useSetups from "@/hooks/useSetups";
 import useDmxDevices from "@/hooks/useDmxDevices";
+import useLuxRefresh from "@/hooks/useLuxRefresh";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -38,6 +39,7 @@ export default function SetupSwitcher() {
   const setups = useSetups();
   const active = setups?.find((s) => s.active) ?? null;
   const dmxDevices = useDmxDevices();
+  const refresh = useLuxRefresh();
 
   const [manageOpen, setManageOpen] = useState(false);
   const [editName, setEditName] = useState("");
@@ -58,6 +60,7 @@ export default function SetupSwitcher() {
     if (id === active.id) return;
     cmd()
       .set_active_setup(id)
+      .then(refresh)
       .catch((e) => toast.error(String(e)));
   };
 
@@ -80,6 +83,7 @@ export default function SetupSwitcher() {
       if (name !== active.name) await cmd().rename_setup(active.id, name);
       if (editUniverse !== active.universe)
         await cmd().set_setup_universe(active.id, editUniverse);
+      await refresh();
       setManageOpen(false);
     } catch (e) {
       toast.error(String(e));
@@ -89,6 +93,7 @@ export default function SetupSwitcher() {
   const removeCurrent = async () => {
     try {
       await cmd().delete_setup(active.id);
+      await refresh();
       setManageOpen(false);
     } catch (e) {
       toast.error(String(e));
@@ -103,6 +108,7 @@ export default function SetupSwitcher() {
       const after: SetupSummary[] = await cmd().create_setup(name, newUniverse);
       const created = after.find((s) => !before.some((b) => b.id === s.id));
       if (created) await cmd().set_active_setup(created.id);
+      await refresh();
       setManageOpen(false);
     } catch (e) {
       toast.error(String(e));

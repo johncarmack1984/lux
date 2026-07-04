@@ -8,6 +8,7 @@ import {
   type FixturePreset,
   type LuxLabelColor,
 } from "@/bindings";
+import useLuxRefresh from "@/hooks/useLuxRefresh";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -27,6 +28,7 @@ const ROLES: LuxLabelColor[] = [
 ];
 
 export default function NewFixture({ fixtures }: { fixtures: Fixture[] }) {
+  const refresh = useLuxRefresh();
   const [presets, setPresets] = useState<FixturePreset[]>([]);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -68,6 +70,7 @@ export default function NewFixture({ fixtures }: { fixtures: Fixture[] }) {
         address,
         channels
       );
+      await refresh();
       setOpen(false);
       setName("");
       setChannels([]);

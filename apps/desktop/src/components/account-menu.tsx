@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 import { LogOut, Trash2, User as UserIcon } from "lucide-react";
 import { createTauRPCProxy } from "@/bindings";
-import useAuth from "@/hooks/useAuth";
+import useAuth, { AUTH_QUERY_KEY } from "@/hooks/useAuth";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,6 +40,12 @@ type Mode = "signIn" | "signUp" | "confirm";
  */
 export default function AccountMenu() {
   const status = useAuth();
+  const queryClient = useQueryClient();
+  // The authoritative post-action refresh: refetch account status right after a
+  // sign-in / sign-out / delete rather than waiting on the `authChanged` event
+  // (which iOS drops), so the UI flips immediately.
+  const refreshAuth = () =>
+    queryClient.invalidateQueries({ queryKey: AUTH_QUERY_KEY });
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<Mode>("signIn");
   const [email, setEmail] = useState("");
@@ -54,12 +62,14 @@ export default function AccountMenu() {
     const signOut = () =>
       cmd()
         .sign_out()
+        .then(refreshAuth)
         .catch((e) => toast.error(String(e)));
     const deleteAccount = async () => {
       setDeleting(true);
       try {
         await cmd().delete_account();
-        setConfirmDelete(false); // `authChanged` flips the menu to signed-out
+        await refreshAuth();
+        setConfirmDelete(false);
         toast.success("Account deleted. Your setups are still on this device.");
       } catch (err) {
         toast.error(String(err));
@@ -71,9 +81,23 @@ export default function AccountMenu() {
       <>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1.5">
-              <UserIcon className="size-3.5" />
-              <span className="max-w-32 truncate">{status.email ?? "Account"}</span>
+            {/* Just the avatar on narrow screens (the email would overflow the
+                nav); avatar + email once there's room. The email is always in
+                the menu below. */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 px-1.5 sm:pr-3"
+              aria-label={status.email ?? "Account"}
+            >
+              <Avatar className="size-6">
+                <AvatarFallback className="bg-transparent text-xs font-medium uppercase">
+                  {status.email?.[0] ?? <UserIcon className="size-3.5" />}
+                </AvatarFallback>
+              </Avatar>
+              <span className="hidden max-w-32 truncate sm:inline">
+                {status.email ?? "Account"}
+              </span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
@@ -144,7 +168,8 @@ export default function AccountMenu() {
       const addr = email.trim();
       if (mode === "signIn") {
         await cmd().sign_in(addr, password);
-        setOpen(false); // `authChanged` flips the menu to signed-in
+        await refreshAuth();
+        setOpen(false);
       } else if (mode === "signUp") {
         await cmd().sign_up(addr, password);
         toast.success("Check your email for a confirmation code.");

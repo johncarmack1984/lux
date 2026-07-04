@@ -1,37 +1,30 @@
-import { useEffect, useState } from "react";
-import { trace } from "@tauri-apps/plugin-log";
+import { useQuery } from "@tanstack/react-query";
 import { createTauRPCProxy, type AuthStatus } from "@/bindings";
+
+/** Query key for the account status; auth actions invalidate this to refetch. */
+export const AUTH_QUERY_KEY = ["auth"] as const;
 
 /**
  * The current account status: whether accounts are configured, whether someone
- * is signed in, and their email. Fetches on mount and stays live via the
- * `authChanged` event the backend emits on sign-in / sign-out / silent restore.
- * `null` while the first fetch is in flight.
+ * is signed in, and their email. `null` until the first read resolves.
+ *
+ * The backend emits an `authChanged` event, but it is not reliably delivered to
+ * the webview on iOS, so this does not depend on it. Instead: `auth_status`
+ * reads the in-memory session (a cheap, no-network command), the account UI
+ * invalidates [`AUTH_QUERY_KEY`] after every sign-in / sign-out / delete for an
+ * immediate authoritative update, the query refetches on window focus, and it
+ * polls a few times just after mount to catch a session restored asynchronously
+ * from the keychain at startup (then stops).
  */
-export default function useAuth() {
-  const [status, setStatus] = useState<AuthStatus | null>(null);
-
-  useEffect(() => {
-    const taurpc = createTauRPCProxy();
-    let active = true;
-
-    taurpc.cmd
-      .auth_status()
-      .then((s) => {
-        if (active) setStatus(s);
-      })
-      .catch((e) => trace(`auth_status failed: ${e}`));
-
-    const unlisten = taurpc.cmd.event.on((event) => {
-      if (event.type !== "authChanged") return;
-      setStatus(event.status);
-    });
-
-    return () => {
-      active = false;
-      unlisten.then((f) => f());
-    };
-  }, []);
-
-  return status;
+export default function useAuth(): AuthStatus | null {
+  const { data } = useQuery({
+    queryKey: AUTH_QUERY_KEY,
+    queryFn: () => createTauRPCProxy().cmd.auth_status(),
+    refetchOnWindowFocus: true,
+    refetchInterval: (query) => {
+      if (query.state.data?.signedIn) return false; // settled — stop polling
+      return query.state.dataUpdateCount >= 4 ? false : 1500; // ~4 tries for startup restore
+    },
+  });
+  return data ?? null;
 }
