@@ -110,6 +110,11 @@ export const cmd = {
   },
 
   /** @throws {string} */
+  delete_account(): Promise<AuthStatus> {
+    return invoke("cmd.delete_account");
+  },
+
+  /** @throws {string} */
   sync_status(): Promise<SyncState> {
     return invoke("cmd.sync_status");
   },

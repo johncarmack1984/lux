@@ -170,11 +170,7 @@ impl SetupStore {
 
     fn active_mut(&mut self) -> &mut Setup {
         let id = self.active_setup_id;
-        let idx = self
-            .setups
-            .iter()
-            .position(|s| s.id == id)
-            .unwrap_or(0);
+        let idx = self.setups.iter().position(|s| s.id == id).unwrap_or(0);
         &mut self.setups[idx]
     }
 }
@@ -341,7 +337,12 @@ impl LuxSetups {
     /// Setups with changes the cloud doesn't have yet (clones, for pushing).
     pub fn dirty_for_push(&self) -> Vec<Setup> {
         let store = self.store.lock_or_recover();
-        store.setups.iter().filter(|s| s.needs_push()).cloned().collect()
+        store
+            .setups
+            .iter()
+            .filter(|s| s.needs_push())
+            .cloned()
+            .collect()
     }
 
     /// Pending delete tombstones to push.
@@ -396,6 +397,9 @@ impl LuxSetups {
 
     /// Forget cloud binding and sync metadata so a *different* account signing in
     /// on this device can't push the previous user's setups into their cloud.
+    /// Also runs after account deletion: the setups stay usable on this device
+    /// as plain never-synced local data (with no stale server timestamps that
+    /// would wedge a future claim in permanent conflict).
     pub fn reset_for_new_account(&self) {
         let mut store = self.store.lock_or_recover();
         store.bound_email = None;
@@ -718,7 +722,10 @@ mod tests {
 
         let store = load_from_dir(&dir);
         assert_eq!(store.setups.len(), 2);
-        assert!(store.setups.iter().any(|s| s.name == "Church" && s.universe == 5));
+        assert!(store
+            .setups
+            .iter()
+            .any(|s| s.name == "Church" && s.universe == 5));
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -729,7 +736,7 @@ mod tests {
 
         let store = load_from_dir(&dir);
         assert_eq!(store.setups[0].name, "Home"); // fell back to default
-        // The bad file is moved aside, never clobbered, and not re-read.
+                                                  // The bad file is moved aside, never clobbered, and not re-read.
         assert!(dir.join("setups.json.corrupt-0").exists());
         assert!(!dir.join("setups.json").exists());
         std::fs::remove_dir_all(&dir).ok();

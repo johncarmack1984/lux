@@ -14,6 +14,7 @@
 //! - `GET    /setups`        — list the caller's setups (incl. tombstones)
 //! - `PUT    /setups/{id}`   — create/update one, optimistic-concurrency on `baseUpdatedAt`
 //! - `DELETE /setups/{id}?baseUpdatedAt=N` — soft-delete (tombstone)
+//! - `DELETE /user`          — hard-delete the caller's whole partition (account deletion)
 //!
 //! After each committed write the handler publishes a tiny opaque nudge frame
 //! to the caller's own IoT topic (`lux_wire::nudge`) so their other devices
@@ -27,7 +28,8 @@ use std::sync::Arc;
 use aws_config::BehaviorVersion;
 use lambda_http::{run, service_fn, Body, Error, Request, RequestExt, Response};
 use lux_wire::{
-    ErrorResponse, ListSetupsResponse, TombstoneResponse, UpsertSetupBody, WriteResponse,
+    DeleteUserDataResponse, ErrorResponse, ListSetupsResponse, TombstoneResponse, UpsertSetupBody,
+    WriteResponse,
 };
 use serde::{Deserialize, Serialize};
 
@@ -122,6 +124,7 @@ async fn handle(ctx: Arc<Ctx>, req: Request) -> Result<Response<Body>, Error> {
         ("DELETE", [seg, id]) if *seg == lux_wire::SETUPS_SEGMENT => {
             tombstone(&ctx, &sub, id, &req).await
         }
+        ("DELETE", [seg]) if *seg == lux_wire::USER_SEGMENT => delete_user_data(&ctx, &sub).await,
         _ => reply(404, error("not found")),
     }
 }
@@ -179,6 +182,20 @@ async fn tombstone(ctx: &Ctx, sub: &str, id: &str, req: &Request) -> Result<Resp
         Err(StoreError::Conflict) => reply(409, error("conflict")),
         Err(StoreError::Internal(e)) => {
             tracing::error!("tombstone failed: {e}");
+            reply(500, error("internal"))
+        }
+    }
+}
+
+/// Account deletion, step 1 of 2: hard-delete everything the caller owns. The
+/// app calls this while the tokens still authenticate, then removes the Cognito
+/// user itself (self-service `DeleteUser`). No nudge: the other devices' next
+/// refresh fails and they simply sign out.
+async fn delete_user_data(ctx: &Ctx, sub: &str) -> Result<Response<Body>, Error> {
+    match store::delete_all(&ctx.ddb, &ctx.table, sub).await {
+        Ok(deleted_items) => reply(200, DeleteUserDataResponse { deleted_items }),
+        Err(e) => {
+            tracing::error!("account data wipe failed: {e}");
             reply(500, error("internal"))
         }
     }

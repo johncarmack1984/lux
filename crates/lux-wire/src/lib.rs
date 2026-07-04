@@ -23,6 +23,10 @@ pub const SETUPS_SEGMENT: &str = "setups";
 /// Query parameter carrying the optimistic-concurrency base on `DELETE`.
 pub const BASE_UPDATED_AT_QUERY: &str = "baseUpdatedAt";
 
+/// The path segment for the caller's whole account: `DELETE /user` wipes every
+/// item in their partition ahead of Cognito account deletion.
+pub const USER_SEGMENT: &str = "user";
+
 /// One setup as it crosses the wire (an element of [`ListSetupsResponse`]).
 ///
 /// `fixtures` is deliberately opaque here: the server round-trips it as JSON
@@ -79,6 +83,15 @@ pub struct WriteResponse {
 pub struct TombstoneResponse {
     pub updated_at: i64,
     pub deleted: bool,
+}
+
+/// Response to a successful `DELETE /user` — the server-side data wipe that
+/// precedes deleting the Cognito user (in-app account deletion).
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteUserDataResponse {
+    /// Items hard-deleted from the caller's partition.
+    pub deleted_items: i64,
 }
 
 /// Error body for every non-2xx reply.
@@ -223,6 +236,15 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&body).unwrap(),
             r#"{"updatedAt":42,"deleted":true}"#
+        );
+    }
+
+    #[test]
+    fn delete_user_data_response_shape() {
+        let body = DeleteUserDataResponse { deleted_items: 3 };
+        assert_eq!(
+            serde_json::to_string(&body).unwrap(),
+            r#"{"deletedItems":3}"#
         );
     }
 

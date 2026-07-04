@@ -116,6 +116,8 @@ resource "aws_iam_role_policy" "lux_sync_api_ddb" {
         "dynamodb:GetItem",
         "dynamodb:PutItem",
         "dynamodb:UpdateItem",
+        # Account deletion (`DELETE /user`) hard-deletes the user's partition.
+        "dynamodb:DeleteItem",
       ]
       Resource = aws_dynamodb_table.lux_sync.arn
     }]
