@@ -12,6 +12,11 @@ publish = false
 workspace = true
 
 [dependencies]
-jsonwebtoken = "10"
+# jsonwebtoken 10 ships no crypto backend in its default features, so a build
+# without one compiles but panics on the first signature verify ("Could not
+# automatically determine the process-level CryptoProvider"). rust_crypto is
+# the pure-Rust backend (rsa + sha2 cover our RS256) — no C, no musl-static
+# linking risk on the Lambda.
+jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 reqwest = { workspace = true }
 serde = { workspace = true }
