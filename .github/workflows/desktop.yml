@@ -135,7 +135,7 @@ jobs:
 
       - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
 
-      uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: "."
           cache-targets: "false"
@@ -197,7 +197,7 @@ jobs:
       # sccache owns compilation caching now, so rust-cache just keeps the cargo
       # registry/index warm — cache-targets: false skips the big target/ dir, so
       # this frequent job's GHA-cache footprint stays small.
-      uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: "."
           cache-targets: "false"
