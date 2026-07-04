@@ -318,7 +318,6 @@ async fn pull_and_push(app: &AppHandle) {
     ) else {
         return;
     };
-    drop(account);
 
     let different_account = app
         .state::<LuxSetups>()

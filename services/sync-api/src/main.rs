@@ -55,10 +55,10 @@ async fn main() -> Result<(), Error> {
     // default before the JWKS fetch below performs any TLS.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    let pool_id = env("COGNITO_USER_POOL_ID");
-    let client_id = env("COGNITO_APP_CLIENT_ID");
-    let region = env("COGNITO_REGION");
-    let table = env("DYNAMODB_TABLE");
+    let pool_id = env("COGNITO_USER_POOL_ID")?;
+    let client_id = env("COGNITO_APP_CLIENT_ID")?;
+    let region = env("COGNITO_REGION")?;
+    let table = env("DYNAMODB_TABLE")?;
 
     let verifier = lux_auth::Verifier::new(&region, &pool_id, &client_id)
         .await
@@ -101,8 +101,8 @@ async fn main() -> Result<(), Error> {
     .await
 }
 
-fn env(key: &str) -> String {
-    std::env::var(key).unwrap_or_else(|_| panic!("{key} must be set"))
+fn env(key: &str) -> Result<String, Error> {
+    std::env::var(key).map_err(|_| format!("missing required env var {key}").into())
 }
 
 async fn handle(ctx: Arc<Ctx>, req: Request) -> Result<Response<Body>, Error> {

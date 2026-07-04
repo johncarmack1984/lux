@@ -129,15 +129,6 @@ impl EnttecOpenDMX {
         }
     }
 
-    /// Allows to set the value of a specific DMX channel. For the channel only values lower than 513 are allowed or the code will `panic!`
-    pub fn _set_channel(&mut self, channel: usize, value: u8) {
-        if channel < 513 {
-            self.buffer.0[channel] = value;
-        } else {
-            panic!("invalid channel: {}", channel);
-        }
-    }
-
     /// Allows too set the whole state of the universe at once.
     #[allow(dead_code)]
     pub fn set_buffer(&mut self, buf: [u8; BUF_SIZE]) {
