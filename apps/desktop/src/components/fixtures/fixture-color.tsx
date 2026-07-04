@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { RgbaColorPicker, type RgbaColor } from "react-colorful";
-import { createTauRPCProxy, type Fixture, type LuxLabelColor } from "@/bindings";
+import { type Fixture, type LuxLabelColor } from "@/bindings";
 import { Popover, PopoverContent } from "@/components/ui/popover";
 import ColorTrigger from "@/components/color-picker/color-trigger";
 import useThrottle from "@/hooks/useThrottle";
+import { setChannelValue } from "@/lib/actions";
 import { emittersToRgb, mixToEmitters } from "@/lib/color-mix";
 
 /** First DMX address (1-based) within the fixture carrying `role`, or null. */
@@ -49,7 +50,6 @@ export default function FixtureColor({
   }, [buffer, r, g, b, amber, white, dimmer]);
 
   const send = useThrottle((next: RgbaColor) => {
-    const taurpc = createTauRPCProxy();
     const mix = mixToEmitters(next.r, next.g, next.b, {
       amber: amber !== null,
       white: white !== null,
@@ -63,7 +63,7 @@ export default function FixtureColor({
       [dimmer, Math.round(next.a * 255)],
     ];
     for (const [addr, value] of writes) {
-      if (addr) taurpc.cmd.update_channel_value(addr, value).catch(() => {});
+      if (addr) setChannelValue({ channelNumber: addr, value }).catch(() => {});
     }
   }, 40);
 

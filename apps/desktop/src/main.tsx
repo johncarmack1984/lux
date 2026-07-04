@@ -1,10 +1,15 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { attachConsole } from "@tauri-apps/plugin-log";
+import { queryClient } from "@/lib/query-client";
 import { routeTree } from "./routeTree.gen";
 import "@fontsource-variable/inter";
 import "./globals.css";
+
+// Pipe the Rust logger into the webview console (once, app-wide).
+attachConsole();
 
 const router = createRouter({ routeTree });
 
@@ -13,11 +18,6 @@ declare module "@tanstack/react-router" {
     router: typeof router;
   }
 }
-
-// Backend->frontend events aren't reliably delivered to the webview on iOS, so
-// reactive state is read through TanStack Query (refetch on focus + invalidate
-// after mutations) rather than relying on those events alone.
-const queryClient = new QueryClient();
 
 const rootElement = document.getElementById("root")!;
 createRoot(rootElement).render(

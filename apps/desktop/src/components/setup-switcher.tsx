@@ -8,9 +8,10 @@ import {
   Settings2,
   Trash2,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { createTauRPCProxy, type SetupSummary } from "@/bindings";
 import useSetups from "@/hooks/useSetups";
-import useDmxDevices from "@/hooks/useDmxDevices";
+import useDmxDevices, { DMX_DEVICES_QUERY_KEY } from "@/hooks/useDmxDevices";
 import useLuxRefresh from "@/hooks/useLuxRefresh";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +41,9 @@ export default function SetupSwitcher() {
   const active = setups?.find((s) => s.active) ?? null;
   const dmxDevices = useDmxDevices();
   const refresh = useLuxRefresh();
+  const queryClient = useQueryClient();
+  const refreshDevices = () =>
+    queryClient.invalidateQueries({ queryKey: DMX_DEVICES_QUERY_KEY });
 
   const [manageOpen, setManageOpen] = useState(false);
   const [editName, setEditName] = useState("");
@@ -118,11 +122,13 @@ export default function SetupSwitcher() {
   const selectDevice = (key: string) => {
     cmd()
       .set_dmx_device(key)
+      .then(refreshDevices)
       .catch((e) => toast.error(String(e)));
   };
 
   // Detection runs ~3s on the backend and reports back via `dmxDevicesChanged`;
-  // show the spinner across that window rather than block on the call's return.
+  // show the spinner across that window rather than block on the call's return,
+  // and refetch the list when it closes (the event doesn't reach iOS).
   const rescanDevices = async () => {
     setRescanning(true);
     try {
@@ -130,7 +136,10 @@ export default function SetupSwitcher() {
     } catch (e) {
       toast.error(String(e));
     }
-    setTimeout(() => setRescanning(false), 3500);
+    setTimeout(() => {
+      setRescanning(false);
+      void refreshDevices();
+    }, 3500);
   };
 
   return (
