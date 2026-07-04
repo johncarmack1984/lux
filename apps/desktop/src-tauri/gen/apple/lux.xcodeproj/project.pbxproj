@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		04E599390D3B632B4A0BFABA /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 0D6E56C15B49B8005BDD43E0 /* PrivacyInfo.xcprivacy */; };
 		1D70FE76DA06E4A954CF3CAC /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 623B61A7992B3DBDF95053BC /* assets */; };
 		2EEEB60236695CD1D82EE028 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3F4B202D8D58B522F646FA10 /* QuartzCore.framework */; };
 		322834C88F9656BA124CDDC1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4A7C66DAE6212F7FF4BA6D0A /* Assets.xcassets */; };
@@ -22,10 +23,14 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		00E956AA67F8F4C53E9C8D30 /* nudge.rs */ = {isa = PBXFileReference; path = nudge.rs; sourceTree = "<group>"; };
 		0652621D61E48CFB715F2BF0 /* enttec_open_dmx_usb.rs */ = {isa = PBXFileReference; path = enttec_open_dmx_usb.rs; sourceTree = "<group>"; };
+		0D6E56C15B49B8005BDD43E0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		0F78E63BDF56E0958B450096 /* lock.rs */ = {isa = PBXFileReference; path = lock.rs; sourceTree = "<group>"; };
 		13C0AD25CBBEA51729057C41 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
 		13C72DEA1AE27665518F020F /* discovery.rs */ = {isa = PBXFileReference; path = discovery.rs; sourceTree = "<group>"; };
 		15CC3DB1433D23D972C8DE99 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		1FB84EA1206FA010A2803370 /* endpoints.rs */ = {isa = PBXFileReference; path = endpoints.rs; sourceTree = "<group>"; };
 		22790B3A18EE98177B6FC9E2 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		2D119CC234411C2677391DD9 /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
 		3577B415FEFCC7650ED0D82F /* fixture.rs */ = {isa = PBXFileReference; path = fixture.rs; sourceTree = "<group>"; };
@@ -89,11 +94,14 @@
 				3A3E2BD6CA45BC1721CFE6C8 /* cloud.rs */,
 				ACC92720A312E5EC94D6BD32 /* cmd.rs */,
 				ADC061DF4CBF154936DD8BE9 /* colors.rs */,
+				1FB84EA1206FA010A2803370 /* endpoints.rs */,
 				65519633ACBE62859637CE34 /* error.rs */,
 				3577B415FEFCC7650ED0D82F /* fixture.rs */,
 				2D119CC234411C2677391DD9 /* lib.rs */,
+				0F78E63BDF56E0958B450096 /* lock.rs */,
 				FD3A418F87082A7A1D1FBA17 /* logger.rs */,
 				91D705F0C0650E85740F6C5D /* main.rs */,
+				00E956AA67F8F4C53E9C8D30 /* nudge.rs */,
 				4AF4BAEB9E80F20D9EF0EC9F /* remote.rs */,
 				FE41F2EEAC3FFC3CCA4FC84F /* setup.rs */,
 				92111F847FCD365ABA6BC31A /* sync.rs */,
@@ -190,6 +198,7 @@
 			children = (
 				543D41562DCA3689CFF2DA17 /* Info.plist */,
 				E6628D23D43C715526F8BEDC /* lux_iOS.entitlements */,
+				0D6E56C15B49B8005BDD43E0 /* PrivacyInfo.xcprivacy */,
 			);
 			path = lux_iOS;
 			sourceTree = "<group>";
@@ -254,6 +263,7 @@
 			files = (
 				322834C88F9656BA124CDDC1 /* Assets.xcassets in Resources */,
 				345ADEA90A44D9418E7F8327 /* LaunchScreen.storyboard in Resources */,
+				04E599390D3B632B4A0BFABA /* PrivacyInfo.xcprivacy in Resources */,
 				1D70FE76DA06E4A954CF3CAC /* assets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
