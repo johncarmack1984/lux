@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { LogOut, User as UserIcon } from "lucide-react";
+import { LogOut, Trash2, User as UserIcon } from "lucide-react";
 import { createTauRPCProxy } from "@/bindings";
 import useAuth from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -30,9 +30,11 @@ type Mode = "signIn" | "signUp" | "confirm";
 /**
  * Account control in the nav. Hidden entirely when accounts aren't configured
  * (no `COGNITO_*`), so the local-only app is unchanged. Signed in: a dropdown
- * with the email + sign out. Signed out: a dialog with sign-in / sign-up /
- * email-confirmation. State updates reactively from the `authChanged` event, so
- * a successful sign-in just closes the dialog.
+ * with the email, sign out, and account deletion (behind a confirm dialog —
+ * removes the account and its cloud data; local setups stay on the device).
+ * Signed out: a dialog with sign-in / sign-up / email-confirmation. State
+ * updates reactively from the `authChanged` event, so a successful sign-in or
+ * deletion just closes its dialog.
  */
 export default function AccountMenu() {
   const status = useAuth();
@@ -42,6 +44,8 @@ export default function AccountMenu() {
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [pending, setPending] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Accounts disabled (or status still loading) — render nothing.
   if (!status?.configured) return null;
@@ -51,24 +55,74 @@ export default function AccountMenu() {
       cmd()
         .sign_out()
         .catch((e) => toast.error(String(e)));
+    const deleteAccount = async () => {
+      setDeleting(true);
+      try {
+        await cmd().delete_account();
+        setConfirmDelete(false); // `authChanged` flips the menu to signed-out
+        toast.success("Account deleted. Your setups are still on this device.");
+      } catch (err) {
+        toast.error(String(err));
+      } finally {
+        setDeleting(false);
+      }
+    };
     return (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" className="gap-1.5">
-            <UserIcon className="size-3.5" />
-            <span className="max-w-32 truncate">{status.email ?? "Account"}</span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuLabel className="truncate font-normal text-muted-foreground">
-            {status.email}
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={signOut} className="gap-2">
-            <LogOut className="size-4" /> Sign out
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <UserIcon className="size-3.5" />
+              <span className="max-w-32 truncate">{status.email ?? "Account"}</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel className="truncate font-normal text-muted-foreground">
+              {status.email}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={signOut} className="gap-2">
+              <LogOut className="size-4" /> Sign out
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={() => setConfirmDelete(true)}
+              className="gap-2 text-destructive focus:text-destructive"
+            >
+              <Trash2 className="size-4" /> Delete account…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Delete account?</DialogTitle>
+              <DialogDescription>
+                This permanently deletes your account and its cloud-synced
+                setups. Setups on this device stay on this device. This can't
+                be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setConfirmDelete(false)}
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={deleteAccount}
+                disabled={deleting}
+              >
+                {deleting ? "…" : "Delete account"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </>
     );
   }
 

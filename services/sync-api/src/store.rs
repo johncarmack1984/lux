@@ -175,6 +175,45 @@ pub async fn tombstone(
     Ok(n(attrs, "updatedAt").unwrap_or(now))
 }
 
+/// Hard-delete every item in a user's partition (account deletion — the data
+/// must actually leave the table, so no tombstones). Pages through the
+/// partition and deletes item-by-item; a user's partition is small (their
+/// setups), and per-item deletes keep the required IAM surface minimal.
+/// Idempotent: a retry after a partial failure deletes whatever remains.
+pub async fn delete_all(ddb: &Client, table: &str, sub: &str) -> Result<i64, StoreError> {
+    let mut deleted = 0i64;
+    let mut start_key: Option<HashMap<String, AttributeValue>> = None;
+    loop {
+        let out = ddb
+            .query()
+            .table_name(table)
+            .key_condition_expression("pk = :pk")
+            .expression_attribute_values(":pk", AttributeValue::S(pk(sub)))
+            .projection_expression("pk, sk")
+            .set_exclusive_start_key(start_key.take())
+            .send()
+            .await
+            .map_err(internal)?;
+        for item in out.items() {
+            let (Some(pk_val), Some(sk_val)) = (item.get("pk"), item.get("sk")) else {
+                continue;
+            };
+            ddb.delete_item()
+                .table_name(table)
+                .key("pk", pk_val.clone())
+                .key("sk", sk_val.clone())
+                .send()
+                .await
+                .map_err(internal)?;
+            deleted += 1;
+        }
+        start_key = out.last_evaluated_key().cloned();
+        if start_key.is_none() {
+            return Ok(deleted);
+        }
+    }
+}
+
 // --- helpers ----------------------------------------------------------------
 
 fn s(item: &HashMap<String, AttributeValue>, key: &str) -> Option<String> {

@@ -16,13 +16,13 @@
 use crate::lock::LockPolicy;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use aws_cognito_srp::{SrpClient, User};
 use aws_config::BehaviorVersion;
-use aws_smithy_http_client::tls::{self, rustls_provider::CryptoMode};
 use aws_sdk_cognitoidentityprovider::config::Region;
 use aws_sdk_cognitoidentityprovider::error::{ProvideErrorMetadata, SdkError};
 use aws_sdk_cognitoidentityprovider::types::{AttributeType, AuthFlowType, ChallengeNameType};
 use aws_sdk_cognitoidentityprovider::Client;
-use aws_cognito_srp::{SrpClient, User};
+use aws_smithy_http_client::tls::{self, rustls_provider::CryptoMode};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::{AppHandle, Manager};
@@ -111,7 +111,9 @@ impl LuxAccount {
         let config = load_config();
         match &config {
             Some(c) => log::info!("accounts enabled (Cognito pool {})", c.pool_id),
-            None => log::info!("accounts not configured (endpoints file has no Cognito values); sign-in disabled"),
+            None => log::info!(
+                "accounts not configured (endpoints file has no Cognito values); sign-in disabled"
+            ),
         }
         let sync_url = Some(crate::endpoints::effective().sync_url.clone())
             .filter(|url| !url.is_empty())
@@ -201,6 +203,45 @@ impl LuxAccount {
         clear_session();
         self.session.lock_or_recover().clear();
         self.status()
+    }
+
+    /// Permanently delete the signed-in Cognito user (self-service `DeleteUser`,
+    /// authorized by the access token), then clear the session + keychain. The
+    /// caller wipes the account's server-side data *first*, while the tokens
+    /// still authenticate; both steps are idempotent, so a failure here leaves
+    /// the account intact and the whole flow retryable.
+    pub fn delete_account(&self) -> Result<AuthStatus, String> {
+        let cfg = self.config()?;
+        let access = self
+            .session
+            .lock_or_recover()
+            .access_token
+            .clone()
+            .filter(|t| !t.is_empty())
+            .ok_or("not signed in")?;
+        if let Err(first) = block_on(do_delete_user(cfg.clone(), access)) {
+            // The access token may simply have expired — refresh once and retry,
+            // surfacing the original error if the refresh path can't help.
+            let refresh = self
+                .session
+                .lock_or_recover()
+                .refresh_token
+                .clone()
+                .ok_or_else(|| first.clone())?;
+            let tokens = block_on(do_refresh(cfg.clone(), refresh)).map_err(|_| first.clone())?;
+            self.apply(tokens, None);
+            let access = self
+                .session
+                .lock_or_recover()
+                .access_token
+                .clone()
+                .filter(|t| !t.is_empty())
+                .ok_or(first)?;
+            block_on(do_delete_user(cfg, access))?;
+        }
+        clear_session();
+        self.session.lock_or_recover().clear();
+        Ok(self.status())
     }
 
     /// Store freshly-issued tokens. `email` is set on sign-in; left untouched on
@@ -332,7 +373,11 @@ async fn do_sign_in(cfg: Config, email: String, password: String) -> Result<Toke
     let client = cognito_client(&cfg.region).await;
 
     // SRP step 1: send SRP_A, get the PASSWORD_VERIFIER challenge.
-    let srp = SrpClient::new(User::new(&cfg.pool_id, &email, &password), &cfg.client_id, None);
+    let srp = SrpClient::new(
+        User::new(&cfg.pool_id, &email, &password),
+        &cfg.client_id,
+        None,
+    );
     let auth = srp.get_auth_parameters();
     let init = client
         .initiate_auth()
@@ -369,7 +414,10 @@ async fn do_sign_in(cfg: Config, email: String, password: String) -> Result<Toke
         .challenge_name(ChallengeNameType::PasswordVerifier)
         .client_id(&cfg.client_id)
         .challenge_responses("USERNAME", user_id)
-        .challenge_responses("PASSWORD_CLAIM_SECRET_BLOCK", proof.password_claim_secret_block)
+        .challenge_responses(
+            "PASSWORD_CLAIM_SECRET_BLOCK",
+            proof.password_claim_secret_block,
+        )
         .challenge_responses("PASSWORD_CLAIM_SIGNATURE", proof.password_claim_signature)
         .challenge_responses("TIMESTAMP", proof.timestamp)
         .send()
@@ -377,6 +425,17 @@ async fn do_sign_in(cfg: Config, email: String, password: String) -> Result<Toke
         .map_err(sdk_err)?;
 
     tokens_from(resp.authentication_result())
+}
+
+async fn do_delete_user(cfg: Config, access_token: String) -> Result<(), String> {
+    let client = cognito_client(&cfg.region).await;
+    client
+        .delete_user()
+        .access_token(access_token)
+        .send()
+        .await
+        .map_err(sdk_err)?;
+    Ok(())
 }
 
 async fn do_refresh(cfg: Config, refresh_token: String) -> Result<Tokens, String> {
@@ -447,7 +506,8 @@ fn clear_session() {
 /// A dedicated thread with its own current-thread runtime keeps this safe to
 /// call whether or not we're already inside the Tauri runtime; auth is
 /// infrequent (sign-in / sign-up / refresh), so the per-call runtime is fine.
-fn block_on<F>(fut: F) -> F::Output
+/// `crate::cloud` borrows it for its own rare synchronous call (account wipe).
+pub(crate) fn block_on<F>(fut: F) -> F::Output
 where
     F: std::future::Future + Send + 'static,
     F::Output: Send + 'static,
@@ -513,6 +573,9 @@ mod tests {
         let password = std::env::var("LUX_TEST_PASSWORD").unwrap();
         let tokens = block_on(do_sign_in(cfg, email, password)).expect("SRP sign-in failed");
         assert!(!tokens.id.is_empty(), "expected an id token");
-        assert!(tokens.refresh.is_some(), "expected a refresh token on sign-in");
+        assert!(
+            tokens.refresh.is_some(),
+            "expected a refresh token on sign-in"
+        );
     }
 }

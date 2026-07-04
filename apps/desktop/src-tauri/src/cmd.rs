@@ -71,12 +71,12 @@ pub trait CmdMethods {
         id: String,
         universe: u16,
     ) -> Result<Vec<SetupSummary>, String>;
-    fn delete_setup(&self, app_handle: AppHandle, id: String)
-        -> Result<Vec<SetupSummary>, String>;
+    fn delete_setup(&self, app_handle: AppHandle, id: String) -> Result<Vec<SetupSummary>, String>;
     fn set_active_setup(&self, app_handle: AppHandle, id: String) -> Result<SetupSummary, String>;
     // Accounts — Cognito identity (gates cloud sync; no-op when COGNITO_* unset).
     fn auth_status(&self, app_handle: AppHandle) -> Result<AuthStatus, String>;
-    fn sign_up(&self, app_handle: AppHandle, email: String, password: String) -> Result<(), String>;
+    fn sign_up(&self, app_handle: AppHandle, email: String, password: String)
+        -> Result<(), String>;
     fn confirm_sign_up(
         &self,
         app_handle: AppHandle,
@@ -90,6 +90,7 @@ pub trait CmdMethods {
         password: String,
     ) -> Result<AuthStatus, String>;
     fn sign_out(&self, app_handle: AppHandle) -> Result<AuthStatus, String>;
+    fn delete_account(&self, app_handle: AppHandle) -> Result<AuthStatus, String>;
     // Cloud sync — current status for the indicator, and a manual pull (fired on
     // window focus so remote edits land without waiting for a restart).
     fn sync_status(&self, app_handle: AppHandle) -> Result<crate::cloud::SyncState, String>;
@@ -261,11 +262,7 @@ impl CmdMethods for CmdEndpoint {
         commit_setups(&app_handle, setups.inner())
     }
 
-    fn delete_setup(
-        &self,
-        app_handle: AppHandle,
-        id: String,
-    ) -> Result<Vec<SetupSummary>, String> {
+    fn delete_setup(&self, app_handle: AppHandle, id: String) -> Result<Vec<SetupSummary>, String> {
         let id = parse_setup_id(&id)?;
         let setups = app_handle.state::<LuxSetups>();
         let was_active = setups.active_id() == id;
@@ -278,11 +275,7 @@ impl CmdMethods for CmdEndpoint {
         commit_setups(&app_handle, setups.inner())
     }
 
-    fn set_active_setup(
-        &self,
-        app_handle: AppHandle,
-        id: String,
-    ) -> Result<SetupSummary, String> {
+    fn set_active_setup(&self, app_handle: AppHandle, id: String) -> Result<SetupSummary, String> {
         let id = parse_setup_id(&id)?;
         let setups = app_handle.state::<LuxSetups>();
         setups.set_active(id)?;
@@ -295,7 +288,12 @@ impl CmdMethods for CmdEndpoint {
         Ok(app_handle.state::<LuxAccount>().status())
     }
 
-    fn sign_up(&self, app_handle: AppHandle, email: String, password: String) -> Result<(), String> {
+    fn sign_up(
+        &self,
+        app_handle: AppHandle,
+        email: String,
+        password: String,
+    ) -> Result<(), String> {
         app_handle.state::<LuxAccount>().sign_up(email, password)
     }
 
@@ -327,6 +325,21 @@ impl CmdMethods for CmdEndpoint {
 
     fn sign_out(&self, app_handle: AppHandle) -> Result<AuthStatus, String> {
         let status = app_handle.state::<LuxAccount>().sign_out();
+        crate::nudge::stop(&app_handle);
+        emit_auth_changed(&app_handle, status.clone())?;
+        Ok(status)
+    }
+
+    fn delete_account(&self, app_handle: AppHandle) -> Result<AuthStatus, String> {
+        // Wipe the cloud data while the tokens still authenticate, then remove
+        // the Cognito user; a failure at either step leaves the account intact
+        // and the whole flow retryable.
+        crate::cloud::wipe_account_data(&app_handle)?;
+        let status = app_handle.state::<LuxAccount>().delete_account()?;
+        // The local setups stay usable on this device as never-synced data.
+        let setups = app_handle.state::<LuxSetups>();
+        setups.reset_for_new_account();
+        setup::save(&app_handle, &setups);
         crate::nudge::stop(&app_handle);
         emit_auth_changed(&app_handle, status.clone())?;
         Ok(status)

@@ -20,7 +20,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use lux_wire::{ListSetupsResponse, SetupRecord, TombstoneResponse, UpsertSetupBody, WriteResponse};
+use lux_wire::{
+    DeleteUserDataResponse, ListSetupsResponse, SetupRecord, TombstoneResponse, UpsertSetupBody,
+    WriteResponse,
+};
 use reqwest::{Client, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -145,7 +148,9 @@ fn reconcile(local: Vec<Setup>, remote: &[SetupRecord]) -> Vec<Setup> {
     }
 
     for c in remote {
-        let fresh = Uuid::parse_str(&c.id).map(|id| !local_ids.contains(&id)).unwrap_or(false);
+        let fresh = Uuid::parse_str(&c.id)
+            .map(|id| !local_ids.contains(&id))
+            .unwrap_or(false);
         if fresh && !c.deleted {
             if let Some(s) = cloud_to_setup(c) {
                 merged.push(s);
@@ -199,7 +204,10 @@ async fn tombstone(
 ) -> Result<(), SyncError> {
     let mut url = format!("{base}/{}/{}", lux_wire::SETUPS_SEGMENT, delete.setup_id);
     if let Some(base_updated_at) = delete.base_updated_at {
-        url.push_str(&format!("?{}={base_updated_at}", lux_wire::BASE_UPDATED_AT_QUERY));
+        url.push_str(&format!(
+            "?{}={base_updated_at}",
+            lux_wire::BASE_UPDATED_AT_QUERY
+        ));
     }
     let resp = client
         .delete(url)
@@ -211,13 +219,28 @@ async fn tombstone(
     Ok(())
 }
 
+async fn delete_user_data(
+    client: &Client,
+    base: &str,
+    token: String,
+) -> Result<DeleteUserDataResponse, SyncError> {
+    let resp = client
+        .delete(format!("{base}/{}", lux_wire::USER_SEGMENT))
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| SyncError::Other(e.to_string()))?;
+    read_json(resp).await
+}
+
 async fn read_json<T: DeserializeOwned>(resp: reqwest::Response) -> Result<T, SyncError> {
     match resp.status() {
         StatusCode::UNAUTHORIZED => Err(SyncError::Unauthorized),
         StatusCode::CONFLICT => Err(SyncError::Conflict),
-        status if status.is_success() => {
-            resp.json::<T>().await.map_err(|e| SyncError::Other(e.to_string()))
-        }
+        status if status.is_success() => resp
+            .json::<T>()
+            .await
+            .map_err(|e| SyncError::Other(e.to_string())),
         status => {
             let body = resp.text().await.unwrap_or_default();
             Err(SyncError::Other(format!("{status}: {body}")))
@@ -249,7 +272,10 @@ async fn push_all(app: &AppHandle, client: &Client, base: &str, token: &mut Stri
         match result {
             Ok(w) => app.state::<LuxSetups>().mark_pushed(setup.id, w.updated_at),
             Err(SyncError::Conflict) => {
-                log::info!("push conflict for setup {}; reconciling on next pull", setup.id)
+                log::info!(
+                    "push conflict for setup {}; reconciling on next pull",
+                    setup.id
+                )
             }
             Err(e) => log::warn!("push failed for setup {}: {e}", setup.id),
         }
@@ -266,9 +292,9 @@ async fn push_all(app: &AppHandle, client: &Client, base: &str, token: &mut Stri
         match result {
             // A conflict means the setup changed remotely; drop the delete and let
             // the next pull surface the remote state.
-            Ok(()) | Err(SyncError::Conflict) => {
-                app.state::<LuxSetups>().clear_pending_delete(delete.setup_id)
-            }
+            Ok(()) | Err(SyncError::Conflict) => app
+                .state::<LuxSetups>()
+                .clear_pending_delete(delete.setup_id),
             Err(e) => log::warn!("delete push failed for {}: {e}", delete.setup_id),
         }
     }
@@ -285,9 +311,11 @@ async fn pull_and_push(app: &AppHandle) {
     if !account.signed_in() {
         return;
     }
-    let (Some(base), Some(email), Some(mut token)) =
-        (account.sync_url(), account.email(), account.current_id_token())
-    else {
+    let (Some(base), Some(email), Some(mut token)) = (
+        account.sync_url(),
+        account.email(),
+        account.current_id_token(),
+    ) else {
         return;
     };
     drop(account);
@@ -328,6 +356,34 @@ async fn pull_and_push(app: &AppHandle) {
     crate::cmd::broadcast_synced_state(app);
 
     push_all(app, &client, &base, &mut token).await;
+}
+
+/// Hard-delete all of the signed-in user's server-side data (`DELETE /user`) —
+/// step 1 of account deletion, run while the id token still authenticates (the
+/// Cognito user is removed right after). `Ok(())` when cloud sync was never
+/// configured: there is nothing to wipe. Synchronous on purpose: it runs on
+/// [`crate::account::block_on`] so the ttipc command can sequence the two steps.
+pub fn wipe_account_data(app: &AppHandle) -> Result<(), String> {
+    let (base, token) = {
+        let account = app.state::<LuxAccount>();
+        let Some(base) = account.sync_url() else {
+            return Ok(());
+        };
+        let token = account.current_id_token().ok_or("not signed in")?;
+        (base, token)
+    };
+    let app = app.clone();
+    crate::account::block_on(async move {
+        let client = Client::new();
+        let mut result = delete_user_data(&client, &base, token).await;
+        if matches!(result, Err(SyncError::Unauthorized)) {
+            let fresh = refresh(&app).await.map_err(|e| e.to_string())?;
+            result = delete_user_data(&client, &base, fresh).await;
+        }
+        result
+            .map(|_| ())
+            .map_err(|e| format!("could not delete cloud data: {e}"))
+    })
 }
 
 fn syncable(app: &AppHandle) -> bool {
@@ -382,7 +438,11 @@ pub fn schedule_sync(app: &AppHandle) {
     if !syncable(app) {
         return;
     }
-    if app.state::<LuxSync>().in_flight.swap(true, Ordering::SeqCst) {
+    if app
+        .state::<LuxSync>()
+        .in_flight
+        .swap(true, Ordering::SeqCst)
+    {
         return;
     }
     let app = app.clone();
@@ -390,7 +450,9 @@ pub fn schedule_sync(app: &AppHandle) {
         app.state::<LuxSync>().set(&app, SyncState::Syncing);
         pull_and_push(&app).await;
         finish_cycle(&app);
-        app.state::<LuxSync>().in_flight.store(false, Ordering::SeqCst);
+        app.state::<LuxSync>()
+            .in_flight
+            .store(false, Ordering::SeqCst);
     });
 }
 
@@ -429,7 +491,9 @@ fn schedule_retry(app: &AppHandle) {
             }
             attempt += 1;
         }
-        app.state::<LuxSync>().retrying.store(false, Ordering::SeqCst);
+        app.state::<LuxSync>()
+            .retrying
+            .store(false, Ordering::SeqCst);
     });
 }
 
