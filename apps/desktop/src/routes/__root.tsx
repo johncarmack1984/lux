@@ -17,8 +17,8 @@ function RootLayout() {
   useSyncOnFocus();
   return (
     <>
-      <div className="flex min-h-screen flex-col sm:px-12">
-        <nav className="flex items-center gap-4 border-b border-border/60 px-5 py-3">
+      <div className="flex h-[100dvh] flex-col sm:px-12">
+        <nav className="flex shrink-0 items-center gap-4 border-b border-border/60 px-5 py-3">
           <SetupSwitcher />
           <div className="h-5 w-px bg-border/60" />
           <Link to="/" activeOptions={{ exact: true }} className={navLink}>
@@ -32,7 +32,7 @@ function RootLayout() {
             <AccountMenu />
           </div>
         </nav>
-        <div className="flex flex-1 flex-col items-center">
+        <div className="flex flex-1 flex-col items-center overflow-y-auto">
           <Outlet />
         </div>
       </div>

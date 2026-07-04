@@ -68,9 +68,20 @@
   * {
     @apply border-border;
   }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
   body {
     @apply bg-background text-foreground;
     font-family: "Inter Variable", system-ui, sans-serif;
+    /* The app shell owns its height (100dvh) and scrolls its content region
+       internally; the body itself never scrolls. On iOS this avoids the dead
+       space left when 100vh overshoots the viewport and the on-screen keyboard
+       leaves a lingering scroll inset. */
+    overflow: hidden;
+    overscroll-behavior: none;
   }
 }
 
