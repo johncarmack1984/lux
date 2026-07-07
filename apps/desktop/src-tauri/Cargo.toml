@@ -5,7 +5,8 @@ description = "A DMX lighting control system for Enttec Open DMX USB and sACN/E1
 authors = ["John Carmack"]
 edition = "2021"
 repository = "https://github.com/johncarmack1984/lux"
-license = "GNU GPLv3"
+license = "GPL-3.0-only"
+publish = false
 readme = "../../../README.md"
 
 [lib]
