@@ -1,3 +1,7 @@
-# Track the current stable Rust toolchain for local dev and CI.
+# Pins the Rust toolchain for the whole workspace (local dev and CI both read
+# this). Tracks stable: locked deps need a recent toolchain, and stable stays
+# current on its own. Components so rustfmt/clippy are always present wherever
+# checks run.
 [toolchain]
 channel = "stable"
+components = ["rustfmt", "clippy"]
