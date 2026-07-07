@@ -208,7 +208,7 @@ jobs:
         with:
           workspaces: "."
 
-      - run: bun install
+      - run: bun install --frozen-lockfile
         working-directory: apps/desktop
 
       # Pull the updater signing key from AWS Secrets Manager via OIDC — no
