@@ -1,0 +1,96 @@
+# seeds/tooling canonical copy-source — refresh here first, then propagate.
+# cargo-deny config. Schema version 2.
+# Run: cargo deny check advisories bans licenses sources
+
+[graph]
+# Check the full target matrix the crates actually support.
+all-features = true
+
+[advisories]
+# version 2: vulnerabilities are always denied. Tune via `ignore` only.
+db-urls = ["https://github.com/RustSec/advisory-db"]
+# Flag unmaintained crates in our own tree; ignore deep transitive noise
+# we cannot act on.
+unmaintained = "workspace"
+yanked = "deny"
+ignore = [
+    # rsa's Marvin timing sidechannel, via jsonwebtoken -> lux-auth. The
+    # Lambdas only VERIFY Cognito JWTs (public-key ops); no private-key RSA
+    # runs here. No fixed rsa release exists.
+    { id = "RUSTSEC-2023-0071", reason = "verification-only rsa usage; no fixed release" },
+    # The legacy rustls-0.21/webpki-0.101 branch that aws-smithy-http-client
+    # (latest) still carries via hyper-rustls's acceptor feature. Never
+    # executed: the SDK's runtime client is the rustls-0.23/webpki-0.103 line,
+    # which is patched in this lockfile. No fixed 0.101 releases exist.
+    { id = "RUSTSEC-2026-0049", reason = "legacy aws-smithy rustls edge, unused at runtime" },
+    { id = "RUSTSEC-2026-0098", reason = "legacy aws-smithy rustls edge, unused at runtime" },
+    { id = "RUSTSEC-2026-0099", reason = "legacy aws-smithy rustls edge, unused at runtime" },
+    { id = "RUSTSEC-2026-0104", reason = "legacy aws-smithy rustls edge, unused at runtime" },
+]
+
+[licenses]
+# Permissive set verified satisfiable across the estate's current Rust trees
+# (via cargo-deny). Extend deliberately, with the license named here, when a
+# new dep needs it — never silence the check.
+allow = [
+    "LicenseRef-FTDI-D2XX", # FTDI proprietary driver terms; see clarify above
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "Unicode-3.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "MPL-2.0",
+    "Unlicense",
+    "CC0-1.0",
+    # webpki-roots / webpki-root-certs ship Mozilla's CA store under this
+    # permissive data license; any tree with rustls-platform-verifier (reqwest)
+    # carries it.
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.8
+# Private, unpublished workspace crates carry no license field by design; skip
+# them instead of licensing what never ships. Pair with `publish = false` in
+# each private crate's Cargo.toml — cargo-deny only treats marked crates as
+# private.
+private = { ignore = true }
+exceptions = [
+    # Per-crate license carve-outs go here if a crate needs a license not in
+    # the global allow list, e.g.:
+    # { allow = ["..."], crate = "some-crate" },
+]
+
+# libftd2xx-ffi ships FTDI's proprietary D2XX driver terms as a LICENSE file
+# with no SPDX expression. The Enttec OpenDMX hardware this app exists for
+# requires that driver -- "we've got the hardware we've got" (owner ruling,
+# 2026-07-07). Clarified to a LicenseRef and allowed in the list above.
+[[licenses.clarify]]
+name = "libftd2xx-ffi"
+expression = "LicenseRef-FTDI-D2XX"
+license-files = [{ path = "LICENSE", hash = 0x0d4f9606 }]
+
+[bans]
+# Duplicate versions are common in a large tree (tauri especially); surface
+# them without failing the build.
+multiple-versions = "warn"
+wildcards = "warn"
+# Path and git deps in our own workspace use version pins, not registry
+# wildcards; do not flag them.
+allow-wildcard-paths = true
+deny = []
+skip = []
+skip-tree = []
+
+[sources]
+# John's own gtk-rs-core patch branch (the glib 0.18 fix feeding the
+# tao/muda gtk4 campaign) is the one sanctioned git dependency.
+
+# Only crates.io by default; flag anything else for review.
+unknown-registry = "warn"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = ["https://github.com/johncarmack1984/gtk-rs-core"]
