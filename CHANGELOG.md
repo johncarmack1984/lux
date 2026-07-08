@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/johncarmack1984/lux/compare/v0.15.0...v0.16.0) (2026-07-08)
+
+
+### Features
+
+* reading light preset in the fixture color picker ([#135](https://github.com/johncarmack1984/lux/issues/135)) ([49760ea](https://github.com/johncarmack1984/lux/commit/49760ea9d131ebf86322e423481afa9019063beb))
+
 ## [0.15.0](https://github.com/johncarmack1984/lux/compare/v0.14.0...v0.15.0) (2026-07-08)
 
 
