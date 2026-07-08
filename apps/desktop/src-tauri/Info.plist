@@ -9,10 +9,17 @@
   behind a TCC prompt. lux needs it to discover (Art-Net ArtPoll) and drive
   (sACN/E1.31 multicast) DMX nodes like the DMXKing eDMX1 Pro. Without this key
   the prompt can fail to appear and sACN output is silently blocked.
+
+  ITSAppUsesNonExemptEncryption: only standard-exempt TLS (rustls) — answers
+  App Store Connect's export-compliance question up front for Mac App Store /
+  TestFlight uploads (same declaration the iOS target makes in
+  gen/apple/project.yml). Inert in the Developer ID .dmg build.
 -->
 <plist version="1.0">
   <dict>
     <key>NSLocalNetworkUsageDescription</key>
     <string>lux discovers and controls DMX lighting nodes (Art-Net / sACN) on your local network.</string>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
   </dict>
 </plist>

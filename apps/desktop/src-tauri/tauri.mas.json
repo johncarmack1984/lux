@@ -1,0 +1,17 @@
+{
+  "bundle": {
+    "targets": ["app"],
+    "createUpdaterArtifacts": false,
+    "macOS": {
+      "entitlements": "./Entitlements.mas.plist",
+      "files": {
+        "embedded.provisionprofile": "./mas/embedded.provisionprofile"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": []
+    }
+  }
+}
