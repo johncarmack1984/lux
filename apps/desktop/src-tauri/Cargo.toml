@@ -102,3 +102,8 @@ keyring-core = "1"
 # If you use cargo directly instead of tauri's cli you can use this feature flag to switch between tauri's `dev` and `build` modes.
 # DO NOT REMOVE!!
 prod = ["tauri/custom-protocol"]
+# Mac App Store flavor (`tauri build --features mas --config src-tauri/tauri.mas.json`):
+# store builds must not self-update, so this leaves the updater plugin
+# unregistered. The dependency still compiles (keeps the capability set and
+# feature resolution identical); registration is what's gated.
+mas = []
