@@ -676,9 +676,15 @@ jobs:
   # self-updater's registration out — store builds update through the store),
   # and productbuild wraps the upload package. MAS packages are deliberately
   # NOT notarized — App Store Connect ingestion does its own checks.
+  #
+  # Needs terraform-apply (unlike build-ios): this job's secret access is
+  # provisioned by terraform, so a release that changes the grant must apply it
+  # before the fetch — v0.15.0's first build-mas raced the apply and lost
+  # (AccessDenied). Dispatch runs skip terraform-apply and bypass it here, the
+  # same shape build-macos uses for deploy-lambdas.
   build-mas:
-    needs: [release-please, ci]
-    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (needs.release-please.outputs.release_created == 'true' && needs.ci.result == 'success')) }}
+    needs: [release-please, ci, terraform-apply]
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (needs.release-please.outputs.release_created == 'true' && needs.ci.result == 'success' && needs.terraform-apply.result == 'success')) }}
     runs-on: macos-latest
     timeout-minutes: 60
     permissions:
