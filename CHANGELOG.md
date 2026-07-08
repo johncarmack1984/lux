@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/johncarmack1984/lux/compare/v0.13.1...v0.14.0) (2026-07-08)
+
+
+### Features
+
+* show the app version in the footer ([#129](https://github.com/johncarmack1984/lux/issues/129)) ([f49ad17](https://github.com/johncarmack1984/lux/commit/f49ad170d680f1107373155a8f1f59e4a3878ae7))
+
 ## [0.13.1](https://github.com/johncarmack1984/lux/compare/v0.13.0...v0.13.1) (2026-07-04)
 
 
