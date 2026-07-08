@@ -1,11 +1,22 @@
 import { useEffect, useState } from "react";
 import { RgbaColorPicker, type RgbaColor } from "react-colorful";
+import { LampDesk } from "lucide-react";
 import { type Fixture, type LuxLabelColor } from "@/bindings";
+import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent } from "@/components/ui/popover";
 import ColorTrigger from "@/components/color-picker/color-trigger";
 import useThrottle from "@/hooks/useThrottle";
 import { setChannelValue } from "@/lib/actions";
 import { emittersToRgb, mixToEmitters } from "@/lib/color-mix";
+
+/**
+ * Reading light: tungsten/amber at full, master at 40%. Expressed as a picker
+ * color so it flows through the same role-aware mix as the wheel — on an
+ * amber-equipped fixture the warm content lands on the Amber emitter (≈255),
+ * an RGB-only fixture renders the same look with its own emitters, and the
+ * alpha drives the Brightness channel where one exists.
+ */
+const READING_LIGHT: RgbaColor = { r: 255, g: 128, b: 0, a: 0.4 };
 
 /** First DMX address (1-based) within the fixture carrying `role`, or null. */
 function roleAddress(fixture: Fixture, role: LuxLabelColor): number | null {
@@ -80,6 +91,16 @@ export default function FixtureColor({
       <ColorTrigger color={color} luminance={luminance} className="-ml-2" />
       <PopoverContent align="start">
         <RgbaColorPicker className="mx-auto" color={color} onChange={onChange} />
+        <div className="mt-3">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full gap-2"
+            onClick={() => onChange(READING_LIGHT)}
+          >
+            <LampDesk className="size-4" /> Reading light
+          </Button>
+        </div>
       </PopoverContent>
     </Popover>
   );
