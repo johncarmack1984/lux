@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/johncarmack1984/lux/compare/v0.14.0...v0.15.0) (2026-07-08)
+
+
+### Features
+
+* ship Mac App Store builds to TestFlight on release ([#132](https://github.com/johncarmack1984/lux/issues/132)) ([5d1fd43](https://github.com/johncarmack1984/lux/commit/5d1fd43921c5d0e4ef0acc1e3e8bba91e8be0513))
+
 ## [0.14.0](https://github.com/johncarmack1984/lux/compare/v0.13.1...v0.14.0) (2026-07-08)
 
 
