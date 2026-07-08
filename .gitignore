@@ -47,6 +47,10 @@ dist
 
 .terraform/
 
+# Mac App Store provisioning profile (machine-local; regenerate from the ASC
+# "lux Mac App Store" profile)
+apps/desktop/src-tauri/mas/
+
 # Claude Code — local working notes, not for the public repo
 CLAUDE.md
 .claude/

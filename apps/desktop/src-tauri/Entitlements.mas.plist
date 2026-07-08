@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- Mac App Store build entitlements (the MAS flavor only — see tauri.mas.json).
+     The Developer ID .dmg build stays unsandboxed; TestFlight/App Store builds
+     must be sandboxed, and the identifier entitlements must match the embedded
+     Mac App Store provisioning profile. -->
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- Outbound: sACN/Art-Net UDP, AWS (Cognito/sync/IoT-WSS). -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!-- Listeners: Art-Net ArtPollReply discovery responses. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
+	<!-- The Enttec OpenDMX USB interface (FTDI, userspace via IOKit). -->
+	<key>com.apple.security.device.usb</key>
+	<true/>
+	<key>com.apple.application-identifier</key>
+	<string>T3UN6N5K6Z.com.johncarmack.lux</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>T3UN6N5K6Z</string>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>T3UN6N5K6Z.com.johncarmack.lux</string>
+	</array>
+</dict>
+</plist>
