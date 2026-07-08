@@ -78,8 +78,10 @@ pub async fn run() {
         .manage(cloud::LuxSync::default())
         .manage(nudge::LuxNudge::default());
     // The self-updater is desktop-only (mobile updates ship through the App
-    // Store), so add its plugin only when building for desktop.
-    #[cfg(desktop)]
+    // Store), so add its plugin only when building for desktop — and not in
+    // the Mac App Store flavor (`mas` feature), where the store owns updates
+    // and App Review rejects self-updating apps.
+    #[cfg(all(desktop, not(feature = "mas")))]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     builder
         .invoke_handler(taurpc)
