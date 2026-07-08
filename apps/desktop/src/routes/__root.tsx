@@ -34,6 +34,11 @@ function RootLayout() {
         </nav>
         <div className="flex flex-1 flex-col items-center overflow-y-auto">
           <Outlet />
+          {/* mt-auto: sits at the viewport bottom until the content is tall
+              enough to scroll, then trails it. */}
+          <footer className="mt-auto pb-3 pt-8 text-xs text-muted-foreground/70">
+            lux v{__APP_VERSION__}
+          </footer>
         </div>
       </div>
       <Toaster closeButton />
