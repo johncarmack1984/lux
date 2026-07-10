@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/johncarmack1984/lux/compare/v0.16.0...v0.17.0) (2026-07-10)
+
+
+### Features
+
+* **ios:** enable multicast networking entitlement ([#137](https://github.com/johncarmack1984/lux/issues/137)) ([925f9c4](https://github.com/johncarmack1984/lux/commit/925f9c48078f9d65cbd622b167edfc8c1003b202))
+
 ## [0.16.0](https://github.com/johncarmack1984/lux/compare/v0.15.0...v0.16.0) (2026-07-08)
 
 
