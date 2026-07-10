@@ -77,6 +77,12 @@ targets:
         CFBundleVersion: "0.12.2"
     entitlements:
       path: lux_iOS/lux_iOS.entitlements
+      # xcodegen regenerates this file from these properties on every build
+      # (same as Info.plist above) — a key set only in the .entitlements file
+      # is silently wiped. Multicast Networking is Apple-granted (request
+      # URZMNY2RN8) and required to send sACN/Art-Net on-device.
+      properties:
+        com.apple.developer.networking.multicast: true
     scheme:
       environmentVariables:
         RUST_BACKTRACE: full
