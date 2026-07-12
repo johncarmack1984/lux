@@ -50,7 +50,7 @@ jobs:
       # on that variable, falling back to GITHUB_TOKEN when it's unset.
       - name: Configure AWS credentials (OIDC)
         if: ${{ vars.RELEASE_APP_CLIENT_ID != '' }}
-        uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6
+        uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6
         with:
           role-to-assume: arn:aws:iam::735853783919:role/lux-release-signing
           aws-region: us-west-1
@@ -215,7 +215,7 @@ jobs:
 
       # Pull the updater signing key from AWS Secrets Manager via OIDC — no
       # long-lived AWS keys in GitHub. Written to a file so it never hits a log.
-      - uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6
+      - uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6
         with:
           role-to-assume: arn:aws:iam::735853783919:role/lux-release-signing
           aws-region: us-west-1
@@ -306,7 +306,7 @@ jobs:
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
-      - uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6
+      - uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6
         with:
           role-to-assume: arn:aws:iam::735853783919:role/lux-terraform-apply
           aws-region: us-west-1
@@ -413,7 +413,7 @@ jobs:
       # The role is created by the terraform-apply job that just ran, so on the
       # very first release after it lands, STS may not see it instantly —
       # retry the assume instead of failing the release.
-      - uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6
+      - uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6
         with:
           role-to-assume: arn:aws:iam::735853783919:role/lux-lambda-deploy
           aws-region: us-west-1
@@ -548,7 +548,7 @@ jobs:
       - run: bun install --frozen-lockfile
         working-directory: apps/desktop
 
-      - uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6
+      - uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6
         with:
           role-to-assume: arn:aws:iam::735853783919:role/lux-release-signing
           aws-region: us-west-1
@@ -616,7 +616,7 @@ jobs:
           name: ios-ipa
           path: ${{ runner.temp }}
 
-      - uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6
+      - uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6
         with:
           role-to-assume: arn:aws:iam::735853783919:role/lux-release-signing
           aws-region: us-west-1
@@ -719,7 +719,7 @@ jobs:
       - run: bun install --frozen-lockfile
         working-directory: apps/desktop
 
-      - uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6
+      - uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6
         with:
           role-to-assume: arn:aws:iam::735853783919:role/lux-release-signing
           aws-region: us-west-1
@@ -802,7 +802,7 @@ jobs:
           name: mas-pkg
           path: ${{ runner.temp }}
 
-      - uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6
+      - uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6
         with:
           role-to-assume: arn:aws:iam::735853783919:role/lux-release-signing
           aws-region: us-west-1
