@@ -17,6 +17,11 @@ async function setChannelValue({
 }) {
   const taurpc = createTauRPCProxy();
   const buffer = await taurpc.cmd.update_channel_value(channelNumber, value);
+  // Kill any in-flight buffer refetch (window focus fires them): one that
+  // started before this write resolves after it and reverts the cache — the
+  // slider snaps back, and a view without a mount-time re-emit (fixtures)
+  // keeps showing the stale value.
+  await queryClient.cancelQueries({ queryKey: BUFFER_QUERY_KEY });
   queryClient.setQueryData(BUFFER_QUERY_KEY, buffer.buffer);
   return buffer;
 }
