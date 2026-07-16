@@ -134,15 +134,14 @@ export default function FixtureCard({
         {channels.length === 1 ? address : `${address}-${previewEnd}`}
       </p>
     );
-    // Role-derived label: whatever the stored channel is called, the strip a
-    // collapsed card surfaces is the fixture's brightness by definition.
     const dimmer = dimmerIndex >= 0 && (
       <FixtureChannel
         address={address + dimmerIndex}
         role={channels[dimmerIndex].role}
-        label="Brightness"
+        label={channels[dimmerIndex].label}
         value={buffer?.[address + dimmerIndex - 1] ?? 0}
         vertical={vertical}
+        hideLabel
       />
     );
 
