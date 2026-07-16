@@ -21,7 +21,9 @@ const BOT_EMAIL = "github-actions[bot]@users.noreply.github.com";
 const version: string = JSON.parse(
   readFileSync(".release-please-manifest.json", "utf8")
 )["."];
-if (!version) throw new Error("no version in .release-please-manifest.json");
+if (!version || !/^\d+\.\d+\.\d+$/.test(version)) {
+  throw new Error(`bad version in .release-please-manifest.json: ${version}`);
+}
 
 const notesPath = join(NOTES_DIR, `${version}.md`);
 
@@ -41,7 +43,9 @@ if (existsSync(notesPath)) {
 // The version's CHANGELOG section: from its `## [x.y.z]` heading to the next
 // `## [` heading (or EOF).
 const changelog = readFileSync("CHANGELOG.md", "utf8");
-const escaped = version.replace(/\./g, "\\.");
+// Canonical regex escape (the version is already shape-validated above, but
+// CodeQL rightly wants the escape complete rather than dot-only).
+const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const section = changelog.match(
   new RegExp(`^## \\[${escaped}\\][\\s\\S]*?(?=^## \\[|$(?![\\s\\S]))`, "m")
 )?.[0];
