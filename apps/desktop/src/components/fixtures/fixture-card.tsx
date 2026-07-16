@@ -48,6 +48,18 @@ export default function FixtureCard({
   // source of truth and this just requests the flip.
   const setCollapsed = (next: boolean) =>
     setFixtureCollapsed(id, next).catch((e) => toast.error(String(e)));
+
+  // Both states toggle on a surface click. Interactive controls handle their
+  // own clicks (`.touch-none` is the slider root — track clicks start a
+  // drag; the picker popover is portaled so its clicks never reach the
+  // card), and a click that ends a text selection (dragging through the
+  // name/address inputs) is not a toggle.
+  const toggleOnSurfaceClick = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("button, input, [role='slider'], .touch-none")) return;
+    if (window.getSelection()?.toString()) return;
+    setCollapsed(!collapsed);
+  };
   // The collapse axis follows the layout: the vertical console shrinks a card
   // sideways, the horizontal list shrinks it downward — the icon says which.
   const CollapseIcon = vertical ? ChevronsRightLeft : ChevronsDownUp;
@@ -109,14 +121,6 @@ export default function FixtureCard({
   // bottoms stay level. The whole surface expands — no dedicated button;
   // only the live controls (swatch, fader, value toggle) keep their jobs.
   if (collapsed) {
-    const expandOnSurfaceClick = (e: React.MouseEvent) => {
-      const target = e.target as HTMLElement;
-      // Interactive controls handle their own clicks. `.touch-none` is the
-      // slider root (track clicks start a drag); the picker popover is
-      // portaled, so its clicks never reach the card at all.
-      if (target.closest("button, input, [role='slider'], .touch-none")) return;
-      setCollapsed(false);
-    };
     const nameButton = (
       <button
         type="button"
@@ -148,7 +152,7 @@ export default function FixtureCard({
     if (vertical) {
       return (
         <section
-          onClick={expandOnSurfaceClick}
+          onClick={toggleOnSurfaceClick}
           className="flex w-fit shrink-0 cursor-pointer flex-col items-center rounded-xl border bg-card p-5"
         >
           <header className="mb-3 flex flex-col items-center">
@@ -166,7 +170,7 @@ export default function FixtureCard({
     }
     return (
       <section
-        onClick={expandOnSurfaceClick}
+        onClick={toggleOnSurfaceClick}
         className="cursor-pointer rounded-xl border bg-card px-5 py-3"
       >
         <div className="flex items-center gap-3">
@@ -182,10 +186,12 @@ export default function FixtureCard({
 
   return (
     // Vertical mode: the card hugs its fader strips instead of stretching to
-    // the container, so cards pack side by side in the scrolling bank.
+    // the container, so cards pack side by side in the scrolling bank. The
+    // surface click-toggles just like the collapsed form.
     <section
+      onClick={toggleOnSurfaceClick}
       className={cn(
-        "rounded-xl border bg-card p-5",
+        "cursor-pointer rounded-xl border bg-card p-5",
         vertical && "w-fit shrink-0"
       )}
     >
