@@ -36,7 +36,12 @@ export default function ColorTrigger({
         className={cn("gap-3", className)}
       >
         {label || null}
-        <div className="size-7 rounded-full" style={{ background, boxShadow }} />
+        {/* The faint ring keeps the swatch findable at blackout (a black
+            glow-less circle would vanish into the card). */}
+        <div
+          className="size-7 rounded-full border border-border/60"
+          style={{ background, boxShadow }}
+        />
       </Button>
     </PopoverTrigger>
   );

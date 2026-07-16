@@ -110,19 +110,37 @@ export default function FixtureCard({
     Number.isFinite(parsedDraft) && parsedDraft >= 1 ? parsedDraft : address;
   const previewEnd = previewStart + channels.length - 1;
 
+  // The collapsed card is the expanded card's anatomy at strip width: same
+  // padding and header row (initials + channel span where name + span sit,
+  // the expand control in the collapse control's corner), the color row in
+  // its usual slot, and the fader stretching so card bottoms stay level.
   if (collapsed) {
     const expandButton = (
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-8 shrink-0 text-muted-foreground/60 hover:text-foreground"
+        aria-label={`Expand ${name}`}
+        aria-expanded={false}
+        onClick={() => setCollapsed(false)}
+      >
+        <ExpandIcon className="size-4" />
+      </Button>
+    );
+    const nameButton = (
       <button
         type="button"
         onClick={() => setCollapsed(false)}
-        aria-expanded={false}
-        aria-label={`Expand ${name}`}
         title={name}
-        className="flex items-center gap-1 font-semibold transition-colors hover:text-muted-foreground"
+        className="truncate font-semibold transition-colors hover:text-muted-foreground"
       >
         {initials(name)}
-        <ExpandIcon className="size-3.5 text-muted-foreground/60" />
       </button>
+    );
+    const spanLine = (
+      <p className="text-xs tabular-nums text-muted-foreground">
+        {channels.length === 1 ? address : `${address}-${previewEnd}`}
+      </p>
     );
     const dimmer = dimmerIndex >= 0 && (
       <FixtureChannel
@@ -137,28 +155,32 @@ export default function FixtureCard({
 
     if (vertical) {
       return (
-        <section className="w-fit shrink-0 rounded-xl border bg-card p-3">
-          <div className="flex flex-col items-center gap-2">
+        <section className="flex w-fit shrink-0 flex-col rounded-xl border bg-card p-5">
+          <header className="mb-3 flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              {nameButton}
+              {spanLine}
+            </div>
             {expandButton}
-            {/* pl-2 cancels the trigger's -ml-2 so the swatch centers. */}
-            {hasColor && (
-              <div className="pl-2">
-                <FixtureColor fixture={fixture} buffer={buffer} label="" />
-              </div>
-            )}
-            {dimmer}
-          </div>
+          </header>
+          {hasColor && (
+            <div className="mb-1">
+              <FixtureColor fixture={fixture} buffer={buffer} label="" />
+            </div>
+          )}
+          <div className="flex min-h-0 flex-1">{dimmer}</div>
         </section>
       );
     }
     return (
       <section className="rounded-xl border bg-card px-5 py-3">
         <div className="flex items-center gap-3">
-          {expandButton}
+          {nameButton}
           {hasColor && (
             <FixtureColor fixture={fixture} buffer={buffer} label="" />
           )}
           <div className="min-w-0 flex-1">{dimmer}</div>
+          {expandButton}
         </div>
       </section>
     );

@@ -75,7 +75,7 @@ export default function FixtureChannel({
 
   if (vertical) {
     return (
-      <div className="flex w-14 shrink-0 flex-col items-center gap-1.5 py-1">
+      <div className="flex h-full w-14 shrink-0 flex-col items-center gap-1.5 py-1">
         <span className="text-xs tabular-nums text-muted-foreground/60">
           {address}
         </span>
@@ -91,8 +91,9 @@ export default function FixtureChannel({
         >
           {values[0].toString().padStart(3, "0")}
         </button>
-        {/* The strip sets the fader's height; the slider fills it. */}
-        <div className="h-36 pt-1">{slider}</div>
+        {/* min-h floors the fader; flex-1 lets it fill taller cards (a
+            collapsed card stretched level with its expanded neighbors). */}
+        <div className="min-h-36 flex-1 pt-1">{slider}</div>
       </div>
     );
   }
