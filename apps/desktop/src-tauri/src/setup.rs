@@ -81,6 +81,12 @@ pub struct SetupStore {
     /// the delete propagates to other devices. Drained as each push succeeds.
     #[serde(default)]
     pub pending_deletes: Vec<PendingDelete>,
+    /// Fixture cards the user collapsed — device-local UI state (like
+    /// `active_setup_id`, deliberately not cloud-synced: each device keeps its
+    /// own density). Absence means expanded, so new fixtures start expanded.
+    #[serde(default)]
+    #[specta(type = Vec<String>)]
+    pub collapsed_fixture_ids: Vec<uuid::Uuid>,
     /// User-level preferences, cloud-synced as one blob (LWW). Defaults keep
     /// older `setups.json` readable.
     #[serde(default)]
@@ -154,6 +160,7 @@ impl SetupStore {
             setups: vec![setup],
             bound_email: None,
             pending_deletes: Vec::new(),
+            collapsed_fixture_ids: Vec::new(),
             settings: UserSettings::default(),
             settings_updated_at: None,
             settings_dirty: false,
@@ -346,6 +353,36 @@ impl LuxSetups {
         }
         store.active_setup_id = id;
         Ok(())
+    }
+
+    // -- collapsed fixture cards (persisted with the store, never synced) --
+
+    pub fn collapsed_fixture_ids(&self) -> Vec<uuid::Uuid> {
+        self.store.lock_or_recover().collapsed_fixture_ids.clone()
+    }
+
+    /// Record one card's collapse state and return the new set. Prunes ids
+    /// whose fixtures no longer exist in any setup, so the list can't grow
+    /// unboundedly as fixtures are deleted.
+    pub fn set_fixture_collapsed(&self, id: uuid::Uuid, collapsed: bool) -> Vec<uuid::Uuid> {
+        let mut store = self.store.lock_or_recover();
+        let live = |fid: &uuid::Uuid| {
+            store
+                .setups
+                .iter()
+                .any(|s| s.fixtures.iter().any(|f| f.id == *fid))
+        };
+        let mut ids: Vec<uuid::Uuid> = store
+            .collapsed_fixture_ids
+            .iter()
+            .copied()
+            .filter(|c| *c != id && live(c))
+            .collect();
+        if collapsed {
+            ids.push(id);
+        }
+        store.collapsed_fixture_ids = ids.clone();
+        ids
     }
 
     // -- user settings (persisted with the store, synced as one blob) --
@@ -756,6 +793,30 @@ mod tests {
         let id = setups.create("Edge".into(), 0).unwrap(); // 0 clamps up to 1
         setups.set_active(id).unwrap();
         assert_eq!(setups.active_universe(), 1);
+    }
+
+    // -- collapsed fixture cards --
+
+    #[test]
+    fn collapse_state_round_trips_and_prunes_dead_fixtures() {
+        let setups: LuxSetups = SetupStore::default().into();
+        let fixture_id = setups.active_fixtures()[0].id;
+        let ghost = uuid::Uuid::new_v4(); // never a real fixture
+
+        assert_eq!(setups.set_fixture_collapsed(fixture_id, true), vec![fixture_id]);
+        // A stale id (deleted fixture) is dropped on the next write.
+        {
+            let mut store = setups.store.lock_or_recover();
+            store.collapsed_fixture_ids.push(ghost);
+        }
+        assert_eq!(setups.set_fixture_collapsed(fixture_id, true), vec![fixture_id]);
+
+        // Expanding removes it; the store round-trips through JSON.
+        assert!(setups.set_fixture_collapsed(fixture_id, false).is_empty());
+        setups.set_fixture_collapsed(fixture_id, true);
+        let json = serde_json::to_string(&setups.snapshot()).unwrap();
+        let back = parse_store(&json).unwrap();
+        assert_eq!(back.collapsed_fixture_ids, vec![fixture_id]);
     }
 
     // -- user settings --

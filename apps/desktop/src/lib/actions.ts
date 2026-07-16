@@ -1,6 +1,7 @@
 import { createTauRPCProxy, type SliderOrientation } from "@/bindings";
 import { queryClient } from "@/lib/query-client";
 import { BUFFER_QUERY_KEY } from "@/hooks/useBuffer";
+import { COLLAPSED_FIXTURES_QUERY_KEY } from "@/hooks/useCollapsedFixtures";
 import { SETTINGS_QUERY_KEY } from "@/hooks/useSettings";
 
 /**
@@ -42,4 +43,16 @@ async function setSliderOrientation(orientation: SliderOrientation) {
   return settings;
 }
 
-export { setChannelValue, setSliderOrientation };
+/**
+ * Persist one fixture card's collapse state. Cache-through like the other
+ * setters: the backend's returned set lands in the query cache directly.
+ */
+async function setFixtureCollapsed(id: string, collapsed: boolean) {
+  const taurpc = createTauRPCProxy();
+  const ids = await taurpc.cmd.set_fixture_collapsed(id, collapsed);
+  await queryClient.cancelQueries({ queryKey: COLLAPSED_FIXTURES_QUERY_KEY });
+  queryClient.setQueryData(COLLAPSED_FIXTURES_QUERY_KEY, ids);
+  return ids;
+}
+
+export { setChannelValue, setFixtureCollapsed, setSliderOrientation };

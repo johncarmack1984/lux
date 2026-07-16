@@ -74,6 +74,15 @@ pub trait CmdMethods {
     ) -> Result<Vec<SetupSummary>, String>;
     fn delete_setup(&self, app_handle: AppHandle, id: String) -> Result<Vec<SetupSummary>, String>;
     fn set_active_setup(&self, app_handle: AppHandle, id: String) -> Result<SetupSummary, String>;
+    // Collapsed fixture cards — device-local UI state, persisted with the
+    // store but never synced.
+    fn get_collapsed_fixtures(&self, app_handle: AppHandle) -> Result<Vec<String>, String>;
+    fn set_fixture_collapsed(
+        &self,
+        app_handle: AppHandle,
+        id: String,
+        collapsed: bool,
+    ) -> Result<Vec<String>, String>;
     // User settings — persisted locally and cloud-synced when signed in.
     fn get_settings(&self, app_handle: AppHandle) -> Result<UserSettings, String>;
     fn set_slider_orientation(
@@ -293,6 +302,29 @@ impl CmdMethods for CmdEndpoint {
         activate(&app_handle, setups.inner())?;
         commit_setups(&app_handle, setups.inner())?;
         Ok(setups.active_summary())
+    }
+
+    fn get_collapsed_fixtures(&self, app_handle: AppHandle) -> Result<Vec<String>, String> {
+        Ok(app_handle
+            .state::<LuxSetups>()
+            .collapsed_fixture_ids()
+            .iter()
+            .map(uuid::Uuid::to_string)
+            .collect())
+    }
+
+    fn set_fixture_collapsed(
+        &self,
+        app_handle: AppHandle,
+        id: String,
+        collapsed: bool,
+    ) -> Result<Vec<String>, String> {
+        let id = parse_fixture_id(&id)?;
+        let setups = app_handle.state::<LuxSetups>();
+        let ids = setups.set_fixture_collapsed(id, collapsed);
+        // Local UI state only: persist, but nothing to emit or push.
+        setup::save(&app_handle, setups.inner());
+        Ok(ids.iter().map(uuid::Uuid::to_string).collect())
     }
 
     fn get_settings(&self, app_handle: AppHandle) -> Result<UserSettings, String> {

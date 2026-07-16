@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { createTauRPCProxy, type Fixture } from "@/bindings";
 import useLuxRefresh from "@/hooks/useLuxRefresh";
+import { setFixtureCollapsed } from "@/lib/actions";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import FixtureChannel from "./fixture-channel";
@@ -36,10 +37,12 @@ export default function FixtureCard({
   fixture,
   buffer,
   vertical,
+  collapsed,
 }: {
   fixture: Fixture;
   buffer: number[] | null;
   vertical: boolean;
+  collapsed: boolean;
 }) {
   const { id, name, address, channels } = fixture;
   const hasColor = COLOR_ROLES.every((role) =>
@@ -47,7 +50,10 @@ export default function FixtureCard({
   );
   const dimmerIndex = channels.findIndex((c) => c.role === "Brightness");
 
-  const [expanded, setExpanded] = useState(true);
+  // Collapse state persists (device-local, in setups.json); the view owns the
+  // source of truth and this just requests the flip.
+  const setCollapsed = (next: boolean) =>
+    setFixtureCollapsed(id, next).catch((e) => toast.error(String(e)));
   // The collapse axis follows the layout: the vertical console shrinks a card
   // sideways, the horizontal list shrinks it downward — the icons say which.
   const CollapseIcon = vertical ? ChevronsRightLeft : ChevronsDownUp;
@@ -104,11 +110,11 @@ export default function FixtureCard({
     Number.isFinite(parsedDraft) && parsedDraft >= 1 ? parsedDraft : address;
   const previewEnd = previewStart + channels.length - 1;
 
-  if (!expanded) {
+  if (collapsed) {
     const expandButton = (
       <button
         type="button"
-        onClick={() => setExpanded(true)}
+        onClick={() => setCollapsed(false)}
         aria-expanded={false}
         aria-label={`Expand ${name}`}
         title={name}
@@ -209,7 +215,7 @@ export default function FixtureCard({
           className="size-8 shrink-0 text-muted-foreground/60 hover:text-foreground"
           aria-label={`Collapse ${name}`}
           aria-expanded
-          onClick={() => setExpanded(false)}
+          onClick={() => setCollapsed(true)}
         >
           <CollapseIcon className="size-4" />
         </Button>

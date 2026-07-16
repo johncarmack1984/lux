@@ -1,5 +1,6 @@
 import useFixtures from "@/hooks/useFixtures";
 import useBuffer from "@/hooks/useBuffer";
+import useCollapsedFixtures from "@/hooks/useCollapsedFixtures";
 import useSettings from "@/hooks/useSettings";
 import FixtureCard from "./fixture-card";
 import NewFixture from "./new-fixture";
@@ -8,8 +9,9 @@ export default function FixturesView() {
   const fixtures = useFixtures();
   const buffer = useBuffer();
   // Read once here and pass down, so N cards don't each subscribe; like the
-  // desk, wait for the read so the stored layout is the first one painted.
+  // desk, wait for the reads so the stored layout is the first one painted.
   const settings = useSettings();
+  const collapsed = useCollapsedFixtures();
   const count = fixtures?.length ?? 0;
 
   return (
@@ -25,6 +27,7 @@ export default function FixturesView() {
 
       {fixtures !== null &&
         settings !== null &&
+        collapsed !== null &&
         (fixtures.length === 0 ? (
           <div className="rounded-xl border border-dashed py-16 text-center text-sm text-muted-foreground">
             No fixtures patched yet. Add one to get started.
@@ -49,6 +52,7 @@ export default function FixturesView() {
                   vertical={
                     (settings.sliderOrientation ?? "vertical") === "vertical"
                   }
+                  collapsed={collapsed.has(fixture.id)}
                 />
               ))}
           </div>

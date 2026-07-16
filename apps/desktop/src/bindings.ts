@@ -85,6 +85,16 @@ export const cmd = {
   },
 
   /** @throws {string} */
+  get_collapsed_fixtures(): Promise<string[]> {
+    return invoke("cmd.get_collapsed_fixtures");
+  },
+
+  /** @throws {string} */
+  set_fixture_collapsed(id: string, collapsed: boolean): Promise<string[]> {
+    return invoke("cmd.set_fixture_collapsed", { id, collapsed });
+  },
+
+  /** @throws {string} */
   get_settings(): Promise<UserSettings> {
     return invoke("cmd.get_settings");
   },
