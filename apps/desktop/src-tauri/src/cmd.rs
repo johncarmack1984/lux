@@ -6,6 +6,7 @@ use crate::{
     channels::LuxChannels,
     devices::{self, DmxDeviceInfo, DmxOutput},
     fixture::{self, ChannelDef, Fixture, FixturePreset},
+    settings::{SliderOrientation, UserSettings},
     setup::{self, LuxSetups, SetupSummary},
     sync::*,
 };
@@ -73,6 +74,13 @@ pub trait CmdMethods {
     ) -> Result<Vec<SetupSummary>, String>;
     fn delete_setup(&self, app_handle: AppHandle, id: String) -> Result<Vec<SetupSummary>, String>;
     fn set_active_setup(&self, app_handle: AppHandle, id: String) -> Result<SetupSummary, String>;
+    // User settings — persisted locally and cloud-synced when signed in.
+    fn get_settings(&self, app_handle: AppHandle) -> Result<UserSettings, String>;
+    fn set_slider_orientation(
+        &self,
+        app_handle: AppHandle,
+        orientation: SliderOrientation,
+    ) -> Result<UserSettings, String>;
     // Accounts — Cognito identity (gates cloud sync; no-op when COGNITO_* unset).
     fn auth_status(&self, app_handle: AppHandle) -> Result<AuthStatus, String>;
     fn sign_up(&self, app_handle: AppHandle, email: String, password: String)
@@ -117,6 +125,9 @@ pub enum CmdEvent {
     SetupsChanged {
         setups: Vec<SetupSummary>,
         active_setup_id: String,
+    },
+    SettingsChanged {
+        settings: UserSettings,
     },
     AuthChanged {
         status: AuthStatus,
@@ -284,6 +295,20 @@ impl CmdMethods for CmdEndpoint {
         Ok(setups.active_summary())
     }
 
+    fn get_settings(&self, app_handle: AppHandle) -> Result<UserSettings, String> {
+        Ok(app_handle.state::<LuxSetups>().settings())
+    }
+
+    fn set_slider_orientation(
+        &self,
+        app_handle: AppHandle,
+        orientation: SliderOrientation,
+    ) -> Result<UserSettings, String> {
+        let setups = app_handle.state::<LuxSetups>();
+        setups.set_slider_orientation(orientation);
+        commit_settings(&app_handle, setups.inner())
+    }
+
     fn auth_status(&self, app_handle: AppHandle) -> Result<AuthStatus, String> {
         Ok(app_handle.state::<LuxAccount>().status())
     }
@@ -399,6 +424,17 @@ fn commit_patch(app: &AppHandle, setups: &LuxSetups) -> Result<Vec<Fixture>, Str
     Ok(fixtures)
 }
 
+/// Persist the store and broadcast the new user settings to the UI.
+fn commit_settings(app: &AppHandle, setups: &LuxSetups) -> Result<UserSettings, String> {
+    setup::save(app, setups);
+    let settings = setups.settings();
+    CmdEvent::SettingsChanged { settings }
+        .emit(app)
+        .map_err(|e| format!("Failed to emit settings_changed event: {e}"))?;
+    crate::cloud::schedule_push(app);
+    Ok(settings)
+}
+
 /// Persist the store and broadcast the setup list + active id to the UI.
 fn commit_setups(app: &AppHandle, setups: &LuxSetups) -> Result<Vec<SetupSummary>, String> {
     setup::save(app, setups);
@@ -429,6 +465,10 @@ pub fn broadcast_synced_state(app: &AppHandle) {
     let _ = CmdEvent::PatchSet {
         setup_id: active_id,
         fixtures: setups.active_fixtures(),
+    }
+    .emit(app);
+    let _ = CmdEvent::SettingsChanged {
+        settings: setups.settings(),
     }
     .emit(app);
 }

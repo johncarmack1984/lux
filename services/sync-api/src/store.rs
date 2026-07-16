@@ -1,16 +1,20 @@
-//! DynamoDB persistence for a user's setups.
+//! DynamoDB persistence for a user's setups and settings.
 //!
-//! One item per setup: `pk = USER#<sub>`, `sk = SETUP#<setupId>`. `updatedAt`
-//! (epoch millis, assigned here on the server — never the client clock) is the
+//! One item per setup: `pk = USER#<sub>`, `sk = SETUP#<setupId>`, plus at most
+//! one settings item per user at `sk = SETTINGS`. `updatedAt` (epoch millis,
+//! assigned here on the server — never the client clock) is the
 //! last-writer-wins authority and the optimistic-concurrency token; writes are
-//! conditional on it. Fixtures are stored as an opaque JSON string so this layer
-//! stays agnostic to the app's fixture schema. Deletes are soft tombstones
-//! (`deleted = true`) so other devices learn of them on their next pull.
+//! conditional on it. Fixtures and the settings blob are stored as opaque JSON
+//! strings so this layer stays agnostic to the app's schemas. Setup deletes are
+//! soft tombstones (`deleted = true`) so other devices learn of them on their
+//! next pull.
 
 use aws_sdk_dynamodb::error::SdkError;
 use aws_sdk_dynamodb::types::{AttributeValue, ReturnValue};
 use aws_sdk_dynamodb::Client;
-use lux_wire::{SetupRecord, UpsertSetupBody};
+use lux_wire::{
+    ListSetupsResponse, SettingsRecord, SetupRecord, UpsertSetupBody, UpsertSettingsBody,
+};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -45,8 +49,15 @@ fn sk(setup_id: &str) -> String {
     format!("SETUP#{setup_id}")
 }
 
-/// All of a user's setups, including tombstones (the client filters them).
-pub async fn list(ddb: &Client, table: &str, sub: &str) -> Result<Vec<SetupRecord>, StoreError> {
+/// Sort key of the user's single settings item. `list` surfaces it alongside
+/// the setups (one query serves the whole pull) and `delete_all` wipes it with
+/// the rest of the partition.
+const SETTINGS_SK: &str = "SETTINGS";
+
+/// The whole pull in one partition query: all of a user's setups (including
+/// tombstones — the client filters them) plus their settings record if one
+/// exists.
+pub async fn list(ddb: &Client, table: &str, sub: &str) -> Result<ListSetupsResponse, StoreError> {
     let out = ddb
         .query()
         .table_name(table)
@@ -57,11 +68,33 @@ pub async fn list(ddb: &Client, table: &str, sub: &str) -> Result<Vec<SetupRecor
         .map_err(internal)?;
 
     let mut setups = Vec::new();
+    let mut settings = None;
     for item in out.items() {
-        // Only setup items; skip any per-user META row that may share the pk.
         let Some(sk_val) = s(item, "sk") else {
             continue;
         };
+        if sk_val == SETTINGS_SK {
+            // Surface the record only with a real timestamp: an item missing
+            // `updatedAt` has no last-writer-wins authority, and serving 0
+            // would hand clients a base no conditional write can ever match.
+            // Treated as absent, the client's claim push repairs the item
+            // (see the create condition in `upsert_settings`).
+            if let Some(updated_at) = n(item, "updatedAt") {
+                settings = Some(SettingsRecord {
+                    // An unreadable stored blob surfaces as `null` — never as
+                    // a parseable empty object, which clients would adopt as a
+                    // silent settings reset. `null` fails their parse, so they
+                    // keep local values and repair the record on the next push.
+                    data: s(item, "data")
+                        .and_then(|raw| serde_json::from_str(&raw).ok())
+                        .unwrap_or(Value::Null),
+                    rev: n(item, "rev").unwrap_or(0),
+                    updated_at,
+                });
+            }
+            continue;
+        }
+        // Only setup items; skip any other per-user row that may share the pk.
         let Some(id) = sk_val.strip_prefix("SETUP#") else {
             continue;
         };
@@ -80,7 +113,7 @@ pub async fn list(ddb: &Client, table: &str, sub: &str) -> Result<Vec<SetupRecor
                 .unwrap_or(false),
         });
     }
-    Ok(setups)
+    Ok(ListSetupsResponse { setups, settings })
 }
 
 /// Create or update one setup with optimistic concurrency. With `base_updated_at`
@@ -123,6 +156,57 @@ pub async fn upsert(
             .condition_expression("#updatedAt = :base")
             .expression_attribute_values(":base", AttributeValue::N(base.to_string())),
         None => req.condition_expression("attribute_not_exists(pk)"),
+    };
+
+    let out = req.send().await.map_err(conflict_or_internal)?;
+    let attrs = out
+        .attributes()
+        .ok_or_else(|| StoreError::Internal("no attributes returned".into()))?;
+    Ok(WriteResult {
+        updated_at: n(attrs, "updatedAt").unwrap_or(now),
+        rev: n(attrs, "rev").unwrap_or(0),
+    })
+}
+
+/// Create or update the user's settings record with the same optimistic
+/// concurrency as [`upsert`]: with `base_updated_at` set, the write only lands
+/// if the stored `updatedAt` still matches it; without it, only if the record
+/// does not yet exist.
+pub async fn upsert_settings(
+    ddb: &Client,
+    table: &str,
+    sub: &str,
+    body: &UpsertSettingsBody,
+    now: i64,
+) -> Result<WriteResult, StoreError> {
+    let mut req = ddb
+        .update_item()
+        .table_name(table)
+        .key("pk", AttributeValue::S(pk(sub)))
+        .key("sk", AttributeValue::S(SETTINGS_SK.into()))
+        .update_expression(
+            "SET #data = :data, #updatedAt = :now, #rev = if_not_exists(#rev, :zero) + :one",
+        )
+        .expression_attribute_names("#data", "data")
+        .expression_attribute_names("#updatedAt", "updatedAt")
+        .expression_attribute_names("#rev", "rev")
+        .expression_attribute_values(":data", AttributeValue::S(body.data.to_string()))
+        .expression_attribute_values(":now", AttributeValue::N(now.to_string()))
+        .expression_attribute_values(":zero", AttributeValue::N("0".into()))
+        .expression_attribute_values(":one", AttributeValue::N("1".into()))
+        .return_values(ReturnValue::AllNew);
+
+    req = match body.base_updated_at {
+        Some(base) => req
+            .condition_expression("#updatedAt = :base")
+            .expression_attribute_values(":base", AttributeValue::N(base.to_string())),
+        // Create — or repair an item that lost its `updatedAt`: such a record
+        // has no last-writer-wins authority (and `list` hides it), so any
+        // client's claim may overwrite it; without this arm it would 409
+        // every claim forever.
+        None => req.condition_expression(
+            "attribute_not_exists(pk) OR attribute_not_exists(#updatedAt)",
+        ),
     };
 
     let out = req.send().await.map_err(conflict_or_internal)?;

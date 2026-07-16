@@ -11,9 +11,11 @@
 //! desktop deserializes with — so the two sides cannot drift.
 //!
 //! Routes (all under the Function URL):
-//! - `GET    /setups`        — list the caller's setups (incl. tombstones)
+//! - `GET    /setups`        — the whole pull: the caller's setups (incl.
+//!   tombstones) plus their settings record, from one partition query
 //! - `PUT    /setups/{id}`   — create/update one, optimistic-concurrency on `baseUpdatedAt`
 //! - `DELETE /setups/{id}?baseUpdatedAt=N` — soft-delete (tombstone)
+//! - `PUT    /settings`      — create/update the settings record, optimistic-concurrency on `baseUpdatedAt`
 //! - `DELETE /user`          — hard-delete the caller's whole partition (account deletion)
 //!
 //! After each committed write the handler publishes a tiny opaque nudge frame
@@ -28,7 +30,7 @@ use std::sync::Arc;
 use aws_config::BehaviorVersion;
 use lambda_http::{run, service_fn, Body, Error, Request, RequestExt, Response};
 use lux_wire::{
-    DeleteUserDataResponse, ErrorResponse, ListSetupsResponse, TombstoneResponse, UpsertSetupBody,
+    DeleteUserDataResponse, ErrorResponse, TombstoneResponse, UpsertSetupBody, UpsertSettingsBody,
     WriteResponse,
 };
 use serde::{Deserialize, Serialize};
@@ -124,6 +126,9 @@ async fn handle(ctx: Arc<Ctx>, req: Request) -> Result<Response<Body>, Error> {
         ("DELETE", [seg, id]) if *seg == lux_wire::SETUPS_SEGMENT => {
             tombstone(&ctx, &sub, id, &req).await
         }
+        ("PUT", [seg]) if *seg == lux_wire::SETTINGS_SEGMENT => {
+            upsert_settings(&ctx, &sub, &req).await
+        }
         ("DELETE", [seg]) if *seg == lux_wire::USER_SEGMENT => delete_user_data(&ctx, &sub).await,
         _ => reply(404, error("not found")),
     }
@@ -131,7 +136,7 @@ async fn handle(ctx: Arc<Ctx>, req: Request) -> Result<Response<Body>, Error> {
 
 async fn list(ctx: &Ctx, sub: &str) -> Result<Response<Body>, Error> {
     match store::list(&ctx.ddb, &ctx.table, sub).await {
-        Ok(setups) => reply(200, ListSetupsResponse { setups }),
+        Ok(body) => reply(200, body),
         Err(e) => {
             tracing::error!("list failed: {e}");
             reply(500, error("internal"))
@@ -146,7 +151,7 @@ async fn upsert(ctx: &Ctx, sub: &str, id: &str, req: &Request) -> Result<Respons
     };
     match store::upsert(&ctx.ddb, &ctx.table, sub, id, &body, now_millis()).await {
         Ok(res) => {
-            nudge(ctx, sub).await;
+            nudge(ctx, sub, lux_wire::nudge::setups_changed_frame()).await;
             reply(
                 200,
                 WriteResponse {
@@ -163,6 +168,36 @@ async fn upsert(ctx: &Ctx, sub: &str, id: &str, req: &Request) -> Result<Respons
     }
 }
 
+async fn upsert_settings(ctx: &Ctx, sub: &str, req: &Request) -> Result<Response<Body>, Error> {
+    let body: UpsertSettingsBody = match parse_body(req) {
+        Ok(b) => b,
+        Err(e) => return reply(400, error(&e)),
+    };
+    // The blob is opaque but must at least be an object: anything else could
+    // never parse as a client's settings, and one bad write would leave every
+    // device permanently unable to adopt the record.
+    if !body.data.is_object() {
+        return reply(400, error("settings data must be a JSON object"));
+    }
+    match store::upsert_settings(&ctx.ddb, &ctx.table, sub, &body, now_millis()).await {
+        Ok(res) => {
+            nudge(ctx, sub, lux_wire::nudge::settings_changed_frame()).await;
+            reply(
+                200,
+                WriteResponse {
+                    updated_at: res.updated_at,
+                    rev: res.rev,
+                },
+            )
+        }
+        Err(StoreError::Conflict) => reply(409, error("conflict")),
+        Err(StoreError::Internal(e)) => {
+            tracing::error!("settings upsert failed: {e}");
+            reply(500, error("internal"))
+        }
+    }
+}
+
 async fn tombstone(ctx: &Ctx, sub: &str, id: &str, req: &Request) -> Result<Response<Body>, Error> {
     let base = req
         .query_string_parameters()
@@ -170,7 +205,7 @@ async fn tombstone(ctx: &Ctx, sub: &str, id: &str, req: &Request) -> Result<Resp
         .and_then(|s| s.parse::<i64>().ok());
     match store::tombstone(&ctx.ddb, &ctx.table, sub, id, base, now_millis()).await {
         Ok(updated_at) => {
-            nudge(ctx, sub).await;
+            nudge(ctx, sub, lux_wire::nudge::setups_changed_frame()).await;
             reply(
                 200,
                 TombstoneResponse {
@@ -201,12 +236,13 @@ async fn delete_user_data(ctx: &Ctx, sub: &str) -> Result<Response<Body>, Error>
     }
 }
 
-/// Best-effort change nudge: publish the opaque `{"changed":"setups"}` frame to
-/// the caller's own topic so their other devices pull now. Never fails the
-/// request — a missed nudge is healed by the app's pull-on-focus/reconnect
-/// safety nets. (All of the user's connected devices get the frame, including
-/// the writer; its re-pull is coalesced client-side and harmless.)
-async fn nudge(ctx: &Ctx, sub: &str) {
+/// Best-effort change nudge: publish an opaque frame to the caller's own topic
+/// so their other devices pull now. Never fails the request — a missed nudge is
+/// healed by the app's pull-on-focus/reconnect safety nets. (All of the user's
+/// connected devices get the frame, including the writer; its re-pull is
+/// coalesced client-side and harmless. The frame's label only aids logs —
+/// clients treat every frame identically.)
+async fn nudge(ctx: &Ctx, sub: &str, frame: String) {
     let Some(iot) = &ctx.iot else { return };
     let topic = lux_wire::nudge::user_topic(sub);
     if let Err(e) = iot
@@ -214,7 +250,7 @@ async fn nudge(ctx: &Ctx, sub: &str) {
         .topic(&topic)
         .qos(0)
         .payload(aws_sdk_iotdataplane::primitives::Blob::new(
-            lux_wire::nudge::setups_changed_frame().into_bytes(),
+            frame.into_bytes(),
         ))
         .send()
         .await

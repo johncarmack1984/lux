@@ -27,6 +27,9 @@ pub const BASE_UPDATED_AT_QUERY: &str = "baseUpdatedAt";
 /// item in their partition ahead of Cognito account deletion.
 pub const USER_SEGMENT: &str = "user";
 
+/// The path segment both sides build the `/settings` routes from.
+pub const SETTINGS_SEGMENT: &str = "settings";
+
 /// One setup as it crosses the wire (an element of [`ListSetupsResponse`]).
 ///
 /// `fixtures` is deliberately opaque here: the server round-trips it as JSON
@@ -49,10 +52,16 @@ pub struct SetupRecord {
     pub deleted: bool,
 }
 
-/// Response to `GET /setups`.
+/// Response to `GET /setups` — the whole pull in one request.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ListSetupsResponse {
     pub setups: Vec<SetupRecord>,
+    /// The account's settings record, riding the same partition query so a
+    /// pull never needs a second round trip. `None` until the account's first
+    /// settings push; also absent (defaulted) in replies from servers that
+    /// predate settings, which old-shaped clients likewise ignore.
+    #[serde(default)]
+    pub settings: Option<SettingsRecord>,
 }
 
 /// Request body for `PUT /setups/{id}`.
@@ -85,6 +94,36 @@ pub struct TombstoneResponse {
     pub deleted: bool,
 }
 
+/// The user's settings blob as it crosses the wire — one record per account,
+/// last-writer-wins as a whole.
+///
+/// `data` is deliberately opaque here, exactly like [`SetupRecord::fixtures`]:
+/// the server round-trips it as JSON and only the desktop gives it a concrete
+/// type, so adding a new setting never requires a server deploy.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsRecord {
+    pub data: Value,
+    /// Server-side write counter. Informational on the client today; the
+    /// last-writer-wins authority is `updated_at`.
+    pub rev: i64,
+    /// Server-assigned epoch millis of the last write (never a client clock).
+    pub updated_at: i64,
+}
+
+/// Request body for `PUT /settings`.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertSettingsBody {
+    /// The desktop's settings blob, opaque on the wire (see [`SettingsRecord`]).
+    pub data: Value,
+    /// The client's last-known server `updated_at` for the settings record —
+    /// the optimistic-concurrency token. `None` means "create; fail if it
+    /// exists".
+    #[serde(default)]
+    pub base_updated_at: Option<i64>,
+}
+
 /// Response to a successful `DELETE /user` — the server-side data wipe that
 /// precedes deleting the Cognito user (in-app account deletion).
 #[derive(Debug, Serialize, Deserialize)]
@@ -112,10 +151,16 @@ pub mod nudge {
     //! best-effort by design: a missed frame is healed by the existing
     //! pull-on-focus/reconnect safety nets.
 
-    /// `{"changed":"setups"}` — the only frame currently published. Opaque by
+    /// `{"changed":"setups"}` — published after a setup write. Opaque by
     /// design; see the module docs.
     pub fn setups_changed_frame() -> String {
         serde_json::json!({ "changed": "setups" }).to_string()
+    }
+
+    /// `{"changed":"settings"}` — published after a settings write. The label
+    /// only aids log readability; clients treat every frame identically.
+    pub fn settings_changed_frame() -> String {
+        serde_json::json!({ "changed": "settings" }).to_string()
     }
 
     /// The per-user nudge topic. The IoT custom authorizer scopes each
@@ -184,8 +229,26 @@ mod tests {
 
     #[test]
     fn list_response_shape() {
-        let body = ListSetupsResponse { setups: vec![] };
-        assert_eq!(serde_json::to_string(&body).unwrap(), r#"{"setups":[]}"#);
+        let body = ListSetupsResponse {
+            setups: vec![],
+            settings: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&body).unwrap(),
+            r#"{"setups":[],"settings":null}"#
+        );
+
+        // A reply from a server that predates settings still parses.
+        let old: ListSetupsResponse = serde_json::from_str(r#"{"setups":[]}"#).unwrap();
+        assert!(old.settings.is_none());
+
+        let with: ListSetupsResponse = serde_json::from_str(
+            r#"{"setups":[],"settings":{"data":{"sliderOrientation":"horizontal"},"rev":1,"updatedAt":42}}"#,
+        )
+        .unwrap();
+        let record = with.settings.unwrap();
+        assert_eq!(record.updated_at, 42);
+        assert_eq!(record.data["sliderOrientation"], "horizontal");
     }
 
     #[test]
@@ -240,6 +303,40 @@ mod tests {
     }
 
     #[test]
+    fn settings_record_shape() {
+        let record = SettingsRecord {
+            data: json!({ "sliderOrientation": "vertical" }),
+            rev: 2,
+            updated_at: 1719000000000,
+        };
+        assert_eq!(
+            serde_json::to_string(&record).unwrap(),
+            r#"{"data":{"sliderOrientation":"vertical"},"rev":2,"updatedAt":1719000000000}"#
+        );
+    }
+
+    #[test]
+    fn upsert_settings_body_shape() {
+        // `baseUpdatedAt: null` (not omitted) mirrors the setups body — pinned.
+        let create = UpsertSettingsBody {
+            data: json!({ "sliderOrientation": "vertical" }),
+            base_updated_at: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&create).unwrap(),
+            r#"{"data":{"sliderOrientation":"vertical"},"baseUpdatedAt":null}"#
+        );
+
+        let update: UpsertSettingsBody =
+            serde_json::from_str(r#"{"data":{},"baseUpdatedAt":42}"#).unwrap();
+        assert_eq!(update.base_updated_at, Some(42));
+
+        // A body without the field at all still parses.
+        let bare: UpsertSettingsBody = serde_json::from_str(r#"{"data":{}}"#).unwrap();
+        assert_eq!(bare.base_updated_at, None);
+    }
+
+    #[test]
     fn delete_user_data_response_shape() {
         let body = DeleteUserDataResponse { deleted_items: 3 };
         assert_eq!(
@@ -262,6 +359,7 @@ mod tests {
     #[test]
     fn nudge_frame_and_topics() {
         assert_eq!(nudge::setups_changed_frame(), r#"{"changed":"setups"}"#);
+        assert_eq!(nudge::settings_changed_frame(), r#"{"changed":"settings"}"#);
         assert_eq!(nudge::user_topic("abc-123"), "lux/sync/user/abc-123");
         assert_eq!(nudge::client_id_prefix("abc-123"), "lux-sync-abc-123-");
     }

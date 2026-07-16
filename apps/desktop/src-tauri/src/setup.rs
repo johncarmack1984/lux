@@ -21,6 +21,8 @@ use specta::Type;
 use tauri::{Manager, Runtime};
 
 use crate::fixture::{self, ChannelDef, Fixture};
+use crate::settings::{self, SliderOrientation, UserSettings};
+use lux_wire::SettingsRecord;
 
 /// Current on-disk schema version for `setups.json`. Bump when the shape changes
 /// and add a step to [`migrate_version`].
@@ -79,6 +81,17 @@ pub struct SetupStore {
     /// the delete propagates to other devices. Drained as each push succeeds.
     #[serde(default)]
     pub pending_deletes: Vec<PendingDelete>,
+    /// User-level preferences, cloud-synced as one blob (LWW). Defaults keep
+    /// older `setups.json` readable.
+    #[serde(default)]
+    pub settings: UserSettings,
+    /// Server timestamp of the last settings push/pull — the settings blob's
+    /// optimistic-concurrency base, mirroring [`Setup::updated_at`].
+    #[serde(default)]
+    pub settings_updated_at: Option<i64>,
+    /// Local settings edits not yet pushed to the cloud.
+    #[serde(default)]
+    pub settings_dirty: bool,
 }
 
 /// A local delete awaiting a cloud tombstone.
@@ -141,6 +154,9 @@ impl SetupStore {
             setups: vec![setup],
             bound_email: None,
             pending_deletes: Vec::new(),
+            settings: UserSettings::default(),
+            settings_updated_at: None,
+            settings_dirty: false,
         }
     }
 
@@ -332,6 +348,78 @@ impl LuxSetups {
         Ok(())
     }
 
+    // -- user settings (persisted with the store, synced as one blob) --
+
+    pub fn settings(&self) -> UserSettings {
+        self.store.lock_or_recover().settings
+    }
+
+    pub fn set_slider_orientation(&self, orientation: SliderOrientation) -> UserSettings {
+        let mut store = self.store.lock_or_recover();
+        if store.settings.slider_orientation != orientation {
+            store.settings.slider_orientation = orientation;
+            store.settings_dirty = true;
+        }
+        store.settings
+    }
+
+    /// The settings blob plus its concurrency base, when the cloud doesn't have
+    /// it yet: explicit local edits, or settings that have never been synced
+    /// (so first sign-in claims them, exactly like a never-synced setup).
+    pub fn settings_for_push(&self) -> Option<(UserSettings, Option<i64>)> {
+        let store = self.store.lock_or_recover();
+        (store.settings_dirty || store.settings_updated_at.is_none())
+            .then_some((store.settings, store.settings_updated_at))
+    }
+
+    /// Record a successful settings push: store the server timestamp and clear
+    /// dirty — unless another local edit landed while the push was in flight.
+    /// The base only ever advances: a stalled response resolving after a pull
+    /// already adopted a newer server state must not rewind it (a rewound base
+    /// makes every subsequent push a guaranteed conflict).
+    pub fn mark_settings_pushed(&self, pushed: UserSettings, updated_at: i64) {
+        let mut store = self.store.lock_or_recover();
+        if store.settings_updated_at.is_none_or(|base| updated_at > base) {
+            store.settings_updated_at = Some(updated_at);
+        }
+        if store.settings == pushed {
+            store.settings_dirty = false;
+        }
+    }
+
+    /// Merge the cloud's settings record into the store — read, decide
+    /// ([`settings::reconcile`]), and apply under one lock, so a
+    /// `set_slider_orientation` landing mid-pull can never be overwritten by a
+    /// decision made against a stale snapshot.
+    pub fn merge_remote_settings(&self, remote: Option<&SettingsRecord>) {
+        let mut store = self.store.lock_or_recover();
+        match settings::reconcile(store.settings_updated_at, store.settings_dirty, remote) {
+            settings::Merge::KeepLocal => {}
+            settings::Merge::Adopt(settings, updated_at) => {
+                store.settings = settings;
+                store.settings_updated_at = Some(updated_at);
+                store.settings_dirty = false;
+            }
+            settings::Merge::Rebase(updated_at) => {
+                // Values stay; only the concurrency base advances (a pending
+                // dirty edit re-pushes on it — see `Merge::Rebase`).
+                store.settings_updated_at = Some(updated_at);
+            }
+        }
+    }
+
+    /// Forget the previous account's settings entirely — values and sync
+    /// metadata — so a *different* account signing in on this device neither
+    /// inherits them locally nor claim-pushes them into its own cloud record.
+    /// (Contrast [`Self::reset_for_new_account`], which keeps values: after
+    /// deleting your own account the device preference is still yours.)
+    pub fn reset_settings_for_account_switch(&self) {
+        let mut store = self.store.lock_or_recover();
+        store.settings = UserSettings::default();
+        store.settings_updated_at = None;
+        store.settings_dirty = false;
+    }
+
     // -- cloud sync helpers (driven by `crate::cloud`) --
 
     /// Setups with changes the cloud doesn't have yet (clones, for pushing).
@@ -408,6 +496,12 @@ impl LuxSetups {
             s.updated_at = None;
             s.dirty = false;
         }
+        // The settings *values* stay (a device preference is harmless to keep),
+        // but the sync metadata must go: a stale server timestamp from the
+        // previous account would wedge the next account's settings writes in
+        // permanent conflict.
+        store.settings_updated_at = None;
+        store.settings_dirty = false;
     }
 }
 
@@ -662,6 +756,149 @@ mod tests {
         let id = setups.create("Edge".into(), 0).unwrap(); // 0 clamps up to 1
         setups.set_active(id).unwrap();
         assert_eq!(setups.active_universe(), 1);
+    }
+
+    // -- user settings --
+
+    #[test]
+    fn settings_default_vertical_and_absent_fields_parse() {
+        let setups: LuxSetups = SetupStore::default().into();
+        assert_eq!(
+            setups.settings().slider_orientation,
+            SliderOrientation::Vertical
+        );
+
+        // A pre-settings store (no settings fields at all) still parses, with
+        // defaults — the shipped-stores compatibility guarantee.
+        let old = serde_json::to_string(&SetupStore::default()).unwrap();
+        let stripped = {
+            let mut v: serde_json::Value = serde_json::from_str(&old).unwrap();
+            let obj = v.as_object_mut().unwrap();
+            obj.remove("settings");
+            obj.remove("settingsUpdatedAt");
+            obj.remove("settingsDirty");
+            v.to_string()
+        };
+        let store = parse_store(&stripped).unwrap();
+        assert_eq!(
+            store.settings.slider_orientation,
+            SliderOrientation::Vertical
+        );
+        assert_eq!(store.settings_updated_at, None);
+        assert!(!store.settings_dirty);
+    }
+
+    /// The store's settings sync fields, for asserting bookkeeping.
+    fn settings_state(setups: &LuxSetups) -> (UserSettings, Option<i64>, bool) {
+        let store = setups.store.lock_or_recover();
+        (
+            store.settings,
+            store.settings_updated_at,
+            store.settings_dirty,
+        )
+    }
+
+    fn settings_record(orientation: &str, updated_at: i64) -> SettingsRecord {
+        SettingsRecord {
+            data: serde_json::json!({ "sliderOrientation": orientation }),
+            rev: 1,
+            updated_at,
+        }
+    }
+
+    #[test]
+    fn set_slider_orientation_marks_dirty_only_on_change() {
+        let setups: LuxSetups = SetupStore::default().into();
+
+        // Setting the value it already has is not an edit.
+        setups.set_slider_orientation(SliderOrientation::Vertical);
+        assert!(setups.settings_for_push().is_some()); // never synced → claims
+        assert!(!settings_state(&setups).2);
+
+        let updated = setups.set_slider_orientation(SliderOrientation::Horizontal);
+        assert_eq!(updated.slider_orientation, SliderOrientation::Horizontal);
+        assert!(settings_state(&setups).2);
+    }
+
+    #[test]
+    fn settings_push_bookkeeping() {
+        let setups: LuxSetups = SetupStore::default().into();
+        let edited = setups.set_slider_orientation(SliderOrientation::Horizontal);
+
+        setups.mark_settings_pushed(edited, 100);
+        let (_, base, dirty) = settings_state(&setups);
+        assert_eq!(base, Some(100));
+        assert!(!dirty);
+        assert!(setups.settings_for_push().is_none());
+
+        // A push confirmation for a stale blob keeps the newer edit dirty.
+        let newer = setups.set_slider_orientation(SliderOrientation::Vertical);
+        setups.mark_settings_pushed(edited, 150);
+        assert!(settings_state(&setups).2);
+        setups.mark_settings_pushed(newer, 200);
+        assert!(!settings_state(&setups).2);
+
+        // A stalled push response resolving after a pull advanced the base
+        // must not rewind it (every later push would 409 on the stale base).
+        setups.merge_remote_settings(Some(&settings_record("horizontal", 500)));
+        setups.mark_settings_pushed(newer, 200);
+        assert_eq!(settings_state(&setups).1, Some(500));
+    }
+
+    #[test]
+    fn merge_adopts_a_newer_remote_and_clears_dirty() {
+        let setups: LuxSetups = SetupStore::default().into();
+        let edited = setups.set_slider_orientation(SliderOrientation::Vertical);
+        setups.mark_settings_pushed(edited, 100);
+
+        setups.merge_remote_settings(Some(&settings_record("horizontal", 300)));
+        let (settings, base, dirty) = settings_state(&setups);
+        assert_eq!(settings.slider_orientation, SliderOrientation::Horizontal);
+        assert_eq!(base, Some(300));
+        assert!(!dirty);
+    }
+
+    #[test]
+    fn merge_rebases_a_never_synced_dirty_edit_for_its_claim_push() {
+        let setups: LuxSetups = SetupStore::default().into();
+        setups.set_slider_orientation(SliderOrientation::Horizontal);
+
+        // The account already has a (stale) record: the local explicit edit
+        // survives, and only the concurrency base advances so its push lands.
+        setups.merge_remote_settings(Some(&settings_record("vertical", 100)));
+        let (settings, base, dirty) = settings_state(&setups);
+        assert_eq!(settings.slider_orientation, SliderOrientation::Horizontal);
+        assert_eq!(base, Some(100));
+        assert!(dirty);
+        assert_eq!(setups.settings_for_push(), Some((settings, Some(100))));
+    }
+
+    #[test]
+    fn reset_for_new_account_keeps_settings_but_clears_their_sync_state() {
+        let setups: LuxSetups = SetupStore::default().into();
+        let edited = setups.set_slider_orientation(SliderOrientation::Horizontal);
+        setups.mark_settings_pushed(edited, 100);
+
+        setups.reset_for_new_account();
+        let (settings, base, dirty) = settings_state(&setups);
+        assert_eq!(settings.slider_orientation, SliderOrientation::Horizontal);
+        assert_eq!(base, None);
+        assert!(!dirty);
+    }
+
+    #[test]
+    fn account_switch_resets_settings_entirely() {
+        let setups: LuxSetups = SetupStore::default().into();
+        let edited = setups.set_slider_orientation(SliderOrientation::Horizontal);
+        setups.mark_settings_pushed(edited, 100);
+
+        // A different account signing in must not inherit — or claim-push —
+        // the previous user's preferences.
+        setups.reset_settings_for_account_switch();
+        let (settings, base, dirty) = settings_state(&setups);
+        assert_eq!(settings, UserSettings::default());
+        assert_eq!(base, None);
+        assert!(!dirty);
     }
 
     // -- `load_from_dir` against a real (temp) directory --
