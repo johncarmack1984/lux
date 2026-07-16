@@ -34,9 +34,12 @@ function roleAddress(fixture: Fixture, role: LuxLabelColor): number | null {
 export default function FixtureColor({
   fixture,
   buffer,
+  label,
 }: {
   fixture: Fixture;
   buffer: number[] | null;
+  /** Trigger label; pass "" for a bare swatch (collapsed cards). */
+  label?: string;
 }) {
   const r = roleAddress(fixture, "Red");
   const g = roleAddress(fixture, "Green");
@@ -88,7 +91,12 @@ export default function FixtureColor({
 
   return (
     <Popover>
-      <ColorTrigger color={color} luminance={luminance} className="-ml-2" />
+      <ColorTrigger
+        color={color}
+        luminance={luminance}
+        label={label}
+        className="-ml-2"
+      />
       <PopoverContent align="start">
         <RgbaColorPicker className="mx-auto" color={color} onChange={onChange} />
         <div className="mt-3">

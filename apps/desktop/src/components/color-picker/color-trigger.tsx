@@ -28,8 +28,14 @@ export default function ColorTrigger({
   const boxShadow = `0 0 ${spread}px ${light}`;
   return (
     <PopoverTrigger asChild>
-      <Button variant="ghost" className={cn("gap-3", className)}>
-        {label}
+      {/* label="" renders a bare swatch (compact contexts); keep it named
+          for screen readers either way. */}
+      <Button
+        variant="ghost"
+        aria-label={label || "Color"}
+        className={cn("gap-3", className)}
+      >
+        {label || null}
         <div className="size-7 rounded-full" style={{ background, boxShadow }} />
       </Button>
     </PopoverTrigger>

@@ -136,7 +136,7 @@ export default function FixtureCard({
             {/* pl-2 cancels the trigger's -ml-2 so the swatch centers. */}
             {hasColor && (
               <div className="pl-2">
-                <FixtureColor fixture={fixture} buffer={buffer} />
+                <FixtureColor fixture={fixture} buffer={buffer} label="" />
               </div>
             )}
             {dimmer}
@@ -148,7 +148,9 @@ export default function FixtureCard({
       <section className="rounded-xl border bg-card px-5 py-3">
         <div className="flex items-center gap-3">
           {expandButton}
-          {hasColor && <FixtureColor fixture={fixture} buffer={buffer} />}
+          {hasColor && (
+            <FixtureColor fixture={fixture} buffer={buffer} label="" />
+          )}
           <div className="min-w-0 flex-1">{dimmer}</div>
         </div>
       </section>
