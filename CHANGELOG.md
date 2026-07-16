@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/johncarmack1984/lux/compare/v0.18.0...v1.1.0) (2026-07-16)
+
+
+### Miscellaneous Chores
+
+* align app versioning with the App Store releases ([#146](https://github.com/johncarmack1984/lux/issues/146)) ([a5a1d78](https://github.com/johncarmack1984/lux/commit/a5a1d78a062419ccc65762486453e82beae40e03))
+
 ## [0.18.0](https://github.com/johncarmack1984/lux/compare/v0.17.0...v0.18.0) (2026-07-16)
 
 
