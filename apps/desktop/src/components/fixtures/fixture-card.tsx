@@ -12,9 +12,11 @@ const COLOR_ROLES = ["Red", "Green", "Blue"] as const;
 export default function FixtureCard({
   fixture,
   buffer,
+  vertical,
 }: {
   fixture: Fixture;
   buffer: number[] | null;
+  vertical: boolean;
 }) {
   const { id, name, address, channels } = fixture;
   const end = address + channels.length - 1;
@@ -88,7 +90,12 @@ export default function FixtureCard({
         </div>
       )}
 
-      <div className="flex flex-col gap-0.5">
+      {/* Vertical strips scroll sideways when a fixture outgrows the card. */}
+      <div
+        className={
+          vertical ? "flex gap-1 overflow-x-auto pb-1" : "flex flex-col gap-0.5"
+        }
+      >
         {channels.map((channel, i) => (
           <FixtureChannel
             key={`${id}-${i}`}
@@ -96,6 +103,7 @@ export default function FixtureCard({
             role={channel.role}
             label={channel.label}
             value={buffer?.[address + i - 1] ?? 0}
+            vertical={vertical}
           />
         ))}
       </div>

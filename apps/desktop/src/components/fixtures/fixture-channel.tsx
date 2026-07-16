@@ -20,18 +20,22 @@ const ROLE_DOT: Record<LuxLabelColor, string> = {
 /**
  * One channel inside a fixture card: address, role dot, label, slider, value.
  * Deliberately lighter than the universe desk's row — no bordered number badge,
- * no boxed value button. The value is a quiet 0/full toggle.
+ * no boxed value button. The value is a quiet 0/full toggle. Follows the
+ * "slider orientation" setting: a horizontal row, or a compact vertical fader
+ * strip (same element order as the desk's column: meta above, fader below).
  */
 export default function FixtureChannel({
   address,
   role,
   label,
   value,
+  vertical = false,
 }: {
   address: number;
   role: LuxLabelColor;
   label: string;
   value: number;
+  vertical?: boolean;
 }) {
   const [values, setValues] = useState([value]);
   useEffect(() => setValues([value]), [value]);
@@ -53,6 +57,40 @@ export default function FixtureChannel({
     send(next);
   };
 
+  const slider = (
+    <Slider
+      orientation={vertical ? "vertical" : "horizontal"}
+      aria-label={`${label} (channel ${address})`}
+      value={values}
+      onValueChange={drag}
+      max={255}
+      step={1}
+      className={vertical ? undefined : "flex-1"}
+    />
+  );
+
+  if (vertical) {
+    return (
+      <div className="flex w-14 shrink-0 flex-col items-center gap-1.5 py-1">
+        <span className="text-xs tabular-nums text-muted-foreground/60">
+          {address}
+        </span>
+        <span className={cn("size-2.5 shrink-0 rounded-full", ROLE_DOT[role])} />
+        <span className="w-full truncate text-center text-xs">{label}</span>
+        <button
+          type="button"
+          onClick={toggle}
+          title="Toggle 0 / full"
+          className="text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {values[0].toString().padStart(3, "0")}
+        </button>
+        {/* The strip sets the fader's height; the slider fills it. */}
+        <div className="h-36 pt-1">{slider}</div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center gap-3 py-1.5">
       <span className="w-4 text-right text-xs tabular-nums text-muted-foreground/60">
@@ -60,14 +98,7 @@ export default function FixtureChannel({
       </span>
       <span className={cn("size-2.5 shrink-0 rounded-full", ROLE_DOT[role])} />
       <span className="w-16 shrink-0 truncate text-sm">{label}</span>
-      <Slider
-        aria-label={`${label} (channel ${address})`}
-        value={values}
-        onValueChange={drag}
-        max={255}
-        step={1}
-        className="flex-1"
-      />
+      {slider}
       <button
         type="button"
         onClick={toggle}
