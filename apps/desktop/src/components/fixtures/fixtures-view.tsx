@@ -30,7 +30,15 @@ export default function FixturesView() {
             No fixtures patched yet. Add one to get started.
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
+          // Vertical faders make the whole view a console: cards sit side by
+          // side at content width and the bank scrolls sideways.
+          <div
+            className={
+              (settings.sliderOrientation ?? "vertical") === "vertical"
+                ? "flex gap-4 overflow-x-auto pb-2"
+                : "flex flex-col gap-4"
+            }
+          >
             {[...fixtures]
               .sort((a, b) => a.address - b.address)
               .map((fixture) => (
