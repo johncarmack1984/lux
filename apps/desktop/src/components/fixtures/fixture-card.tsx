@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { ChevronsDownUp, ChevronsUpDown, Trash2 } from "lucide-react";
 import { createTauRPCProxy, type Fixture } from "@/bindings";
 import useLuxRefresh from "@/hooks/useLuxRefresh";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,22 @@ import FixtureColor from "./fixture-color";
 
 const COLOR_ROLES = ["Red", "Green", "Blue"] as const;
 
+/** "Living Room" → "LR", "Fixture 12" → "F12": word initials, whole numbers. */
+function initials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .map((word) => (/^\d+$/.test(word) ? word : word[0].toUpperCase()))
+    .join("")
+    .slice(0, 4);
+}
+
+/**
+ * One patched fixture. Expanded: inline-renamable name, delete, the color
+ * wheel, and every channel. Collapsed: just the live essentials — the name's
+ * initials, the color wheel, and the Brightness fader (when the fixture has
+ * one); everything editorial waits behind expand.
+ */
 export default function FixtureCard({
   fixture,
   buffer,
@@ -24,6 +40,9 @@ export default function FixtureCard({
   const hasColor = COLOR_ROLES.every((role) =>
     channels.some((c) => c.role === role)
   );
+  const dimmerIndex = channels.findIndex((c) => c.role === "Brightness");
+
+  const [expanded, setExpanded] = useState(true);
 
   const refresh = useLuxRefresh();
 
@@ -51,6 +70,57 @@ export default function FixtureCard({
 
   const span =
     channels.length === 1 ? `Channel ${address}` : `Channels ${address}-${end}`;
+
+  if (!expanded) {
+    const expandButton = (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        aria-expanded={false}
+        aria-label={`Expand ${name}`}
+        title={name}
+        className="flex items-center gap-1 font-semibold transition-colors hover:text-muted-foreground"
+      >
+        {initials(name)}
+        <ChevronsUpDown className="size-3.5 text-muted-foreground/60" />
+      </button>
+    );
+    const dimmer = dimmerIndex >= 0 && (
+      <FixtureChannel
+        address={address + dimmerIndex}
+        role={channels[dimmerIndex].role}
+        label={channels[dimmerIndex].label}
+        value={buffer?.[address + dimmerIndex - 1] ?? 0}
+        vertical={vertical}
+      />
+    );
+
+    if (vertical) {
+      return (
+        <section className="w-fit shrink-0 rounded-xl border bg-card p-3">
+          <div className="flex flex-col items-center gap-2">
+            {expandButton}
+            {/* pl-2 cancels the trigger's -ml-2 so the swatch centers. */}
+            {hasColor && (
+              <div className="pl-2">
+                <FixtureColor fixture={fixture} buffer={buffer} />
+              </div>
+            )}
+            {dimmer}
+          </div>
+        </section>
+      );
+    }
+    return (
+      <section className="rounded-xl border bg-card px-5 py-3">
+        <div className="flex items-center gap-3">
+          {expandButton}
+          {hasColor && <FixtureColor fixture={fixture} buffer={buffer} />}
+          <div className="min-w-0 flex-1">{dimmer}</div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     // Vertical mode: the card hugs its fader strips instead of stretching to
@@ -81,6 +151,16 @@ export default function FixtureCard({
             {span}
           </p>
         </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8 shrink-0 text-muted-foreground/60 hover:text-foreground"
+          aria-label={`Collapse ${name}`}
+          aria-expanded
+          onClick={() => setExpanded(false)}
+        >
+          <ChevronsDownUp className="size-4" />
+        </Button>
         <Button
           variant="ghost"
           size="icon"
