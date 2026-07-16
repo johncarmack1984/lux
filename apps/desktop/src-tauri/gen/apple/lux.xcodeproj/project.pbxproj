@@ -46,6 +46,7 @@
 		6DF90FDE7A6A99B512BF4C9A /* account.rs */ = {isa = PBXFileReference; path = account.rs; sourceTree = "<group>"; };
 		702DA0D8C7FE131C11FC162A /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		719C305B0E09C6286608C1A2 /* buffer.rs */ = {isa = PBXFileReference; path = buffer.rs; sourceTree = "<group>"; };
+		72BB8F21FEC510A12D94B9A4 /* settings.rs */ = {isa = PBXFileReference; path = settings.rs; sourceTree = "<group>"; };
 		7E12A3D64A4681D3D1C5B38E /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		875FDB81D677B35CCE19C8A3 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
 		90D526E9C081ACDBFBA3A30D /* channels.rs */ = {isa = PBXFileReference; path = channels.rs; sourceTree = "<group>"; };
@@ -103,6 +104,7 @@
 				91D705F0C0650E85740F6C5D /* main.rs */,
 				00E956AA67F8F4C53E9C8D30 /* nudge.rs */,
 				4AF4BAEB9E80F20D9EF0EC9F /* remote.rs */,
+				72BB8F21FEC510A12D94B9A4 /* settings.rs */,
 				FE41F2EEAC3FFC3CCA4FC84F /* setup.rs */,
 				92111F847FCD365ABA6BC31A /* sync.rs */,
 				9920BC880C3C183D6E36ACA9 /* tray.rs */,
@@ -400,7 +402,7 @@
 				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = com.johncarmack.lux;
-				PRODUCT_NAME = "lux";
+				PRODUCT_NAME = lux;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
@@ -490,7 +492,7 @@
 				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = com.johncarmack.lux;
-				PRODUCT_NAME = "lux";
+				PRODUCT_NAME = lux;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;

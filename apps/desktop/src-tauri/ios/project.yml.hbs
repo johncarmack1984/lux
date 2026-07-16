@@ -6,9 +6,9 @@
 # The CLI resolves the template path against the process cwd, so the
 # tauri.conf.json value assumes the canonical invocation: `bun run tauri`
 # from apps/desktop.
-name: lux
+name: {{app.name}}
 options:
-  bundleIdPrefix: com.johncarmack.lux
+  bundleIdPrefix: {{app.identifier}}
   # Pinned rather than templated: bundle > iOS > minimumSystemVersion is unset
   # (the CLI default drifted to 13.0 after this project scaffolded at 14.0).
   deploymentTarget:
@@ -19,15 +19,15 @@ options:
   # breaks the Rust build phase, auto-architectures fights the per-arch
   # libapp.a layout).
   xcodeVersion: "26.6"
-fileGroups: [../../src]
+fileGroups: [{{join file-groups}}]
 configs:
   debug: debug
   release: release
 settingGroups:
   app:
     base:
-      PRODUCT_NAME: lux
-      PRODUCT_BUNDLE_IDENTIFIER: com.johncarmack.lux
+      PRODUCT_NAME: {{app.stylized-name}}
+      PRODUCT_BUNDLE_IDENTIFIER: {{app.identifier}}
 targetTemplates:
   app:
     type: application
@@ -40,13 +40,13 @@ targetTemplates:
     settings:
       groups: [app]
 targets:
-  lux_iOS:
+  {{app.name}}_iOS:
     type: application
     platform: iOS
     # Keeps the generated product reference named lux.app (matching
     # PRODUCT_NAME and the scheme's runnable) — without it xcodegen names the
     # product after the target, and Xcode's Run action asserts on the mismatch.
-    productName: lux
+    productName: {{app.stylized-name}}
     sources:
       - path: Sources
       - path: Assets.xcassets
@@ -55,13 +55,17 @@ targets:
       # resource and the pbxproj stays independent of local build state.
       - path: Externals
         excludes: ["**"]
-      - path: lux_iOS
-      - path: assets
+      - path: {{app.name}}_iOS
+      - path: {{app.asset-dir}}
         buildPhase: resources
         type: folder
+      {{~#each asset-catalogs}}
+      - {{prefix-path this}}{{/each}}
+      {{~#each ios-additional-targets}}
+      - path: {{prefix-path this}}{{/each}}
       - path: LaunchScreen.storyboard
     info:
-      path: lux_iOS/Info.plist
+      path: {{app.name}}_iOS/Info.plist
       properties:
         LSRequiresIPhoneOS: true
         # xcodegen regenerates Info.plist from these properties — every custom
@@ -83,10 +87,12 @@ targets:
         # Cosmetic: `tauri ios build` restamps both values (source Info.plist
         # included) from tauri.conf.json's version on every build, so these only
         # need to be valid, not current.
-        CFBundleShortVersionString: 0.17.0
-        CFBundleVersion: "0.17.0"
+        CFBundleShortVersionString: {{apple.bundle-version-short}}
+        CFBundleVersion: "{{apple.bundle-version}}"
+        {{~#each apple.plist-pairs}}
+        {{this.key}}: {{this.value}}{{/each}}
     entitlements:
-      path: lux_iOS/lux_iOS.entitlements
+      path: {{app.name}}_iOS/{{app.name}}_iOS.entitlements
       # xcodegen regenerates this file from these properties on every build
       # (same as Info.plist above) — a key set only in the .entitlements file
       # is silently wiped. Multicast Networking is Apple-granted (request
@@ -97,6 +103,11 @@ targets:
       environmentVariables:
         RUST_BACKTRACE: full
         RUST_LOG: info
+      {{~#if ios-command-line-arguments}}
+      commandLineArguments:
+      {{~#each ios-command-line-arguments}}
+        "{{this}}": true
+      {{/each}}{{~/if}}
     settings:
       base:
         # Device signing: Xcode's automatic management, pinned to the team so
@@ -109,27 +120,42 @@ targets:
         # An accepted Xcode "recommended settings" pass once flipped this on.
         ENABLE_USER_SCRIPT_SANDBOXING: false
         ENABLE_BITCODE: false
-        ARCHS: [arm64]
-        VALID_ARCHS: arm64 
+        ARCHS: [{{join ios-valid-archs}}]
+        VALID_ARCHS: {{~#each ios-valid-archs}} {{this}} {{/each}}
         LIBRARY_SEARCH_PATHS[arch=x86_64]: $(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)
         LIBRARY_SEARCH_PATHS[arch=arm64]: $(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)
         ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: true
         EXCLUDED_ARCHS[sdk=iphoneos*]: x86_64
       groups: [app]
     dependencies:
-      - framework: libapp.a
+      - framework: {{ lib-output-file-name }}
         embed: false
+      {{~#each ios-libraries}}
+      - framework: {{this}}
+        embed: false{{/each}}{{#if ios-vendor-frameworks}}{{~#each ios-vendor-frameworks}}
+      - framework: {{this}}{{/each}}{{/if}}{{#if ios-vendor-sdks}}{{~#each ios-vendor-sdks}}
+      - sdk: {{prefix-path this}}{{/each}}{{/if}}
       - sdk: CoreGraphics.framework
       - sdk: Metal.framework
       - sdk: MetalKit.framework
       - sdk: QuartzCore.framework
       - sdk: Security.framework
-      - sdk: UIKit.framework
+      - sdk: UIKit.framework{{#if this.ios-frameworks}}{{~#each ios-frameworks}}
+      - sdk: {{this}}.framework{{/each}}{{/if}}
       - sdk: WebKit.framework
-    preBuildScripts:
-      - script: bun tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:-}" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}
+    preBuildScripts:{{#each ios-pre-build-scripts}}{{#if this.path}}
+      - path {{this.path}}{{/if}}{{#if this.script}}
+      - script: {{this.script}}{{/if}}{{#if this.name}}
+        name: {{this.name}}{{/if}}{{#if this.input-files}}
+        inputFiles: {{~#each this.input-files}}
+          - {{this}}{{/each}}{{/if}}{{#if this.output-files}}
+        outputFiles: {{~#each this.output-files}}
+          - {{this}}{{/each}}{{/if}}{{#if this.shell}}
+        shell: {{this.shell}}{{/if}}{{#if this.based-on-dependency-analysis}}
+        basedOnDependencyAnalysis: {{this.based-on-dependency-analysis}}{{/if}}{{/each}}
+      - script: {{ tauri-binary }} {{ tauri-binary-args-str }} -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:-}" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}
         name: Build Rust Code
         basedOnDependencyAnalysis: false
         outputFiles:
-          - $(SRCROOT)/Externals/x86_64/${CONFIGURATION}/libapp.a
-          - $(SRCROOT)/Externals/arm64/${CONFIGURATION}/libapp.a
+          - $(SRCROOT)/Externals/x86_64/${CONFIGURATION}/{{ lib-output-file-name }}
+          - $(SRCROOT)/Externals/arm64/${CONFIGURATION}/{{ lib-output-file-name }}
