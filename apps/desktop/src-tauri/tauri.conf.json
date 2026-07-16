@@ -1,6 +1,6 @@
 {
   "productName": "lux",
-  "version": "0.18.0",
+  "version": "1.1.0",
   "identifier": "com.johncarmack.lux",
   "build": {
     "beforeBuildCommand": "bun run build",
