@@ -185,14 +185,14 @@ export default function FixtureCard({
   }
 
   return (
-    // Vertical mode: the card hugs its fader strips instead of stretching to
-    // the container, so cards pack side by side in the scrolling bank. The
-    // surface click-toggles just like the collapsed form.
+    // Vertical mode: the card hugs its fader strips widthwise, packs side by
+    // side in the scrolling bank, and lets the strips absorb the bank's full
+    // height. The surface click-toggles just like the collapsed form.
     <section
       onClick={toggleOnSurfaceClick}
       className={cn(
         "cursor-pointer rounded-xl border bg-card p-5",
-        vertical && "w-fit shrink-0"
+        vertical && "flex min-h-0 w-fit shrink-0 flex-col"
       )}
     >
       <header className="mb-3 flex items-start justify-between gap-2">
@@ -258,7 +258,11 @@ export default function FixtureCard({
         </div>
       )}
 
-      <div className={vertical ? "flex gap-1" : "flex flex-col gap-0.5"}>
+      <div
+        className={
+          vertical ? "flex min-h-0 flex-1 gap-1" : "flex flex-col gap-0.5"
+        }
+      >
         {channels.map((channel, i) => (
           <FixtureChannel
             key={`${id}-${i}`}
