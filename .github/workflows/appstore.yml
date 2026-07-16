@@ -1,0 +1,77 @@
+# The deliberate "put this release on the App Store" step — one dispatch
+# click. Waits for the release's TestFlight builds to finish Apple-side
+# processing, creates both platforms' store versions, attaches the builds,
+# sets the human-approved What's New from apps/desktop/store-notes/<v>.md
+# (drafted on the release PR by store-notes.yml; the submit fails loudly if
+# the file is missing), and files review submissions with release-on-approval.
+#
+# Deliberately NOT wired to run on every release: TestFlight already ships
+# per-release, and store submissions carry review churn — the store release
+# is a choice, made here.
+name: appstore
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (X.Y.Z). Defaults to the latest release tag."
+        required: false
+
+permissions: {}
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      id-token: write # AWS OIDC, to read the ASC API key from lux/apple-signing
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Resolve version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${{ inputs.version }}"
+          if [ -z "$v" ]; then
+            v=$(gh api "repos/${{ github.repository }}/releases/latest" --jq .tag_name)
+            v="${v#v}"
+          fi
+          echo "resolved version: $v"
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: Require approved store notes
+        run: |
+          test -f "apps/desktop/store-notes/${VERSION}.md" || {
+            echo "::error::apps/desktop/store-notes/${VERSION}.md is missing — approve the drafted notes on the release PR (or write them) before submitting"
+            exit 1
+          }
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6
+        with:
+          role-to-assume: arn:aws:iam::735853783919:role/lux-release-signing
+          aws-region: us-west-1
+
+      - name: Load App Store Connect API key
+        run: |
+          s=$(aws secretsmanager get-secret-value --secret-id lux/apple-signing --query SecretString --output text)
+          printf '%s' "$s" | jq -r '.api_key' > "$RUNNER_TEMP/asc_api_key.p8"
+          key_id=$(printf '%s' "$s" | jq -r '.api_key_id')
+          issuer=$(printf '%s' "$s" | jq -r '.api_issuer_id')
+          echo "::add-mask::$key_id"
+          echo "::add-mask::$issuer"
+          {
+            echo "ASC_KEY_PATH=$RUNNER_TEMP/asc_api_key.p8"
+            echo "ASC_KEY_ID=$key_id"
+            echo "ASC_ISSUER_ID=$issuer"
+          } >> "$GITHUB_ENV"
+
+      - name: Submit to both App Stores
+        run: bun scripts/appstore-submit.ts --version "$VERSION"
