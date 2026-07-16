@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ChevronsDownUp, ChevronsUpDown, Trash2 } from "lucide-react";
+import {
+  ChevronsDownUp,
+  ChevronsLeftRight,
+  ChevronsRightLeft,
+  ChevronsUpDown,
+  Trash2,
+} from "lucide-react";
 import { createTauRPCProxy, type Fixture } from "@/bindings";
 import useLuxRefresh from "@/hooks/useLuxRefresh";
 import { cn } from "@/lib/utils";
@@ -36,13 +42,16 @@ export default function FixtureCard({
   vertical: boolean;
 }) {
   const { id, name, address, channels } = fixture;
-  const end = address + channels.length - 1;
   const hasColor = COLOR_ROLES.every((role) =>
     channels.some((c) => c.role === role)
   );
   const dimmerIndex = channels.findIndex((c) => c.role === "Brightness");
 
   const [expanded, setExpanded] = useState(true);
+  // The collapse axis follows the layout: the vertical console shrinks a card
+  // sideways, the horizontal list shrinks it downward — the icons say which.
+  const CollapseIcon = vertical ? ChevronsRightLeft : ChevronsDownUp;
+  const ExpandIcon = vertical ? ChevronsLeftRight : ChevronsUpDown;
 
   const refresh = useLuxRefresh();
 
@@ -68,8 +77,32 @@ export default function FixtureCard({
       .catch((e) => toast.error(String(e)));
   };
 
-  const span =
-    channels.length === 1 ? `Channel ${address}` : `Channels ${address}-${end}`;
+  // Inline-editable start channel, same interaction as the name. The channel
+  // count comes from the channel defs, so the range moves as one block; the
+  // backend validates bounds and overlaps and its message surfaces as a toast.
+  const [addressDraft, setAddressDraft] = useState(String(address));
+  useEffect(() => setAddressDraft(String(address)), [address]);
+
+  const readdress = (next: string) => {
+    const parsed = Number.parseInt(next.trim(), 10);
+    if (!Number.isFinite(parsed) || parsed < 1 || parsed === address) {
+      setAddressDraft(String(address));
+      return;
+    }
+    createTauRPCProxy()
+      .cmd.update_fixture(id, name, parsed, channels)
+      .then(refresh)
+      .catch((e) => {
+        setAddressDraft(String(address));
+        toast.error(String(e));
+      });
+  };
+
+  // The span's end previews the draft while it's a plausible start.
+  const parsedDraft = Number.parseInt(addressDraft, 10);
+  const previewStart =
+    Number.isFinite(parsedDraft) && parsedDraft >= 1 ? parsedDraft : address;
+  const previewEnd = previewStart + channels.length - 1;
 
   if (!expanded) {
     const expandButton = (
@@ -82,7 +115,7 @@ export default function FixtureCard({
         className="flex items-center gap-1 font-semibold transition-colors hover:text-muted-foreground"
       >
         {initials(name)}
-        <ChevronsUpDown className="size-3.5 text-muted-foreground/60" />
+        <ExpandIcon className="size-3.5 text-muted-foreground/60" />
       </button>
     );
     const dimmer = dimmerIndex >= 0 && (
@@ -147,8 +180,24 @@ export default function FixtureCard({
             aria-label="Fixture name"
             className="-ml-1 w-full truncate rounded-sm border border-transparent bg-transparent px-1 font-semibold outline-none transition-colors hover:border-border focus:border-border"
           />
-          <p className="px-1 text-xs tabular-nums text-muted-foreground">
-            {span}
+          <p className="flex items-center px-1 text-xs tabular-nums text-muted-foreground">
+            {channels.length === 1 ? "Channel" : "Channels"}
+            <input
+              value={addressDraft}
+              onChange={(e) => setAddressDraft(e.target.value)}
+              onBlur={() => readdress(addressDraft)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+                if (e.key === "Escape") {
+                  setAddressDraft(String(address));
+                  e.currentTarget.blur();
+                }
+              }}
+              inputMode="numeric"
+              aria-label="Fixture start channel"
+              className="ml-1 w-9 rounded-sm border border-transparent bg-transparent px-1 text-xs tabular-nums outline-none transition-colors hover:border-border focus:border-border"
+            />
+            {channels.length > 1 && <span>-{previewEnd}</span>}
           </p>
         </div>
         <Button
@@ -159,7 +208,7 @@ export default function FixtureCard({
           aria-expanded
           onClick={() => setExpanded(false)}
         >
-          <ChevronsDownUp className="size-4" />
+          <CollapseIcon className="size-4" />
         </Button>
         <Button
           variant="ghost"
