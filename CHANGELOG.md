@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.18.0](https://github.com/johncarmack1984/lux/compare/v0.17.0...v0.18.0) (2026-07-16)
+
+
+### Features
+
+* slider orientation setting with a vertical console desk default ([#142](https://github.com/johncarmack1984/lux/issues/142)) ([6f7b3e6](https://github.com/johncarmack1984/lux/commit/6f7b3e61d15615f78a86a5d8a6feb72dfb06e202))
+
+
+### Bug Fixes
+
+* collapsible fixture cards ([#144](https://github.com/johncarmack1984/lux/issues/144)) ([0966fa4](https://github.com/johncarmack1984/lux/commit/0966fa459874d1cee0baf51a3f3cefff5471d273))
+
 ## [0.17.0](https://github.com/johncarmack1984/lux/compare/v0.16.0...v0.17.0) (2026-07-10)
 
 
