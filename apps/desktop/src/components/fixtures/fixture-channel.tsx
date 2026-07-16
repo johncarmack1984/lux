@@ -91,9 +91,13 @@ export default function FixtureChannel({
         >
           {values[0].toString().padStart(3, "0")}
         </button>
-        {/* min-h floors the fader; flex-1 lets it fill taller cards (a
-            collapsed card stretched level with its expanded neighbors). */}
-        <div className="min-h-36 flex-1 pt-1">{slider}</div>
+        {/* h-36 is the fader's base height AND the definite box the slider's
+            internal h-full resolves against (a min-height-derived height is
+            not "definite" to WebKit, which zeroes the track). `grow` — not
+            flex-1, whose basis:0 would override the height — lets the fader
+            fill taller cards (a collapsed card stretched level with its
+            expanded neighbors). */}
+        <div className="h-36 grow pt-1">{slider}</div>
       </div>
     );
   }
