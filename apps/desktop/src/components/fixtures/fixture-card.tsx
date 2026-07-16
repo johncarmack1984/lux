@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { ChevronsDownUp, ChevronsRightLeft, Trash2 } from "lucide-react";
 import { createTauRPCProxy, type Fixture } from "@/bindings";
 import useLuxRefresh from "@/hooks/useLuxRefresh";
+import { setFixtureCollapsed } from "@/lib/actions";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import FixtureChannel from "./fixture-channel";
@@ -10,20 +11,58 @@ import FixtureColor from "./fixture-color";
 
 const COLOR_ROLES = ["Red", "Green", "Blue"] as const;
 
+/** "Living Room" → "LR", "Fixture 12" → "F12": word initials, whole numbers. */
+function initials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .map((word) => (/^\d+$/.test(word) ? word : word[0].toUpperCase()))
+    .join("")
+    .slice(0, 4);
+}
+
+/**
+ * One patched fixture. Expanded: inline-renamable name, delete, the color
+ * wheel, and every channel. Collapsed: just the live essentials — the name's
+ * initials, the color wheel, and the Brightness fader (when the fixture has
+ * one); everything editorial waits behind expand.
+ */
 export default function FixtureCard({
   fixture,
   buffer,
   vertical,
+  collapsed,
 }: {
   fixture: Fixture;
   buffer: number[] | null;
   vertical: boolean;
+  collapsed: boolean;
 }) {
   const { id, name, address, channels } = fixture;
-  const end = address + channels.length - 1;
   const hasColor = COLOR_ROLES.every((role) =>
     channels.some((c) => c.role === role)
   );
+  const dimmerIndex = channels.findIndex((c) => c.role === "Brightness");
+
+  // Collapse state persists (device-local, in setups.json); the view owns the
+  // source of truth and this just requests the flip.
+  const setCollapsed = (next: boolean) =>
+    setFixtureCollapsed(id, next).catch((e) => toast.error(String(e)));
+
+  // Both states toggle on a surface click. Interactive controls handle their
+  // own clicks (`.touch-none` is the slider root — track clicks start a
+  // drag; the picker popover is portaled so its clicks never reach the
+  // card), and a click that ends a text selection (dragging through the
+  // name/address inputs) is not a toggle.
+  const toggleOnSurfaceClick = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("button, input, [role='slider'], .touch-none")) return;
+    if (window.getSelection()?.toString()) return;
+    setCollapsed(!collapsed);
+  };
+  // The collapse axis follows the layout: the vertical console shrinks a card
+  // sideways, the horizontal list shrinks it downward — the icon says which.
+  const CollapseIcon = vertical ? ChevronsRightLeft : ChevronsDownUp;
 
   const refresh = useLuxRefresh();
 
@@ -49,16 +88,111 @@ export default function FixtureCard({
       .catch((e) => toast.error(String(e)));
   };
 
-  const span =
-    channels.length === 1 ? `Channel ${address}` : `Channels ${address}-${end}`;
+  // Inline-editable start channel, same interaction as the name. The channel
+  // count comes from the channel defs, so the range moves as one block; the
+  // backend validates bounds and overlaps and its message surfaces as a toast.
+  const [addressDraft, setAddressDraft] = useState(String(address));
+  useEffect(() => setAddressDraft(String(address)), [address]);
+
+  const readdress = (next: string) => {
+    const parsed = Number.parseInt(next.trim(), 10);
+    if (!Number.isFinite(parsed) || parsed < 1 || parsed === address) {
+      setAddressDraft(String(address));
+      return;
+    }
+    createTauRPCProxy()
+      .cmd.update_fixture(id, name, parsed, channels)
+      .then(refresh)
+      .catch((e) => {
+        setAddressDraft(String(address));
+        toast.error(String(e));
+      });
+  };
+
+  // The span's end previews the draft while it's a plausible start.
+  const parsedDraft = Number.parseInt(addressDraft, 10);
+  const previewStart =
+    Number.isFinite(parsedDraft) && parsedDraft >= 1 ? parsedDraft : address;
+  const previewEnd = previewStart + channels.length - 1;
+
+  // The collapsed card is the expanded card's anatomy at strip width: same
+  // padding and header row (initials + channel span where name + span sit),
+  // the color row in its usual slot, and the fader stretching so card
+  // bottoms stay level. The whole surface expands — no dedicated button;
+  // only the live controls (swatch, fader, value toggle) keep their jobs.
+  if (collapsed) {
+    const nameButton = (
+      <button
+        type="button"
+        onClick={() => setCollapsed(false)}
+        title={name}
+        aria-label={`Expand ${name}`}
+        aria-expanded={false}
+        className="truncate font-semibold transition-colors hover:text-muted-foreground"
+      >
+        {initials(name)}
+      </button>
+    );
+    const spanLine = (
+      <p className="text-xs tabular-nums text-muted-foreground">
+        {channels.length === 1 ? address : `${address}-${previewEnd}`}
+      </p>
+    );
+    const dimmer = dimmerIndex >= 0 && (
+      <FixtureChannel
+        address={address + dimmerIndex}
+        role={channels[dimmerIndex].role}
+        label={channels[dimmerIndex].label}
+        value={buffer?.[address + dimmerIndex - 1] ?? 0}
+        vertical={vertical}
+        hideLabel
+      />
+    );
+
+    if (vertical) {
+      return (
+        <section
+          onClick={toggleOnSurfaceClick}
+          className="flex w-fit shrink-0 cursor-pointer flex-col items-center rounded-xl border bg-card p-5"
+        >
+          <header className="mb-3 flex flex-col items-center">
+            {nameButton}
+            {spanLine}
+          </header>
+          {hasColor && (
+            <div className="mb-1">
+              <FixtureColor fixture={fixture} buffer={buffer} label="" />
+            </div>
+          )}
+          <div className="flex min-h-0 flex-1">{dimmer}</div>
+        </section>
+      );
+    }
+    return (
+      <section
+        onClick={toggleOnSurfaceClick}
+        className="cursor-pointer rounded-xl border bg-card px-5 py-3"
+      >
+        <div className="flex items-center gap-3">
+          {nameButton}
+          {hasColor && (
+            <FixtureColor fixture={fixture} buffer={buffer} label="" />
+          )}
+          <div className="min-w-0 flex-1">{dimmer}</div>
+        </div>
+      </section>
+    );
+  }
 
   return (
-    // Vertical mode: the card hugs its fader strips instead of stretching to
-    // the container, so cards pack side by side in the scrolling bank.
+    // Vertical mode: the card hugs its fader strips widthwise, packs side by
+    // side in the scrolling bank, and lets the strips absorb the bank's full
+    // height. The surface click-toggles just like the collapsed form.
     <section
+      onClick={toggleOnSurfaceClick}
       className={cn(
-        "rounded-xl border bg-card p-5",
-        vertical && "w-fit shrink-0"
+        "cursor-pointer rounded-xl border bg-card p-5",
+        vertical && "flex min-h-0 w-fit shrink-0 flex-col"
       )}
     >
       <header className="mb-3 flex items-start justify-between gap-2">
@@ -77,10 +211,36 @@ export default function FixtureCard({
             aria-label="Fixture name"
             className="-ml-1 w-full truncate rounded-sm border border-transparent bg-transparent px-1 font-semibold outline-none transition-colors hover:border-border focus:border-border"
           />
-          <p className="px-1 text-xs tabular-nums text-muted-foreground">
-            {span}
+          <p className="flex items-center px-1 text-xs tabular-nums text-muted-foreground">
+            {channels.length === 1 ? "Channel" : "Channels"}
+            <input
+              value={addressDraft}
+              onChange={(e) => setAddressDraft(e.target.value)}
+              onBlur={() => readdress(addressDraft)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+                if (e.key === "Escape") {
+                  setAddressDraft(String(address));
+                  e.currentTarget.blur();
+                }
+              }}
+              inputMode="numeric"
+              aria-label="Fixture start channel"
+              className="ml-1 w-9 rounded-sm border border-transparent bg-transparent px-1 text-xs tabular-nums outline-none transition-colors hover:border-border focus:border-border"
+            />
+            {channels.length > 1 && <span>-{previewEnd}</span>}
           </p>
         </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8 shrink-0 text-muted-foreground/60 hover:text-foreground"
+          aria-label={`Collapse ${name}`}
+          aria-expanded
+          onClick={() => setCollapsed(true)}
+        >
+          <CollapseIcon className="size-4" />
+        </Button>
         <Button
           variant="ghost"
           size="icon"
@@ -98,7 +258,11 @@ export default function FixtureCard({
         </div>
       )}
 
-      <div className={vertical ? "flex gap-1" : "flex flex-col gap-0.5"}>
+      <div
+        className={
+          vertical ? "flex min-h-0 flex-1 gap-1" : "flex flex-col gap-0.5"
+        }
+      >
         {channels.map((channel, i) => (
           <FixtureChannel
             key={`${id}-${i}`}

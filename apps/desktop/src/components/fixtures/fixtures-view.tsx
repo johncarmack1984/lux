@@ -1,6 +1,8 @@
 import useFixtures from "@/hooks/useFixtures";
 import useBuffer from "@/hooks/useBuffer";
+import useCollapsedFixtures from "@/hooks/useCollapsedFixtures";
 import useSettings from "@/hooks/useSettings";
+import { cn } from "@/lib/utils";
 import FixtureCard from "./fixture-card";
 import NewFixture from "./new-fixture";
 
@@ -8,12 +10,21 @@ export default function FixturesView() {
   const fixtures = useFixtures();
   const buffer = useBuffer();
   // Read once here and pass down, so N cards don't each subscribe; like the
-  // desk, wait for the read so the stored layout is the first one painted.
+  // desk, wait for the reads so the stored layout is the first one painted.
   const settings = useSettings();
+  const collapsed = useCollapsedFixtures();
   const count = fixtures?.length ?? 0;
+  const vertical =
+    settings !== null && (settings.sliderOrientation ?? "vertical") === "vertical";
 
   return (
-    <div className="flex w-full max-w-2xl flex-col gap-5 px-4 pb-16 pt-2">
+    // Vertical console mode fills the available height; the faders absorb it.
+    <div
+      className={cn(
+        "flex w-full max-w-2xl flex-col gap-5 px-4 pb-16 pt-2",
+        vertical && "min-h-0 flex-1"
+      )}
+    >
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           {fixtures === null
@@ -25,17 +36,19 @@ export default function FixturesView() {
 
       {fixtures !== null &&
         settings !== null &&
+        collapsed !== null &&
         (fixtures.length === 0 ? (
           <div className="rounded-xl border border-dashed py-16 text-center text-sm text-muted-foreground">
             No fixtures patched yet. Add one to get started.
           </div>
         ) : (
           // Vertical faders make the whole view a console: cards sit side by
-          // side at content width and the bank scrolls sideways.
+          // side at content width, stretched to the bank's full height, and
+          // the bank scrolls sideways.
           <div
             className={
-              (settings.sliderOrientation ?? "vertical") === "vertical"
-                ? "flex gap-4 overflow-x-auto pb-2"
+              vertical
+                ? "flex min-h-0 flex-1 gap-4 overflow-x-auto pb-2"
                 : "flex flex-col gap-4"
             }
           >
@@ -46,9 +59,8 @@ export default function FixturesView() {
                   key={fixture.id}
                   fixture={fixture}
                   buffer={buffer}
-                  vertical={
-                    (settings.sliderOrientation ?? "vertical") === "vertical"
-                  }
+                  vertical={vertical}
+                  collapsed={collapsed.has(fixture.id)}
                 />
               ))}
           </div>

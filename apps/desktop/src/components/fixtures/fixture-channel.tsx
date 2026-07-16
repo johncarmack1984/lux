@@ -30,12 +30,16 @@ export default function FixtureChannel({
   label,
   value,
   vertical = false,
+  hideLabel = false,
 }: {
   address: number;
   role: LuxLabelColor;
   label: string;
   value: number;
   vertical?: boolean;
+  /** Skip the visible label (collapsed cards — the fader is self-evident);
+   * the accessible name keeps it either way. */
+  hideLabel?: boolean;
 }) {
   const [values, setValues] = useState([value]);
   useEffect(() => setValues([value]), [value]);
@@ -71,12 +75,14 @@ export default function FixtureChannel({
 
   if (vertical) {
     return (
-      <div className="flex w-14 shrink-0 flex-col items-center gap-1.5 py-1">
+      <div className="flex h-full w-14 shrink-0 flex-col items-center gap-1.5 py-1">
         <span className="text-xs tabular-nums text-muted-foreground/60">
           {address}
         </span>
         <span className={cn("size-2.5 shrink-0 rounded-full", ROLE_DOT[role])} />
-        <span className="w-full truncate text-center text-xs">{label}</span>
+        {!hideLabel && (
+          <span className="w-full truncate text-center text-xs">{label}</span>
+        )}
         <button
           type="button"
           onClick={toggle}
@@ -85,8 +91,13 @@ export default function FixtureChannel({
         >
           {values[0].toString().padStart(3, "0")}
         </button>
-        {/* The strip sets the fader's height; the slider fills it. */}
-        <div className="h-36 pt-1">{slider}</div>
+        {/* h-36 is the fader's base height AND the definite box the slider's
+            internal h-full resolves against (a min-height-derived height is
+            not "definite" to WebKit, which zeroes the track). `grow` — not
+            flex-1, whose basis:0 would override the height — lets the fader
+            fill taller cards (a collapsed card stretched level with its
+            expanded neighbors). */}
+        <div className="h-36 grow pt-1">{slider}</div>
       </div>
     );
   }
@@ -97,7 +108,9 @@ export default function FixtureChannel({
         {address}
       </span>
       <span className={cn("size-2.5 shrink-0 rounded-full", ROLE_DOT[role])} />
-      <span className="w-16 shrink-0 truncate text-sm">{label}</span>
+      {!hideLabel && (
+        <span className="w-16 shrink-0 truncate text-sm">{label}</span>
+      )}
       {slider}
       <button
         type="button"

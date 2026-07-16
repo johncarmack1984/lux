@@ -26,11 +26,28 @@ export default function ColorTrigger({
   const light = colord(fill).lighten(luminance).toRgbString();
   const background = `radial-gradient(${light} 0, ${fill} ${spread}%)`;
   const boxShadow = `0 0 ${spread}px ${light}`;
+  // The swatch is always the 44px minimum touch target — the same circle
+  // whether the card is expanded or collapsed. label="" renders it bare with
+  // zero padding, so the hit area is exactly the visible circle — no
+  // invisible margin to open the picker by accident.
+  const bare = !label;
   return (
     <PopoverTrigger asChild>
-      <Button variant="ghost" className={cn("gap-3", className)}>
-        {label}
-        <div className="size-7 rounded-full" style={{ background, boxShadow }} />
+      <Button
+        variant="ghost"
+        aria-label={label || "Color"}
+        className={cn(
+          bare ? "size-11 rounded-full p-0" : "h-auto gap-3 py-1.5",
+          className
+        )}
+      >
+        {label || null}
+        {/* The faint ring keeps the swatch findable at blackout (a black
+            glow-less circle would vanish into the card). */}
+        <div
+          className="size-11 rounded-full border border-border/60"
+          style={{ background, boxShadow }}
+        />
       </Button>
     </PopoverTrigger>
   );
