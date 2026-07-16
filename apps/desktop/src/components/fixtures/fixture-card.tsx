@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import { createTauRPCProxy, type Fixture } from "@/bindings";
 import useLuxRefresh from "@/hooks/useLuxRefresh";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import FixtureChannel from "./fixture-channel";
 import FixtureColor from "./fixture-color";
@@ -12,9 +13,11 @@ const COLOR_ROLES = ["Red", "Green", "Blue"] as const;
 export default function FixtureCard({
   fixture,
   buffer,
+  vertical,
 }: {
   fixture: Fixture;
   buffer: number[] | null;
+  vertical: boolean;
 }) {
   const { id, name, address, channels } = fixture;
   const end = address + channels.length - 1;
@@ -50,7 +53,14 @@ export default function FixtureCard({
     channels.length === 1 ? `Channel ${address}` : `Channels ${address}-${end}`;
 
   return (
-    <section className="rounded-xl border bg-card p-5">
+    // Vertical mode: the card hugs its fader strips instead of stretching to
+    // the container, so cards pack side by side in the scrolling bank.
+    <section
+      className={cn(
+        "rounded-xl border bg-card p-5",
+        vertical && "w-fit shrink-0"
+      )}
+    >
       <header className="mb-3 flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <input
@@ -88,7 +98,7 @@ export default function FixtureCard({
         </div>
       )}
 
-      <div className="flex flex-col gap-0.5">
+      <div className={vertical ? "flex gap-1" : "flex flex-col gap-0.5"}>
         {channels.map((channel, i) => (
           <FixtureChannel
             key={`${id}-${i}`}
@@ -96,6 +106,7 @@ export default function FixtureCard({
             role={channel.role}
             label={channel.label}
             value={buffer?.[address + i - 1] ?? 0}
+            vertical={vertical}
           />
         ))}
       </div>

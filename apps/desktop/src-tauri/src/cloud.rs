@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use lux_wire::{
     DeleteUserDataResponse, ListSetupsResponse, SetupRecord, TombstoneResponse, UpsertSetupBody,
-    WriteResponse,
+    UpsertSettingsBody, WriteResponse,
 };
 use reqwest::{Client, StatusCode};
 use serde::de::DeserializeOwned;
@@ -33,6 +33,7 @@ use uuid::Uuid;
 
 use crate::account::LuxAccount;
 use crate::cmd::CmdEvent;
+use crate::settings::UserSettings;
 use crate::setup::{LuxSetups, PendingDelete, Setup};
 
 // --- sync status (drives the UI indicator) -----------------------------------
@@ -61,6 +62,12 @@ pub struct LuxSync {
     in_flight: AtomicBool,
     /// Held while a backoff retry loop is alive, so only one runs at a time.
     retrying: AtomicBool,
+    /// Set when `PUT /settings` 404s — a sync-api from before settings existed
+    /// (a dev build against prod, or a backend rollback). Settings sync pauses
+    /// for the session instead of pinning the indicator at Offline with a
+    /// doomed retry loop; setups keep syncing. Cleared only by restart, which
+    /// retries the claim once against a possibly-upgraded server.
+    settings_unsupported: AtomicBool,
 }
 
 impl LuxSync {
@@ -82,6 +89,8 @@ enum SyncError {
     Unauthorized,
     /// Conditional write lost a race; reconcile on the next pull.
     Conflict,
+    /// The server doesn't know the route — an older deployment.
+    NotFound,
     Other(String),
 }
 
@@ -90,6 +99,7 @@ impl std::fmt::Display for SyncError {
         match self {
             SyncError::Unauthorized => write!(f, "unauthorized"),
             SyncError::Conflict => write!(f, "conflict"),
+            SyncError::NotFound => write!(f, "not found"),
             SyncError::Other(e) => write!(f, "{e}"),
         }
     }
@@ -160,17 +170,20 @@ fn reconcile(local: Vec<Setup>, remote: &[SetupRecord]) -> Vec<Setup> {
     merged
 }
 
+// The settings counterpart lives in `crate::settings::reconcile`, applied
+// atomically under the store lock by `LuxSetups::merge_remote_settings`.
+
 // --- HTTP (one call each; owned token so the future is self-contained) -------
 
-async fn list(client: &Client, base: &str, token: String) -> Result<Vec<SetupRecord>, SyncError> {
+/// The whole pull: setups plus the settings record, one request.
+async fn list(client: &Client, base: &str, token: String) -> Result<ListSetupsResponse, SyncError> {
     let resp = client
         .get(format!("{base}/{}", lux_wire::SETUPS_SEGMENT))
         .bearer_auth(token)
         .send()
         .await
         .map_err(|e| SyncError::Other(e.to_string()))?;
-    let body: ListSetupsResponse = read_json(resp).await?;
-    Ok(body.setups)
+    read_json(resp).await
 }
 
 async fn upsert(
@@ -219,6 +232,27 @@ async fn tombstone(
     Ok(())
 }
 
+async fn upsert_settings(
+    client: &Client,
+    base: &str,
+    token: String,
+    settings: &UserSettings,
+    base_updated_at: Option<i64>,
+) -> Result<WriteResponse, SyncError> {
+    let body = UpsertSettingsBody {
+        data: serde_json::to_value(settings).map_err(|e| SyncError::Other(e.to_string()))?,
+        base_updated_at,
+    };
+    let resp = client
+        .put(format!("{base}/{}", lux_wire::SETTINGS_SEGMENT))
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| SyncError::Other(e.to_string()))?;
+    read_json(resp).await
+}
+
 async fn delete_user_data(
     client: &Client,
     base: &str,
@@ -237,6 +271,7 @@ async fn read_json<T: DeserializeOwned>(resp: reqwest::Response) -> Result<T, Sy
     match resp.status() {
         StatusCode::UNAUTHORIZED => Err(SyncError::Unauthorized),
         StatusCode::CONFLICT => Err(SyncError::Conflict),
+        StatusCode::NOT_FOUND => Err(SyncError::NotFound),
         status if status.is_success() => resp
             .json::<T>()
             .await
@@ -257,10 +292,22 @@ async fn refresh(app: &AppHandle) -> Result<String, SyncError> {
         .map_err(SyncError::Other)
 }
 
-/// Push every dirty setup, then flush pending delete tombstones. On a 401 the
-/// token is refreshed once and the call retried. Conflicts are left for the next
-/// pull to reconcile. Persists the store afterward so cleared dirty flags stick.
+/// Push every dirty setup, then flush pending delete tombstones and the
+/// settings blob. On a 401 the token is refreshed once and the call retried.
+/// Conflicts are left for the next pull to reconcile. Persists the store
+/// afterward so cleared dirty flags stick.
 async fn push_all(app: &AppHandle, client: &Client, base: &str, token: &mut String) {
+    // Never push a store bound to a *different* account than the one signed
+    // in: between a new account signing in and `pull_and_push` rebinding the
+    // store, everything in it is still the previous user's — a push landing in
+    // that window (a background retry loop, a mutation-triggered push) would
+    // claim their data into the new account. The pull path stays open (it is
+    // what rebinds); its own push_all call runs after the rebind.
+    let bound = app.state::<LuxSetups>().bound_email();
+    if bound.is_some() && bound != app.state::<LuxAccount>().email() {
+        return;
+    }
+
     for setup in app.state::<LuxSetups>().dirty_for_push() {
         let mut result = upsert(client, base, token.clone(), &setup).await;
         if matches!(result, Err(SyncError::Unauthorized)) {
@@ -299,7 +346,48 @@ async fn push_all(app: &AppHandle, client: &Client, base: &str, token: &mut Stri
         }
     }
 
+    if let Some((settings, base_updated_at)) = settings_to_push(app) {
+        let mut result = upsert_settings(client, base, token.clone(), &settings, base_updated_at).await;
+        if matches!(result, Err(SyncError::Unauthorized)) {
+            if let Ok(fresh) = refresh(app).await {
+                *token = fresh;
+                result =
+                    upsert_settings(client, base, token.clone(), &settings, base_updated_at).await;
+            }
+        }
+        match result {
+            Ok(w) => app
+                .state::<LuxSetups>()
+                .mark_settings_pushed(settings, w.updated_at),
+            Err(SyncError::Conflict) => {
+                log::info!("settings push conflict; reconciling on next pull")
+            }
+            Err(SyncError::NotFound) => {
+                log::info!("sync-api has no settings route yet; pausing settings sync this session");
+                app.state::<LuxSync>()
+                    .settings_unsupported
+                    .store(true, Ordering::SeqCst);
+            }
+            Err(e) => log::warn!("settings push failed: {e}"),
+        }
+    }
+
     crate::setup::save(app, &app.state::<LuxSetups>());
+}
+
+/// The pending settings push, unless the server already told us it has no
+/// settings route (see [`LuxSync::settings_unsupported`]) — without that gate a
+/// pre-settings server would pin the indicator at Offline behind a doomed
+/// retry loop.
+fn settings_to_push(app: &AppHandle) -> Option<(UserSettings, Option<i64>)> {
+    if app
+        .state::<LuxSync>()
+        .settings_unsupported
+        .load(Ordering::SeqCst)
+    {
+        return None;
+    }
+    app.state::<LuxSetups>().settings_for_push()
 }
 
 /// Pull the account's setups, reconcile them into the local store (claiming
@@ -325,7 +413,11 @@ async fn pull_and_push(app: &AppHandle) {
         .is_some_and(|bound| bound != email);
 
     let client = Client::new();
-    let remote = match list(&client, &base, token.clone()).await {
+    // One request pulls everything: the setups and the settings record. A
+    // failed pull degrades to "no remote" — nothing is adopted, and the push
+    // side can't clobber newer remote state because its conditional writes
+    // still carry their concurrency bases.
+    let pulled = match list(&client, &base, token.clone()).await {
         Err(SyncError::Unauthorized) => {
             let Ok(fresh) = refresh(app).await else {
                 log::warn!("sync pull failed: could not refresh token");
@@ -338,20 +430,27 @@ async fn pull_and_push(app: &AppHandle) {
     }
     .unwrap_or_else(|e| {
         log::warn!("sync pull failed: {e}");
-        Vec::new()
+        ListSetupsResponse {
+            setups: Vec::new(),
+            settings: None,
+        }
     });
 
-    // For a different account, start from their cloud state only (don't merge the
-    // previous user's local setups, and don't push them to this account).
+    // For a different account, start from their cloud state only: don't merge
+    // the previous user's local setups (or push them to this account), and
+    // drop their settings values and sync metadata entirely.
     let local = if different_account {
         app.state::<LuxSetups>().reset_for_new_account();
+        app.state::<LuxSetups>().reset_settings_for_account_switch();
         Vec::new()
     } else {
         app.state::<LuxSetups>().all()
     };
 
-    let merged = reconcile(local, &remote);
+    let merged = reconcile(local, &pulled.setups);
     app.state::<LuxSetups>().replace_with_merged(merged, email);
+    app.state::<LuxSetups>()
+        .merge_remote_settings(pulled.settings.as_ref());
     crate::cmd::broadcast_synced_state(app);
 
     push_all(app, &client, &base, &mut token).await;
@@ -391,10 +490,12 @@ fn syncable(app: &AppHandle) -> bool {
 }
 
 /// True when nothing is waiting to reach the cloud (no dirty setups, no pending
-/// delete tombstones).
+/// delete tombstones, no pushable settings).
 fn fully_flushed(app: &AppHandle) -> bool {
     let setups = app.state::<LuxSetups>();
-    setups.dirty_for_push().is_empty() && setups.pending_deletes().is_empty()
+    setups.dirty_for_push().is_empty()
+        && setups.pending_deletes().is_empty()
+        && settings_to_push(app).is_none()
 }
 
 /// Close out a push/pull cycle: `Synced` if everything reached the cloud, else
@@ -625,6 +726,7 @@ mod tests {
 
             let remote = list(&client, &base, token.clone()).await.expect("list");
             let found = remote
+                .setups
                 .iter()
                 .find(|c| c.id == id.to_string())
                 .expect("setup present after upsert");

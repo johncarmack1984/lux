@@ -24,6 +24,6 @@ The code is environment-agnostic: every environment value — Cognito pool/clien
 
 ## Sync model (server-authoritative, nudged pull)
 
-Setups are edited locally (offline-first) and pushed with optimistic concurrency; the server assigns `updatedAt` (last-writer-wins) and deletes are soft tombstones. Pulls reconcile on sign-in, startup, window focus, and reconnect, with exponential-backoff retry while offline.
+Setups — and the user's settings blob, which syncs whole as a single record — are edited locally (offline-first) and pushed with optimistic concurrency; the server assigns `updatedAt` (last-writer-wins) and setup deletes are soft tombstones. Pulls reconcile on sign-in, startup, window focus, and reconnect, with exponential-backoff retry while offline.
 
 After each committed write the sync-api publishes a tiny opaque frame to the writer's own topic (`lux/sync/user/<sub>`). Each signed-in device keeps one open MQTT-over-WebSocket connection to IoT Core (`nudge.rs`), authorized per-user by the `lux-sync-auth` custom authorizer, and treats **any** frame as "pull now" — the frame is never parsed; the HTTP pull stays the authoritative sync. IoT Core is the connection holder, so the estate stays serverless while getting standing-connection push.

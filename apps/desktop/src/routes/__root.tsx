@@ -3,6 +3,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { Updater } from "@/components/updater";
 import SetupSwitcher from "@/components/setup-switcher";
 import AccountMenu from "@/components/account-menu";
+import SettingsMenu from "@/components/settings-menu";
 import SyncIndicator from "@/components/sync-indicator";
 import useSyncOnFocus from "@/hooks/useSyncOnFocus";
 
@@ -29,6 +30,7 @@ function RootLayout() {
           </Link>
           <div className="ml-auto flex items-center gap-3">
             <SyncIndicator />
+            <SettingsMenu />
             <AccountMenu />
           </div>
         </nav>

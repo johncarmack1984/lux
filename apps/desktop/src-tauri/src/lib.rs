@@ -15,6 +15,7 @@ mod lock;
 mod logger;
 mod nudge;
 mod remote;
+mod settings;
 mod setup;
 mod sync;
 #[cfg(desktop)]

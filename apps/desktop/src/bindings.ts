@@ -85,6 +85,16 @@ export const cmd = {
   },
 
   /** @throws {string} */
+  get_settings(): Promise<UserSettings> {
+    return invoke("cmd.get_settings");
+  },
+
+  /** @throws {string} */
+  set_slider_orientation(orientation: SliderOrientation): Promise<UserSettings> {
+    return invoke("cmd.set_slider_orientation", { orientation });
+  },
+
+  /** @throws {string} */
   auth_status(): Promise<AuthStatus> {
     return invoke("cmd.auth_status");
   },
@@ -157,7 +167,7 @@ export const sync = {
   },
 };
 
-export type CmdEvent = { type: "channelDataSet"; channels: LuxChannel[] } | { type: "patchSet"; setup_id: string; fixtures: Fixture[] } | { type: "setupsChanged"; setups: SetupSummary[]; active_setup_id: string } | { type: "authChanged"; status: AuthStatus } | { type: "syncStatusChanged"; state: SyncState } | { type: "dmxDevicesChanged"; devices: DmxDeviceInfo[] };
+export type CmdEvent = { type: "channelDataSet"; channels: LuxChannel[] } | { type: "patchSet"; setup_id: string; fixtures: Fixture[] } | { type: "setupsChanged"; setups: SetupSummary[]; active_setup_id: string } | { type: "settingsChanged"; settings: UserSettings } | { type: "authChanged"; status: AuthStatus } | { type: "syncStatusChanged"; state: SyncState } | { type: "dmxDevicesChanged"; devices: DmxDeviceInfo[] };
 
 export type SyncEvent = { type: "bufferSet"; buffer: number[] };
 
@@ -168,6 +178,7 @@ export const events = {
         listen<{ channels: LuxChannel[] }>("cmd:channelDataSet", (event) => callback({ type: "channelDataSet", ...event.payload })),
         listen<{ setup_id: string; fixtures: Fixture[] }>("cmd:patchSet", (event) => callback({ type: "patchSet", ...event.payload })),
         listen<{ setups: SetupSummary[]; active_setup_id: string }>("cmd:setupsChanged", (event) => callback({ type: "setupsChanged", ...event.payload })),
+        listen<{ settings: UserSettings }>("cmd:settingsChanged", (event) => callback({ type: "settingsChanged", ...event.payload })),
         listen<{ status: AuthStatus }>("cmd:authChanged", (event) => callback({ type: "authChanged", ...event.payload })),
         listen<{ state: SyncState }>("cmd:syncStatusChanged", (event) => callback({ type: "syncStatusChanged", ...event.payload })),
         listen<{ devices: DmxDeviceInfo[] }>("cmd:dmxDevicesChanged", (event) => callback({ type: "dmxDevicesChanged", ...event.payload })),
@@ -266,6 +277,13 @@ export type SetupSummary = {
 	active: boolean,
 };
 
+/**
+ *  Which way the universe desk's faders run: vertical sliders in a
+ *  horizontally-scrolling desk (the classic lighting-console layout, and the
+ *  default), or horizontal sliders in a vertically-scrolling list.
+ */
+export type SliderOrientation = "vertical" | "horizontal";
+
 /**  Coarse cloud-sync state for the nav indicator. */
 export type SyncState = 
 /**  Signed out, or signed in with nothing left to sync. */
@@ -276,3 +294,12 @@ export type SyncState =
 "synced" | 
 /**  The last attempt couldn't reach the cloud; a backoff retry is running. */
 "offline";
+
+/**
+ *  The user's synced preferences. Add fields with
+ *  `#[serde(default, deserialize_with = "ok_or_default")]` only — see the
+ *  module docs for why.
+ */
+export type UserSettings = {
+	sliderOrientation?: SliderOrientation,
+};
