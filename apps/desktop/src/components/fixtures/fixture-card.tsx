@@ -125,6 +125,7 @@ export default function FixtureCard({
         label={channels[dimmerIndex].label}
         value={buffer?.[address + dimmerIndex - 1] ?? 0}
         vertical={vertical}
+        hideLabel
       />
     );
 
