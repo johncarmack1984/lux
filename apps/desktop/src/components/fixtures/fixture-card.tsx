@@ -1,12 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import {
-  ChevronsDownUp,
-  ChevronsLeftRight,
-  ChevronsRightLeft,
-  ChevronsUpDown,
-  Trash2,
-} from "lucide-react";
+import { ChevronsDownUp, ChevronsRightLeft, Trash2 } from "lucide-react";
 import { createTauRPCProxy, type Fixture } from "@/bindings";
 import useLuxRefresh from "@/hooks/useLuxRefresh";
 import { setFixtureCollapsed } from "@/lib/actions";
@@ -55,9 +49,8 @@ export default function FixtureCard({
   const setCollapsed = (next: boolean) =>
     setFixtureCollapsed(id, next).catch((e) => toast.error(String(e)));
   // The collapse axis follows the layout: the vertical console shrinks a card
-  // sideways, the horizontal list shrinks it downward — the icons say which.
+  // sideways, the horizontal list shrinks it downward — the icon says which.
   const CollapseIcon = vertical ? ChevronsRightLeft : ChevronsDownUp;
-  const ExpandIcon = vertical ? ChevronsLeftRight : ChevronsUpDown;
 
   const refresh = useLuxRefresh();
 
@@ -111,27 +104,26 @@ export default function FixtureCard({
   const previewEnd = previewStart + channels.length - 1;
 
   // The collapsed card is the expanded card's anatomy at strip width: same
-  // padding and header row (initials + channel span where name + span sit,
-  // the expand control in the collapse control's corner), the color row in
-  // its usual slot, and the fader stretching so card bottoms stay level.
+  // padding and header row (initials + channel span where name + span sit),
+  // the color row in its usual slot, and the fader stretching so card
+  // bottoms stay level. The whole surface expands — no dedicated button;
+  // only the live controls (swatch, fader, value toggle) keep their jobs.
   if (collapsed) {
-    const expandButton = (
-      <Button
-        variant="ghost"
-        size="icon"
-        className="size-8 shrink-0 text-muted-foreground/60 hover:text-foreground"
-        aria-label={`Expand ${name}`}
-        aria-expanded={false}
-        onClick={() => setCollapsed(false)}
-      >
-        <ExpandIcon className="size-4" />
-      </Button>
-    );
+    const expandOnSurfaceClick = (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // Interactive controls handle their own clicks. `.touch-none` is the
+      // slider root (track clicks start a drag); the picker popover is
+      // portaled, so its clicks never reach the card at all.
+      if (target.closest("button, input, [role='slider'], .touch-none")) return;
+      setCollapsed(false);
+    };
     const nameButton = (
       <button
         type="button"
         onClick={() => setCollapsed(false)}
         title={name}
+        aria-label={`Expand ${name}`}
+        aria-expanded={false}
         className="truncate font-semibold transition-colors hover:text-muted-foreground"
       >
         {initials(name)}
@@ -155,13 +147,13 @@ export default function FixtureCard({
 
     if (vertical) {
       return (
-        <section className="flex w-fit shrink-0 flex-col rounded-xl border bg-card p-5">
-          <header className="mb-3 flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              {nameButton}
-              {spanLine}
-            </div>
-            {expandButton}
+        <section
+          onClick={expandOnSurfaceClick}
+          className="flex w-fit shrink-0 cursor-pointer flex-col rounded-xl border bg-card p-5"
+        >
+          <header className="mb-3">
+            {nameButton}
+            {spanLine}
           </header>
           {hasColor && (
             <div className="mb-1">
@@ -173,14 +165,16 @@ export default function FixtureCard({
       );
     }
     return (
-      <section className="rounded-xl border bg-card px-5 py-3">
+      <section
+        onClick={expandOnSurfaceClick}
+        className="cursor-pointer rounded-xl border bg-card px-5 py-3"
+      >
         <div className="flex items-center gap-3">
           {nameButton}
           {hasColor && (
             <FixtureColor fixture={fixture} buffer={buffer} label="" />
           )}
           <div className="min-w-0 flex-1">{dimmer}</div>
-          {expandButton}
         </div>
       </section>
     );

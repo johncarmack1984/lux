@@ -26,20 +26,25 @@ export default function ColorTrigger({
   const light = colord(fill).lighten(luminance).toRgbString();
   const background = `radial-gradient(${light} 0, ${fill} ${spread}%)`;
   const boxShadow = `0 0 ${spread}px ${light}`;
+  // label="" renders a bare swatch (compact contexts): sized to the minimum
+  // touch target (44px) with zero padding, so the hit area is exactly the
+  // visible circle — no invisible margin to open the picker by accident.
+  const bare = !label;
   return (
     <PopoverTrigger asChild>
-      {/* label="" renders a bare swatch (compact contexts); keep it named
-          for screen readers either way. */}
       <Button
         variant="ghost"
         aria-label={label || "Color"}
-        className={cn("gap-3", className)}
+        className={cn(bare ? "size-11 rounded-full p-0" : "gap-3", className)}
       >
         {label || null}
         {/* The faint ring keeps the swatch findable at blackout (a black
             glow-less circle would vanish into the card). */}
         <div
-          className="size-7 rounded-full border border-border/60"
+          className={cn(
+            "rounded-full border border-border/60",
+            bare ? "size-11" : "size-7"
+          )}
           style={{ background, boxShadow }}
         />
       </Button>

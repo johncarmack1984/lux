@@ -91,11 +91,13 @@ export default function FixtureColor({
 
   return (
     <Popover>
+      {/* -ml-2 lines the labeled trigger's text up with card content; the
+          bare swatch has no padding to compensate for. */}
       <ColorTrigger
         color={color}
         luminance={luminance}
         label={label}
-        className="-ml-2"
+        className={label === "" ? undefined : "-ml-2"}
       />
       <PopoverContent align="start">
         <RgbaColorPicker className="mx-auto" color={color} onChange={onChange} />
