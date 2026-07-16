@@ -22,6 +22,10 @@ Every wire is declared once and drift-guarded — a mismatch is a compile/CI fai
 
 The code is environment-agnostic: every environment value — Cognito pool/client/region, the sync URL, the IoT nudge endpoint — lives in `apps/desktop/src-tauri/endpoints.prod.json`, machine-generated from Terraform outputs by `scripts/gen-endpoints`, committed, and embedded at compile time. It is drift-gated twice: infra PR plans regenerate and diff it, and the release apply re-checks it before any Lambda or artifact ships — so a stale value fails a check instead of shipping. A gitignored `endpoints.local.json` overrides any subset for dev stacks and carries machine-local config (remote-control device identity + mTLS material paths, the sACN interface override). There are no env files; the only hardcoded names in source are protocol identifiers owned by `lux-wire` (topic scheme, token header, authorizer name).
 
+## Versioning
+
+One number everywhere: the repo's semver (maintained by release-please from conventional commits) is stamped into the desktop bundle, the updater manifest, the TestFlight builds, and the App Store version string on both platforms. The 1.1.0 release realigned the repo (then 0.18.0) with the App Store releases, which launched as 1.0 on both platforms; store versions are created from the same three-component string, so the number a user sees in the store, the About panel, and the changelog is always the same one.
+
 ## Sync model (server-authoritative, nudged pull)
 
 Setups — and the user's settings blob, which syncs whole as a single record — are edited locally (offline-first) and pushed with optimistic concurrency; the server assigns `updatedAt` (last-writer-wins) and setup deletes are soft tombstones. Pulls reconcile on sign-in, startup, window focus, and reconnect, with exponential-backoff retry while offline.
