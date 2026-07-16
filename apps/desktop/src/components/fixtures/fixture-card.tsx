@@ -134,14 +134,15 @@ export default function FixtureCard({
         {channels.length === 1 ? address : `${address}-${previewEnd}`}
       </p>
     );
+    // Role-derived label: whatever the stored channel is called, the strip a
+    // collapsed card surfaces is the fixture's brightness by definition.
     const dimmer = dimmerIndex >= 0 && (
       <FixtureChannel
         address={address + dimmerIndex}
         role={channels[dimmerIndex].role}
-        label={channels[dimmerIndex].label}
+        label="Brightness"
         value={buffer?.[address + dimmerIndex - 1] ?? 0}
         vertical={vertical}
-        hideLabel
       />
     );
 
@@ -149,9 +150,9 @@ export default function FixtureCard({
       return (
         <section
           onClick={expandOnSurfaceClick}
-          className="flex w-fit shrink-0 cursor-pointer flex-col rounded-xl border bg-card p-5"
+          className="flex w-fit shrink-0 cursor-pointer flex-col items-center rounded-xl border bg-card p-5"
         >
-          <header className="mb-3">
+          <header className="mb-3 flex flex-col items-center">
             {nameButton}
             {spanLine}
           </header>

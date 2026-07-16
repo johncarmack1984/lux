@@ -30,16 +30,12 @@ export default function FixtureChannel({
   label,
   value,
   vertical = false,
-  hideLabel = false,
 }: {
   address: number;
   role: LuxLabelColor;
   label: string;
   value: number;
   vertical?: boolean;
-  /** Skip the visible label (collapsed cards — the fader is self-evident);
-   * the accessible name keeps it either way. */
-  hideLabel?: boolean;
 }) {
   const [values, setValues] = useState([value]);
   useEffect(() => setValues([value]), [value]);
@@ -80,9 +76,7 @@ export default function FixtureChannel({
           {address}
         </span>
         <span className={cn("size-2.5 shrink-0 rounded-full", ROLE_DOT[role])} />
-        {!hideLabel && (
-          <span className="w-full truncate text-center text-xs">{label}</span>
-        )}
+        <span className="w-full truncate text-center text-xs">{label}</span>
         <button
           type="button"
           onClick={toggle}
@@ -108,9 +102,7 @@ export default function FixtureChannel({
         {address}
       </span>
       <span className={cn("size-2.5 shrink-0 rounded-full", ROLE_DOT[role])} />
-      {!hideLabel && (
-        <span className="w-16 shrink-0 truncate text-sm">{label}</span>
-      )}
+      <span className="w-16 shrink-0 truncate text-sm">{label}</span>
       {slider}
       <button
         type="button"

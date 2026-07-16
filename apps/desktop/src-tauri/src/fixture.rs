@@ -80,7 +80,7 @@ pub fn presets() -> Vec<FixturePreset> {
                 ch(Blue, "Blue"),
                 ch(Amber, "Amber"),
                 ch(White, "White"),
-                ch(Brightness, "Dimmer"),
+                ch(Brightness, "Brightness"),
             ],
         ),
         preset(
