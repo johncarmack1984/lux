@@ -113,13 +113,15 @@ jobs:
           fi
 
       # release-please uses release-type "simple", which bumps the version in
-      # apps/desktop/src-tauri/Cargo.toml but leaves the `lux` entry in the root
-      # Cargo.lock at the old version, so the
-      # lockfile shows up dirty on the next local `cargo` run. While a release PR is
-      # open, sync the lockfile onto its branch so main never lands a stale lock.
+      # apps/desktop/src-tauri/Cargo.toml but leaves two derived version stamps
+      # stale: the `lux` entry in the root Cargo.lock (dirties the next local
+      # `cargo` run) and the committed gen/apple Info.plist (tauri ios build
+      # restamps CFBundle*Version from tauri.conf.json and writes the file back,
+      # dirtying the tree after every post-release iOS build). While a release PR
+      # is open, sync both onto its branch so main never lands stale stamps.
       # Runs in this job by necessity: a push authored by GITHUB_TOKEN can't trigger
       # a separate workflow, so the release branch wouldn't get picked up elsewhere.
-      - name: Sync Cargo.lock to the release version
+      - name: Sync version stamps to the release version
         if: ${{ steps.release.outputs.pr }}
         env:
           PR_JSON: ${{ steps.release.outputs.pr }}
@@ -133,16 +135,22 @@ jobs:
           # The `lux` workspace member has no checksum in the lock, so its version
           # is a pure text field — sync it without invoking cargo (no dep churn).
           VER="$version" perl -0pi -e 's/(name = "lux"\nversion = ")[^"]*/$1$ENV{VER}/' Cargo.lock
-          if git diff --quiet -- Cargo.lock; then
-            echo "Cargo.lock already in sync at $version"
+          # Match tauri's own plist write byte-for-byte: both CFBundle version
+          # keys stamped, and no trailing newline (tauri writes the file without
+          # one — a lone newline diff would re-dirty every build).
+          PLIST=apps/desktop/src-tauri/gen/apple/lux_iOS/Info.plist
+          VER="$version" perl -0pi -e 's/(<key>CFBundleShortVersionString<\/key>\s*<string>)[^<]*/$1$ENV{VER}/; s/(<key>CFBundleVersion<\/key>\s*<string>)[^<]*/$1$ENV{VER}/' "$PLIST"
+          perl -0pi -e 's/\n\z//' "$PLIST"
+          if git diff --quiet -- Cargo.lock "$PLIST"; then
+            echo "version stamps already in sync at $version"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.lock
-          git commit -m "chore: sync Cargo.lock to $version"
+          git add Cargo.lock "$PLIST"
+          git commit -m "chore: sync version stamps to $version"
           git push origin "HEAD:$PR_BRANCH"
-          echo "Synced Cargo.lock to $version on $PR_BRANCH"
+          echo "Synced version stamps to $version on $PR_BRANCH"
 
   # The release gate: the same checks as the PR/main `desktop` workflow
   # (tauri-versions, frontend build/typecheck/lint, cargo test --workspace),

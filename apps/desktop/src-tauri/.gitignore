@@ -5,3 +5,6 @@
 # will have compiled files and executables
 /target/
 endpoints.local.json
+# Generated JSON schemas for capability files (regenerated every build,
+# platform-flavored: desktop vs mobile plugin sets)
+/gen/schemas/
