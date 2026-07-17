@@ -28,6 +28,15 @@ resource "aws_iam_role" "store_notes" {
           # blast radius of this role is exactly one spend-limited API key.
           "token.actions.githubusercontent.com:sub" = "repo:johncarmack1984/lux:pull_request"
         }
+        StringLike = {
+          # Only the store-notes workflow file may assume the role — any other
+          # workflow running in pull_request context (present or future) is
+          # refused. Residual trust: someone with push access could still ship
+          # a modified store-notes.yml on a branch, so push access remains the
+          # real boundary; this stops every path that doesn't rewrite the one
+          # audited file.
+          "token.actions.githubusercontent.com:job_workflow_ref" = "johncarmack1984/lux/.github/workflows/store-notes.yml@*"
+        }
       }
     }]
   })

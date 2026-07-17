@@ -6,7 +6,10 @@
 // The draft is exactly that — a draft. It never overwrites a human edit: the
 // file is only (re)written while its last committed author is the workflow
 // bot (or it doesn't exist yet). Delete the file in the PR to force a fresh
-// draft.
+// draft. The authorship check reads git history, so the workflow checks out
+// with full depth; scripts/restore-store-notes.ts runs first and resurrects a
+// human edit that a release-please branch rebuild discarded (the workflow
+// skips drafting entirely when it restores one).
 //
 // Usage: ANTHROPIC_API_KEY=... bun scripts/draft-store-notes.ts
 
