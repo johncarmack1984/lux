@@ -340,14 +340,21 @@ resource "aws_iam_role_policy" "lambda_deploy" {
         Action = [
           "lambda:GetFunction", "lambda:GetFunctionConfiguration",
           "lambda:UpdateFunctionCode", "lambda:GetFunctionUrlConfig",
+          # Every deploy publishes a numbered version (rollback provenance).
+          "lambda:PublishVersion",
         ]
         Resource = local.lux_lambda_functions
       },
       {
-        Sid      = "SmokeInvokeAuthorizer"
-        Effect   = "Allow"
-        Action   = "lambda:InvokeFunction"
-        Resource = "arn:aws:lambda:*:${local.aws_account_id}:function:lux-iot-authorizer"
+        # The pre-flip smoke invokes the freshly published version directly
+        # (qualified ARN), and the flip repoints the `live` alias to it.
+        Sid    = "SmokeAndFlipAuthorizer"
+        Effect = "Allow"
+        Action = ["lambda:InvokeFunction", "lambda:GetAlias", "lambda:UpdateAlias"]
+        Resource = [
+          "arn:aws:lambda:*:${local.aws_account_id}:function:lux-iot-authorizer",
+          "arn:aws:lambda:*:${local.aws_account_id}:function:lux-iot-authorizer:*",
+        ]
       },
     ]
   })

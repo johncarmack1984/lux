@@ -67,11 +67,39 @@ resource "aws_lambda_function" "lux_iot_authorizer" {
   }
 }
 
-# IoT (not a user) invokes the authorizer.
+# Deploys publish a numbered version, smoke that exact version, then repoint
+# this alias — the authorizer registration below invokes through it, so a bad
+# build never takes auth traffic and rollback is one command:
+#   aws lambda update-alias --function-name lux-iot-authorizer \
+#     --name live --function-version <prev>
+# Terraform seeds the pointer ($LATEST = today's semantics) and then leaves it
+# to the deploy pipeline, same hands-off pattern as the placeholder code.
+resource "aws_lambda_alias" "lux_iot_authorizer_live" {
+  name             = "live"
+  function_name    = aws_lambda_function.lux_iot_authorizer.function_name
+  function_version = "$LATEST"
+  lifecycle {
+    ignore_changes = [function_version]
+  }
+}
+
+# IoT (not a user) invokes the authorizer. Two permissions during the alias
+# transition: the unqualified one predates the alias and stays so there is no
+# destroy/create window in which IoT can't invoke; the qualified one is what
+# the alias-routed registration actually uses.
 resource "aws_lambda_permission" "lux_iot_authorizer_invoke" {
   statement_id  = "AllowIoTCustomAuthorizer"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.lux_iot_authorizer.function_name
+  principal     = "iot.amazonaws.com"
+  source_arn    = aws_iot_authorizer.lux_sync.arn
+}
+
+resource "aws_lambda_permission" "lux_iot_authorizer_invoke_alias" {
+  statement_id  = "AllowIoTCustomAuthorizerAlias"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.lux_iot_authorizer.function_name
+  qualifier     = aws_lambda_alias.lux_iot_authorizer_live.name
   principal     = "iot.amazonaws.com"
   source_arn    = aws_iot_authorizer.lux_sync.arn
 }
@@ -86,7 +114,7 @@ resource "aws_lambda_permission" "lux_iot_authorizer_invoke" {
 # lux_wire::nudge::TOKEN_KEY (the app's handshake header).
 resource "aws_iot_authorizer" "lux_sync" {
   name                    = "lux-sync-auth"
-  authorizer_function_arn = aws_lambda_function.lux_iot_authorizer.arn
+  authorizer_function_arn = aws_lambda_alias.lux_iot_authorizer_live.arn
   signing_disabled        = true
   status                  = "ACTIVE"
   token_key_name          = "x-lux-token"
