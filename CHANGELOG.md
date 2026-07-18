@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.3.1](https://github.com/johncarmack1984/lux/compare/v1.3.0...v1.3.1) (2026-07-18)
+
+
+### Bug Fixes
+
+* **infra:** grant the terraform-apply role lambda alias actions ([#180](https://github.com/johncarmack1984/lux/issues/180)) ([c9b9921](https://github.com/johncarmack1984/lux/commit/c9b9921a247491b7f8a167c1d87e9031352b7871))
+* **node:** make install runnable without a tty ([#178](https://github.com/johncarmack1984/lux/issues/178)) ([3a34b82](https://github.com/johncarmack1984/lux/commit/3a34b82b293b18302387de7565aed56be0ffccd0))
+* **release:** restore the App token to release-please ([#177](https://github.com/johncarmack1984/lux/issues/177)) ([055a086](https://github.com/johncarmack1984/lux/commit/055a086607c13951705a0edff1436772e3e51cab))
+
 ## [1.3.0](https://github.com/johncarmack1984/lux/compare/v1.2.0...v1.3.0) (2026-07-18)
 
 
