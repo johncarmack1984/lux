@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.3](https://github.com/johncarmack1984/lux/compare/v1.3.2...v1.3.3) (2026-07-18)
+
+
+### Bug Fixes
+
+* **authorizer:** grant iot:RetainPublish for the ctl space ([#189](https://github.com/johncarmack1984/lux/issues/189)) ([8cc283b](https://github.com/johncarmack1984/lux/commit/8cc283be74c3c031335508452404c4cca271fd3d))
+* **desktop:** register tauri-plugin-positioner and forward tray events ([#191](https://github.com/johncarmack1984/lux/issues/191)) ([48ab65f](https://github.com/johncarmack1984/lux/commit/48ab65f39fef6f2ce29c86b35e16fd444875893a))
+
 ## [1.3.2](https://github.com/johncarmack1984/lux/compare/v1.3.1...v1.3.2) (2026-07-18)
 
 
