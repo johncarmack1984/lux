@@ -37,6 +37,12 @@ aws-smithy-http-client = { version = "1", features = ["rustls-ring"] }
 webpki-root-certs = "1"
 pem = "3"
 keyring = "4"
+# keyring's backing crate, named directly on every platform: session entries are
+# built through keyring-core types (on iOS with an access-policy modifier, see
+# account::keyring_entry), and account::init_keychain registers the
+# data-protection store with it at startup — keyring's own auto-registration
+# skips iOS. Cargo unifies this onto the same instance keyring uses.
+keyring-core = "1"
 log = "^0.4.33"
 serde_json.workspace = true
 serde.workspace = true
@@ -93,10 +99,6 @@ tauri-plugin-updater = "2"
 # feature — Cargo unifies it onto the same instance keyring uses.
 [target.'cfg(target_os = "ios")'.dependencies]
 apple-native-keyring-store = { version = "1", features = ["protected"] }
-# Naming keyring's backing crate directly lets us register the data-protection
-# store as the default at startup (see account::init_keychain) — keyring's own
-# auto-registration skips iOS.
-keyring-core = "1"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.
