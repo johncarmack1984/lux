@@ -1,4 +1,5 @@
 {
+  "appleAuthUrl": "https://z3z752gt7cz6sd4a55xzu53bgi0cfsrm.lambda-url.us-west-1.on.aws/",
   "cognitoAppClientId": "2t2l4fn537ttb3vul39olt3of3",
   "cognitoRegion": "us-west-1",
   "cognitoUserPoolId": "us-west-1_jV7esPwmi",
