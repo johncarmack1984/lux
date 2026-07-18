@@ -1,7 +1,8 @@
-import { createRootRoute, Link, Outlet } from "@tanstack/react-router";
+import { createRootRoute, Outlet } from "@tanstack/react-router";
 import { Toaster } from "@/components/ui/sonner";
 import { Updater } from "@/components/updater";
 import SetupSwitcher from "@/components/setup-switcher";
+import ViewMenu from "@/components/view-menu";
 import AccountMenu from "@/components/account-menu";
 import SettingsMenu from "@/components/settings-menu";
 import SyncIndicator from "@/components/sync-indicator";
@@ -12,9 +13,6 @@ export const Route = createRootRoute({
   component: RootLayout,
 });
 
-const navLink =
-  "text-sm font-medium text-muted-foreground transition-colors hover:text-foreground [&.active]:text-foreground";
-
 function RootLayout() {
   useSyncOnFocus();
   return (
@@ -23,12 +21,7 @@ function RootLayout() {
         <nav className="flex shrink-0 items-center gap-4 border-b border-border/60 px-5 py-3">
           <SetupSwitcher />
           <div className="h-5 w-px bg-border/60" />
-          <Link to="/" activeOptions={{ exact: true }} className={navLink}>
-            Fixtures
-          </Link>
-          <Link to="/universe" className={navLink}>
-            Universe
-          </Link>
+          <ViewMenu />
           <div className="ml-auto flex items-center gap-3">
             <RemoteIndicator />
             <SyncIndicator />
