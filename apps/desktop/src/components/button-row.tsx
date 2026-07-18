@@ -14,40 +14,20 @@ export function setBuffer(buffer: number[]) {
     .catch((e) => toast.error(String(e)));
 }
 
-// A full 512-channel frame at one level overrides the whole universe; a 6-byte
-// fixture write (Default) only overlays the leading RGBAW slots.
+// A full 512-channel frame at one level overrides the whole universe.
 const universe = (level: number) => Array(512).fill(level);
 
+// The two built-in presets. User-defined presets (saved scenes) are the
+// planned next residents of this row.
 const buttons = [
   {
     children: "⚫️ Blackout",
     onClick: () => setBuffer(universe(0)),
   },
   {
-    children: "✅ Default",
-    onClick: () => setBuffer([121, 255, 255, 0, 0, 42]),
-  },
-  {
     children: "💡 Full Bright",
     onClick: () => setBuffer(universe(255)),
   },
-  // Planned feature
-  // { children: "🌈 RGB Chase",
-  //   onClick: () => invoke("rgb_chase")
-  // },
-  // Debug functions
-  // {
-  //   children: "🔄 Sync",
-  //   onClick: () => invoke("sync_state"),
-  // },
-  // {
-  //   children: "🤘 Get state from Turso",
-  //   onClick: async () => await getInitialState(),
-  // },
-  // {
-  //   children: "🚮 Delete all Channels",
-  //   onClick: () => invoke("delete_channels"),
-  // },
 ];
 
 function ControlButton({
@@ -62,21 +42,16 @@ function ControlButton({
     onClick();
   };
   return (
-    <Button
-      key={children}
-      onClick={handleClick}
-      className=""
-      variant="link"
-      size="sm"
-    >
+    <Button key={children} onClick={handleClick} variant="link" size="sm">
       {children}
     </Button>
   );
 }
 
+/** The preset row, shown on both control surfaces (fixtures + universe). */
 function ButtonRow() {
   return (
-    <div className="grid-cols-1 sm:grid-cols-3 py-8 grid">
+    <div className="flex shrink-0 justify-center gap-2 py-2">
       {buttons.map(ControlButton)}
     </div>
   );
