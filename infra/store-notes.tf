@@ -12,13 +12,10 @@ data "aws_secretsmanager_secret" "anthropic_api_key" {
   name = "lux/anthropic-api-key"
 }
 
-# The release GitHub App's private key (also read by the release workflow's
-# main-pinned role). store-notes pushes its draft commit to the release PR
-# branch with an App token: a default-GITHUB_TOKEN push starts no workflow
-# runs, which left the branch tip ungated and the PR stuck "awaiting approval".
-data "aws_secretsmanager_secret" "release_app_private_key" {
-  name = "lux/release-app-private-key"
-}
+# store-notes pushes its draft commit to the release PR branch with an App
+# token: a default-GITHUB_TOKEN push starts no workflow runs, which left the
+# branch tip ungated and the PR stuck "awaiting approval". The App's private
+# key is the data source release-signing.tf already declares.
 
 resource "aws_iam_role" "store_notes" {
   name = "lux-store-notes"
