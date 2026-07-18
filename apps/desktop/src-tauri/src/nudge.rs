@@ -30,6 +30,7 @@
 //! name is protocol, not environment (`lux_wire::nudge::AUTHORIZER_NAME`). Runs
 //! while signed in; [`stop`] on sign-out.
 
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -52,6 +53,11 @@ use crate::setup::LuxSetups;
 /// remote surface needs truth, not every intermediate slider position.
 const ECHO_WINDOW: Duration = Duration::from_millis(200);
 
+/// Trailing-edge coalescing window for outgoing ctl frames (~25 Hz) — a fader
+/// drag calls the input commands far faster than the wire needs; the outbox
+/// keeps the latest value per touched slot and the flush publishes one batch.
+const PUBLISH_WINDOW: Duration = Duration::from_millis(40);
+
 fn nudge_endpoint() -> Option<String> {
     Some(crate::endpoints::effective().nudge_endpoint.clone()).filter(|e| !e.is_empty())
 }
@@ -68,6 +74,12 @@ pub struct LuxNudge {
     presence: watch::Sender<u64>,
     echo: Mutex<Option<EchoHandle>>,
     echo_pending: AtomicBool,
+    /// Presence cards from the user's *other* connections, keyed by session —
+    /// the UI polls these through `list_remote_peers`.
+    peers: Mutex<HashMap<String, lux_wire::ctl::PresenceCard>>,
+    /// Outgoing ctl writes accumulated between flushes (see [`PUBLISH_WINDOW`]).
+    outbox: Mutex<Outbox>,
+    publish_pending: AtomicBool,
 }
 
 impl Default for LuxNudge {
@@ -77,6 +89,9 @@ impl Default for LuxNudge {
             presence: watch::channel(0).0,
             echo: Mutex::new(None),
             echo_pending: AtomicBool::new(false),
+            peers: Mutex::new(HashMap::new()),
+            outbox: Mutex::new(Outbox::default()),
+            publish_pending: AtomicBool::new(false),
         }
     }
 }
@@ -93,6 +108,90 @@ impl LuxNudge {
         if echo.as_ref().is_some_and(|e| e.session == session) {
             *echo = None;
         }
+    }
+
+    fn upsert_peer(&self, session: &str, card: lux_wire::ctl::PresenceCard) {
+        self.peers
+            .lock_or_recover()
+            .insert(session.to_owned(), card);
+    }
+
+    fn remove_peer(&self, session: &str) {
+        self.peers.lock_or_recover().remove(session);
+    }
+
+    /// Forget every peer — the connection dropped, so the retained cards will
+    /// be redelivered (and re-learned) on the next subscribe.
+    fn clear_peers(&self) {
+        self.peers.lock_or_recover().clear();
+    }
+
+    /// The user's other live connections, stable-ordered for the UI poll.
+    pub fn remote_peers(&self) -> Vec<RemotePeer> {
+        let mut peers: Vec<RemotePeer> = self
+            .peers
+            .lock_or_recover()
+            .values()
+            .map(|card| RemotePeer {
+                session: card.session.clone(),
+                setup_id: card.setup_id.clone(),
+                name: card.name.clone(),
+            })
+            .collect();
+        peers.sort_by(|a, b| a.session.cmp(&b.session));
+        peers
+    }
+}
+
+/// One of the user's other signed-in devices, as the UI sees it (a thinned
+/// [`lux_wire::ctl::PresenceCard`]). A peer whose `setup_id` matches the
+/// active setup is an applier for it: touches here apply there.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RemotePeer {
+    pub session: String,
+    pub setup_id: String,
+    pub name: String,
+}
+
+/// Outgoing ctl writes coalesced between flushes: latest value per touched
+/// slot, plus at most one merged overlay. Drain order (overlay first, then
+/// channels) matches local chronology — an overlay clears the pending channel
+/// writes it covers, and later channel writes land after it at the applier.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Outbox {
+    overlay: Option<Vec<u8>>,
+    channels: BTreeMap<u16, u8>,
+}
+
+impl Outbox {
+    fn push_overlay(&mut self, bytes: Vec<u8>) {
+        // The overlay supersedes any pending channel writes inside its range.
+        self.channels.retain(|ch, _| usize::from(*ch) > bytes.len());
+        match &mut self.overlay {
+            // A shorter overlay after a longer one only rewrites its prefix.
+            Some(pending) if pending.len() > bytes.len() => {
+                pending[..bytes.len()].copy_from_slice(&bytes);
+            }
+            slot => *slot = Some(bytes),
+        }
+    }
+
+    fn push_channel(&mut self, ch: u16, val: u8) {
+        self.channels.insert(ch, val);
+    }
+
+    /// Everything pending as publishable frames, in apply order, leaving the
+    /// outbox empty.
+    fn drain(&mut self) -> Vec<lux_wire::ctl::Frame> {
+        let mut frames = Vec::with_capacity(1 + self.channels.len());
+        if let Some(bytes) = self.overlay.take() {
+            frames.push(lux_wire::ctl::Frame::buffer(bytes));
+        }
+        for (ch, val) in std::mem::take(&mut self.channels) {
+            frames.push(lux_wire::ctl::Frame::channel(ch, val));
+        }
+        frames
     }
 }
 
@@ -219,6 +318,69 @@ pub fn schedule_state_echo<R: Runtime>(app: &AppHandle<R>) {
     });
 }
 
+/// Queue a locally-entered overlay write (the color-picker path) for remote
+/// publish. Called from the command layer only — never from an apply path —
+/// which is the structural loop guard: remotely-applied frames re-enter the
+/// buffer, not the outbox. Fast no-op when the user channel is down.
+pub fn publish_input_overlay<R: Runtime>(app: &AppHandle<R>, bytes: Vec<u8>) {
+    let state = app.state::<LuxNudge>();
+    if state.echo.lock_or_recover().is_none() {
+        return;
+    }
+    state.outbox.lock_or_recover().push_overlay(bytes);
+    schedule_publish(app);
+}
+
+/// Queue a locally-entered single-slot write (the fader path) for remote
+/// publish. Same command-layer-only contract as [`publish_input_overlay`].
+pub fn publish_input_channel<R: Runtime>(app: &AppHandle<R>, ch: u16, val: u8) {
+    let state = app.state::<LuxNudge>();
+    if state.echo.lock_or_recover().is_none() {
+        return;
+    }
+    state.outbox.lock_or_recover().push_channel(ch, val);
+    schedule_publish(app);
+}
+
+/// Trailing-edge flush of the outbox onto the wire: frames are addressed to
+/// the setup active at flush time, stamped with the connection's session id
+/// (so our own subscription echo is dropped by the gate), and published in
+/// apply order on the one connection, which preserves ordering end to end.
+fn schedule_publish<R: Runtime>(app: &AppHandle<R>) {
+    let state = app.state::<LuxNudge>();
+    if state.publish_pending.swap(true, Ordering::SeqCst) {
+        return; // a flush is already queued and will pick these writes up
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(PUBLISH_WINDOW).await;
+        let state = app.state::<LuxNudge>();
+        state.publish_pending.store(false, Ordering::SeqCst);
+        let Some(echo) = state.echo.lock_or_recover().clone() else {
+            // Connection died inside the window; drop the batch — the retained
+            // state echo re-synchronizes everyone once a connection returns.
+            state.outbox.lock_or_recover().drain();
+            return;
+        };
+        let frames = state.outbox.lock_or_recover().drain();
+        let setup_id = app.state::<LuxSetups>().active_id().to_string();
+        let topic = lux_wire::ctl::frame_topic(&echo.sub, &setup_id);
+        for frame in frames {
+            let Ok(payload) = serde_json::to_vec(&frame.with_src(&echo.session)) else {
+                continue;
+            };
+            if let Err(e) = echo
+                .client
+                .publish(topic.clone(), QoS::AtMostOnce, false, payload)
+                .await
+            {
+                log::debug!("ctl publish failed (connection likely down): {e}");
+                return;
+            }
+        }
+    });
+}
+
 /// One connection lifetime: connect, subscribe (nudge + ctl), announce
 /// presence, then route incoming traffic until the connection drops or the
 /// listener is superseded. Returns whether the failure looked auth-shaped
@@ -298,6 +460,7 @@ async fn run_connection(
                     .await;
                 let _ = client.disconnect().await;
                 state.clear_echo(&session);
+                state.clear_peers();
                 return false; // superseded — the outer loop exits
             }
             _ = presence_rx.changed() => {
@@ -328,7 +491,13 @@ async fn run_connection(
                         Route::Frame { setup_id } => {
                             apply_frame(app, &publish.payload, setup_id, &session);
                         }
-                        Route::Passive => {}
+                        Route::State { setup_id } => {
+                            reflect_state(app, &publish.payload, setup_id, &session);
+                        }
+                        Route::Presence { session: card_session } => {
+                            update_presence(app, &publish.payload, card_session, &session);
+                        }
+                        Route::Config => {}
                         Route::Unknown => {
                             log::debug!("ignoring publish on unexpected topic {}", publish.topic);
                         }
@@ -338,6 +507,7 @@ async fn run_connection(
                 Err(e) => {
                     log::info!("nudge connection error (will reconnect): {e}");
                     state.clear_echo(&session);
+                    state.clear_peers();
                     return matches!(e, ConnectionError::ConnectionRefused(_));
                 }
             }
@@ -361,6 +531,64 @@ async fn publish_presence(client: &AsyncClient, app: &AppHandle, sub: &str, sess
 /// This device's human-readable name for presence cards.
 fn device_name() -> String {
     gethostname::gethostname().to_string_lossy().into_owned()
+}
+
+/// Reflect an applier's state echo: overwrite the live buffer and update the
+/// UI/persistence **without rendering, publishing, or re-echoing** — remote
+/// state must never re-enter the output or publish paths, which is what makes
+/// two devices echoing at each other impossible by construction.
+fn reflect_state(app: &AppHandle, payload: &[u8], frame_setup: &str, own_session: &str) {
+    let frame: lux_wire::ctl::Frame = match serde_json::from_slice(payload) {
+        Ok(frame) => frame,
+        Err(e) => {
+            log::warn!("ignoring unreadable state echo: {e}");
+            return;
+        }
+    };
+    if frame.version() != lux_wire::ctl::VERSION {
+        log::debug!(
+            "dropping state echo with unknown version {}",
+            frame.version()
+        );
+        return;
+    }
+    if frame.src() == Some(own_session) {
+        return; // our own echo delivered back
+    }
+    if frame_setup != app.state::<LuxSetups>().active_id().to_string() {
+        return;
+    }
+    let lux_wire::ctl::Frame::Buffer { buffer, .. } = frame else {
+        log::debug!("state echo carried a non-buffer frame; ignoring");
+        return;
+    };
+    crate::buffer::reflect_remote_state(app, &buffer);
+}
+
+/// Track a peer's retained presence card (empty payload = the peer is gone).
+/// Our own card comes back through the wildcard subscription too — skipped, so
+/// the peers list is always "the user's *other* devices".
+fn update_presence(app: &AppHandle, payload: &[u8], card_session: &str, own_session: &str) {
+    if card_session == own_session {
+        return;
+    }
+    let state = app.state::<LuxNudge>();
+    if payload.is_empty() {
+        state.remove_peer(card_session);
+        return;
+    }
+    let card: lux_wire::ctl::PresenceCard = match serde_json::from_slice(payload) {
+        Ok(card) => card,
+        Err(e) => {
+            log::warn!("ignoring unreadable presence card: {e}");
+            return;
+        }
+    };
+    if card.v != lux_wire::ctl::VERSION {
+        log::debug!("dropping presence card with unknown version {}", card.v);
+        return;
+    }
+    state.upsert_peer(card_session, card);
 }
 
 /// Parse a ctl frame and, if the gate lets it through, run it down the same
@@ -397,10 +625,13 @@ enum Route<'t> {
     Nudge,
     /// A live ctl frame addressed to one setup.
     Frame { setup_id: &'t str },
-    /// Retained ctl traffic (presence cards, state echoes, reserved config) —
-    /// published by peers including this device; nothing for the listener to
-    /// do with it today.
-    Passive,
+    /// An applier's retained state echo for one setup — reflected into the UI,
+    /// never applied (see [`crate::buffer::reflect_remote_state`]).
+    State { setup_id: &'t str },
+    /// A peer's retained presence card (empty payload = the peer is gone).
+    Presence { session: &'t str },
+    /// Reserved render-node config traffic; nothing consumes it yet.
+    Config,
     /// Not a topic this listener expects under the granted policy.
     Unknown,
 }
@@ -421,12 +652,13 @@ fn route<'t>(topic: &'t str, sub: &str) -> Route<'t> {
     if let Some(setup_rest) = rest.strip_prefix("setup/") {
         return match setup_rest.split_once('/') {
             Some((setup_id, "frame")) => Route::Frame { setup_id },
-            Some((_, "state" | "config")) => Route::Passive,
+            Some((setup_id, "state")) => Route::State { setup_id },
+            Some((_, "config")) => Route::Config,
             _ => Route::Unknown,
         };
     }
-    if rest.strip_prefix("presence/").is_some() {
-        return Route::Passive;
+    if let Some(session) = rest.strip_prefix("presence/") {
+        return Route::Presence { session };
     }
     Route::Unknown
 }
@@ -510,15 +742,17 @@ mod tests {
         );
         assert_eq!(
             route("lux/ctl/user/abc-123/setup/s-1/state", sub),
-            Route::Passive
+            Route::State { setup_id: "s-1" }
         );
         assert_eq!(
             route("lux/ctl/user/abc-123/setup/s-1/config", sub),
-            Route::Passive
+            Route::Config
         );
         assert_eq!(
             route("lux/ctl/user/abc-123/presence/0a1b2c3d", sub),
-            Route::Passive
+            Route::Presence {
+                session: "0a1b2c3d"
+            }
         );
 
         // Not ours / not a shape we know.
@@ -534,6 +768,50 @@ mod tests {
         assert_eq!(route("lux/ctl/user/abc-123/setup/s-1", sub), Route::Unknown);
         assert_eq!(route("lux/ctl/user/abc-123", sub), Route::Unknown);
         assert_eq!(route("lux/1/buffer/set", sub), Route::Unknown);
+    }
+
+    #[test]
+    fn outbox_coalesces_channels_to_latest_value() {
+        let mut outbox = Outbox::default();
+        outbox.push_channel(10, 1);
+        outbox.push_channel(10, 2);
+        outbox.push_channel(3, 9);
+        assert_eq!(
+            outbox.drain(),
+            vec![Frame::channel(3, 9), Frame::channel(10, 2)]
+        );
+        assert_eq!(outbox.drain(), vec![]); // drained empty
+    }
+
+    #[test]
+    fn outbox_overlay_supersedes_covered_channels_and_drains_first() {
+        let mut outbox = Outbox::default();
+        outbox.push_channel(2, 7); // inside the overlay range — superseded
+        outbox.push_channel(100, 42); // outside — survives
+        outbox.push_overlay(vec![1, 2, 3, 4, 5, 6]);
+        outbox.push_channel(2, 8); // after the overlay — applies after it
+        assert_eq!(
+            outbox.drain(),
+            vec![
+                Frame::buffer(vec![1, 2, 3, 4, 5, 6]),
+                Frame::channel(2, 8),
+                Frame::channel(100, 42),
+            ]
+        );
+    }
+
+    #[test]
+    fn outbox_merges_a_shorter_overlay_onto_a_longer_pending_one() {
+        let mut outbox = Outbox::default();
+        outbox.push_overlay(vec![9, 9, 9, 9]);
+        outbox.push_overlay(vec![1, 2]);
+        assert_eq!(outbox.drain(), vec![Frame::buffer(vec![1, 2, 9, 9])]);
+
+        // A longer (or equal) overlay simply replaces the pending one.
+        let mut outbox = Outbox::default();
+        outbox.push_overlay(vec![1, 2]);
+        outbox.push_overlay(vec![5, 5, 5]);
+        assert_eq!(outbox.drain(), vec![Frame::buffer(vec![5, 5, 5])]);
     }
 
     #[test]

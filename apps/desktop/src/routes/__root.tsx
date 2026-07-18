@@ -5,6 +5,7 @@ import SetupSwitcher from "@/components/setup-switcher";
 import AccountMenu from "@/components/account-menu";
 import SettingsMenu from "@/components/settings-menu";
 import SyncIndicator from "@/components/sync-indicator";
+import RemoteIndicator from "@/components/remote-indicator";
 import useSyncOnFocus from "@/hooks/useSyncOnFocus";
 
 export const Route = createRootRoute({
@@ -29,6 +30,7 @@ function RootLayout() {
             Universe
           </Link>
           <div className="ml-auto flex items-center gap-3">
+            <RemoteIndicator />
             <SyncIndicator />
             <SettingsMenu />
             <AccountMenu />
