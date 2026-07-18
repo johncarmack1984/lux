@@ -49,7 +49,7 @@ on:
 permissions:
   contents: read
 
-# PRs supersede (a force-push cancels the stale run); pushes to main QUEUE
+# Ordinary PRs supersede (a force-push cancels the stale run); pushes to main QUEUE
 # instead — every main commit must end with a completed CI record, so
 # back-to-back merges can't cancel each other's runs (that burned 69642ae,
 # whose push CI was cancelled after 4s by the release merge landing behind
@@ -61,7 +61,12 @@ permissions:
 # own parent (GitHub kills the job at startup; broke the v0.12.2 run).
 concurrency:
   group: ${{ github.workflow }}-gate-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Cancel superseded runs on ordinary PRs (fast feedback), but let them
+  # finish on release-please branches: the bot lands stamp + draft pushes
+  # seconds apart there, and a cancelled run paints a permanent red ✗ on the
+  # superseded commit in the release PR's history. Finishing costs only
+  # duplicate public-runner minutes and keeps the history green.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release-please--') }}
 
 jobs:
   deny:
