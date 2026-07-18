@@ -30,19 +30,6 @@ use sync::*;
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-/// The app handle for the few paths that cannot be handed one: today only the
-/// async `sign_in_with_apple` procedure (ttipc async procedures take no
-/// injected parameters). Set once in setup; everything else keeps taking the
-/// handle explicitly.
-static APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
-
-pub(crate) fn app_handle() -> Result<tauri::AppHandle, String> {
-    APP_HANDLE
-        .get()
-        .cloned()
-        .ok_or_else(|| "app handle not initialized yet".to_string())
-}
-
 pub async fn run() {
     // rustls 0.23 (pulled by rumqttc + reqwest) needs a process-level crypto
     // provider installed before any TLS use, or it panics. Install ring explicitly.
@@ -65,7 +52,6 @@ pub async fn run() {
         // restore below reads from it.
         account::init_keychain();
         app.manage(account::LuxAccount::load());
-        let _ = APP_HANDLE.set(app.handle().clone());
         account::restore_on_startup(app.handle());
         remote::connect(app.handle());
         #[cfg(desktop)]
