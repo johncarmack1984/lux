@@ -179,20 +179,21 @@ jobs:
               || echo "::warning::could not flip the autorelease label on PR #$n"
           done
 
-  # Draft the App Store "What's New" for the version just cut and land it on
-  # main through an immediately-merged PR: the main ruleset requires changes
-  # to arrive by PR, and a GITHUB_TOKEN squash-merge satisfies it while
-  # starting no workflow runs. The draft is write-once (the script refuses to
-  # touch an existing file) — edit the committed file on main any time before
-  # appstore.yml submits the version; it refuses to submit without the file.
+  # Draft the App Store "What's New" for the version just cut and attach it to
+  # the GitHub Release body inside <!-- store-notes --> markers (invisible on
+  # the rendered page) — no commit to main, nothing to merge. The draft is
+  # write-once: a release whose body already carries a section is never
+  # redrafted. Edit the section on the release page any time before
+  # appstore.yml submits the version (it extracts the section and refuses to
+  # submit without one); delete the section and re-run this job for a fresh
+  # draft.
   store-notes:
     needs: release
     if: ${{ needs.release.outputs.release_created == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write # push the notes branch
-      pull-requests: write # open + merge the notes PR
+      contents: write # edit the release body
       id-token: write # AWS OIDC, to read the Anthropic key
     env:
       TAG: ${{ needs.release.outputs.tag_name }}
@@ -212,53 +213,37 @@ jobs:
           role-to-assume: arn:aws:iam::735853783919:role/lux-release-signing
           aws-region: us-west-1
 
-      - name: Draft the notes (write-once)
-        run: |
-          set -euo pipefail
-          version="${TAG#v}"
-          git fetch --depth=1 origin main
-          if git cat-file -e "origin/main:apps/desktop/store-notes/$version.md" 2>/dev/null; then
-            echo "notes for $version already on main; skipping the draft"
-            exit 0
-          fi
-          key=$(aws secretsmanager get-secret-value --secret-id lux/anthropic-api-key --query SecretString --output text)
-          echo "::add-mask::$key"
-          ANTHROPIC_API_KEY="$key" bun scripts/draft-store-notes.ts
-
-      - name: Land the draft on main (squash-merged PR)
+      - name: Draft the notes and attach them to the release (write-once)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           version="${TAG#v}"
-          file="apps/desktop/store-notes/$version.md"
-          if [ -z "$(git status --porcelain -- "$file")" ]; then
-            echo "no fresh draft ($file is already committed); nothing to land"
+          if gh release view "$TAG" --json body --jq .body | grep -q '<!-- store-notes -->'; then
+            echo "release $TAG already carries store notes; leaving them alone"
             exit 0
           fi
-          if git cat-file -e "origin/main:$file" 2>/dev/null; then
-            echo "$file already exists on main; leaving it alone"
-            exit 0
-          fi
-          branch="store-notes/$version"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -B "$branch" origin/main
-          git add "$file"
-          git commit -m "chore: draft App Store notes for $version"
-          git push -f origin "$branch"
-          gh pr create --head "$branch" \
-            --title "chore: draft App Store notes for $version" \
-            --body "Automated draft from the $TAG changelog. Edit apps/desktop/store-notes/$version.md on main any time before submitting the version in appstore.yml."
-          for attempt in 1 2 3 4 5; do
-            if gh pr merge "$branch" --squash --delete-branch; then
-              echo "notes landed on main"
-              exit 0
+          # Voice anchor for the drafter: the newest earlier release carrying
+          # a section; the script falls back to the notes files committed
+          # before this flow existed when none is found.
+          for prev in $(gh release list --limit 6 --json tagName --jq ".[].tagName" | grep -vx "$TAG"); do
+            gh release view "$prev" --json body --jq .body \
+              | awk '/<!-- store-notes -->/{grab=1; next} /<!-- \/store-notes -->/{exit} grab{print}' \
+              > "$RUNNER_TEMP/prev-notes.md" || true
+            if grep -q . "$RUNNER_TEMP/prev-notes.md"; then
+              echo "voice anchor: $prev"
+              break
             fi
-            sleep 5
           done
-          echo "::error::could not merge the notes PR for $version"
-          exit 1
+          key=$(aws secretsmanager get-secret-value --secret-id lux/anthropic-api-key --query SecretString --output text)
+          echo "::add-mask::$key"
+          PREV_NOTES_FILE="$RUNNER_TEMP/prev-notes.md" ANTHROPIC_API_KEY="$key" bun scripts/draft-store-notes.ts
+          file="apps/desktop/store-notes/$version.md"
+          [ -s "$file" ] || { echo "no draft produced (no changelog section?); nothing to attach"; exit 0; }
+          body=$(gh release view "$TAG" --json body --jq .body)
+          printf '%s\n\n<!-- store-notes -->\n%s\n<!-- /store-notes -->\n' "$body" "$(cat "$file")" \
+            | gh release edit "$TAG" --notes-file -
+          echo "attached store notes to $TAG"
 
   # The release gate: the same checks as the PR/main `desktop` workflow
   # (tauri-versions, frontend build/typecheck/lint, cargo test --workspace),
