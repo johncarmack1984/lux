@@ -145,6 +145,11 @@ export const cmd = {
   },
 
   /** @throws {string} */
+  list_remote_peers(): Promise<RemotePeer[]> {
+    return invoke("cmd.list_remote_peers");
+  },
+
+  /** @throws {string} */
   list_dmx_devices(): Promise<DmxDeviceInfo[]> {
     return invoke("cmd.list_dmx_devices");
   },
@@ -274,6 +279,17 @@ export type LuxChannels = {
 export type LuxLabelColor = "Red" | "Green" | "Blue" | "Amber" | "White" | "Brightness" | 
 /**  Raw universe channels (7..=512) with no fixed colour role. */
 "Generic";
+
+/**
+ *  One of the user's other signed-in devices, as the UI sees it (a thinned
+ *  [`lux_wire::ctl::PresenceCard`]). A peer whose `setup_id` matches the
+ *  active setup is an applier for it: touches here apply there.
+ */
+export type RemotePeer = {
+	session: string,
+	setupId: string,
+	name: string,
+};
 
 /**
  *  A lightweight setup descriptor for the switcher UI — no fixtures, so listing

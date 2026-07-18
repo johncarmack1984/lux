@@ -111,6 +111,24 @@ impl LuxBuffer {
     }
 }
 
+/// Overwrite the live buffer with an applier's echoed truth (a remote state
+/// echo, full-universe) and reflect it in the UI + persistence **without**
+/// rendering, publishing, or re-echoing. Remote state must never re-enter the
+/// output or publish paths — that asymmetry is what makes echo loops between
+/// devices impossible by construction.
+pub fn reflect_remote_state<R: Runtime>(app: &tauri::AppHandle<R>, incoming: &[u8]) {
+    let snapshot = {
+        let state = app.state::<LuxBuffer>();
+        let mut guard = state.buffer.lock_or_recover();
+        *guard = normalize(incoming);
+        guard.clone()
+    };
+    if let Err(e) = emit_buffer(snapshot, app) {
+        log::warn!("could not reflect remote state to the UI: {e}");
+    }
+    schedule_persist(app);
+}
+
 // --- persistence (app_config_dir/buffer.json) --------------------------------
 
 /// Restore the last-rendered universe from disk, so a restart brings the light

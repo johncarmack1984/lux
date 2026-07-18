@@ -6,6 +6,7 @@ use crate::{
     channels::LuxChannels,
     devices::{self, DmxDeviceInfo, DmxOutput},
     fixture::{self, ChannelDef, Fixture, FixturePreset},
+    nudge::RemotePeer,
     settings::{SliderOrientation, UserSettings},
     setup::{self, LuxSetups, SetupSummary},
     sync::*,
@@ -112,6 +113,10 @@ pub trait CmdMethods {
     // window focus so remote edits land without waiting for a restart).
     fn sync_status(&self, app_handle: AppHandle) -> Result<crate::cloud::SyncState, String>;
     fn sync_now(&self, app_handle: AppHandle) -> Result<(), String>;
+    // Remote control — the user's other live devices, learned from presence
+    // cards on the user channel. Backend-driven, so the UI polls it (events
+    // don't reliably reach the webview on iOS).
+    fn list_remote_peers(&self, app_handle: AppHandle) -> Result<Vec<RemotePeer>, String>;
     // DMX output — the in-app device picker (the only output selector on mobile,
     // where there's no tray). Mirrors the desktop tray's device menu.
     fn list_dmx_devices(&self, app_handle: AppHandle) -> Result<Vec<DmxDeviceInfo>, String>;
@@ -156,7 +161,12 @@ impl CmdMethods for CmdEndpoint {
     fn set_buffer(&self, app_handle: AppHandle, buffer: Buffer) -> Result<LuxBuffer, String> {
         log::trace!("received buffer {:?}", buffer);
         let mut state = app_handle.state::<LuxBuffer>().inner().clone();
-        state.set(buffer, app_handle.clone())
+        let outgoing = buffer.clone();
+        let result = state.set(buffer, app_handle.clone())?;
+        // User input also drives the rig remotely. Publishing lives here at
+        // the command layer only — apply paths never publish (loop guard).
+        crate::nudge::publish_input_overlay(&app_handle, outgoing);
+        Ok(result)
     }
     fn update_channel_value(
         &self,
@@ -166,7 +176,12 @@ impl CmdMethods for CmdEndpoint {
     ) -> Result<LuxBuffer, String> {
         log::debug!("received channel {} to {}", channel_number, value);
         let mut state = app_handle.state::<LuxBuffer>().inner().clone();
-        state.set_channel(channel_number as usize, value, app_handle.clone())
+        let result = state.set_channel(channel_number as usize, value, app_handle.clone())?;
+        // set_channel validated the range, so the narrowing always fits.
+        if let Ok(ch) = u16::try_from(channel_number) {
+            crate::nudge::publish_input_channel(&app_handle, ch, value);
+        }
+        Ok(result)
     }
     fn insert_channel(
         &self,
@@ -409,6 +424,10 @@ impl CmdMethods for CmdEndpoint {
     fn sync_now(&self, app_handle: AppHandle) -> Result<(), String> {
         crate::cloud::schedule_sync(&app_handle);
         Ok(())
+    }
+
+    fn list_remote_peers(&self, app_handle: AppHandle) -> Result<Vec<RemotePeer>, String> {
+        Ok(app_handle.state::<crate::nudge::LuxNudge>().remote_peers())
     }
 
     fn list_dmx_devices(&self, app_handle: AppHandle) -> Result<Vec<DmxDeviceInfo>, String> {
