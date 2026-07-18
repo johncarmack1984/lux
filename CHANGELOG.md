@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.3.2](https://github.com/johncarmack1984/lux/compare/v1.3.1...v1.3.2) (2026-07-18)
+
+
+### Bug Fixes
+
+* **release:** approve only the branch tip's held gate run ([#187](https://github.com/johncarmack1984/lux/issues/187)) ([29afa72](https://github.com/johncarmack1984/lux/commit/29afa72f11489bc6554bb572848c0e176bc38d61))
+* **release:** mask runtime-fetched secrets before they enter GITHUB_ENV ([#181](https://github.com/johncarmack1984/lux/issues/181)) ([d4ace88](https://github.com/johncarmack1984/lux/commit/d4ace88e5dbac0154bac95a430bfc3070c1adff2))
+* **release:** remove the GitHub App from the release pipeline ([#184](https://github.com/johncarmack1984/lux/issues/184)) ([55b6a8f](https://github.com/johncarmack1984/lux/commit/55b6a8fc0bfc641f92f39b3d7782f9f4299ca5db))
+* **release:** unstick the stamp tripwire and approve held gate runs ([#185](https://github.com/johncarmack1984/lux/issues/185)) ([cb3a213](https://github.com/johncarmack1984/lux/commit/cb3a21382544fb05ac25cd07271587c4e7d75169))
+
 ## [1.3.1](https://github.com/johncarmack1984/lux/compare/v1.3.0...v1.3.1) (2026-07-18)
 
 
