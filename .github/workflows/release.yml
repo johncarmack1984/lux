@@ -302,6 +302,24 @@ jobs:
         with:
           ref: ${{ env.TAG }}
 
+      # A dispatch rebuild of a tag whose macOS artifacts already shipped would
+      # re-sign and replace the served .dmg + latest.json — fresh signatures
+      # for a tag existing installs already fetched, the known updater-breaker.
+      # Refuse loudly: partial rebuilds belong to `gh run rerun <id> --failed`
+      # on the original release run (it never re-runs succeeded jobs), and a
+      # deliberate macOS rebuild means deleting the release's macOS assets
+      # first. Assetless tags (a run that died before publishing) pass.
+      - name: Refuse to rebuild served macOS artifacts (dispatch)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qE '\.dmg$|^latest\.json$'; then
+            echo "::error::$TAG already serves macOS artifacts — use 'gh run rerun <run-id> --failed' on the original release run, or delete the release's macOS assets first to rebuild deliberately."
+            exit 1
+          fi
+          echo "$TAG has no served macOS artifacts; rebuild is safe"
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: apps/desktop/package.json
