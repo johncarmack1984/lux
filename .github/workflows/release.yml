@@ -432,16 +432,24 @@ jobs:
 
       # provided.al2023 runs the zip's `bootstrap`; package each binary under
       # that name and wait until Lambda finishes swapping code before smoking.
+      # Every deploy publishes a numbered version (rollback provenance). The
+      # sync-api and bot serve traffic from $LATEST (their Function URLs are
+      # unqualified), so the code swap is their cutover; the authorizer serves
+      # through the `live` alias, so its new version takes no traffic until the
+      # flip step below — after its smoke has passed against that exact version.
       - name: Deploy
         run: |
           for fn in lux-sync-api lux-iot-authorizer lux-discord-bot; do
             staging=$(mktemp -d)
             cp "target/x86_64-unknown-linux-musl/release/$fn" "$staging/bootstrap"
             (cd "$staging" && zip -q9 function.zip bootstrap)
-            aws lambda update-function-code --function-name "$fn" \
-              --zip-file "fileb://$staging/function.zip" --query 'CodeSha256' --output text
+            version=$(aws lambda update-function-code --function-name "$fn" \
+              --zip-file "fileb://$staging/function.zip" --publish --query 'Version' --output text)
             aws lambda wait function-updated --function-name "$fn"
-            echo "deployed $fn"
+            echo "deployed $fn as version $version"
+            if [ "$fn" = "lux-iot-authorizer" ]; then
+              echo "AUTH_VERSION=$version" >> "$GITHUB_ENV"
+            fi
           done
 
       - name: sccache stats
@@ -458,16 +466,35 @@ jobs:
           cat /tmp/body; echo
           test "$code" = "401" && grep -q '"error"' /tmp/body
 
-      # Invoke the authorizer directly with a garbage token: a well-formed
-      # deny proves it cold-started (JWKS fetch) and rejects bad tokens.
-      - name: Smoke iot-authorizer
+      # Invoke the freshly published version directly (qualified) with a
+      # garbage token: a well-formed deny proves it cold-started (JWKS fetch)
+      # and rejects bad tokens — all before it takes any auth traffic.
+      - name: Smoke iot-authorizer (pre-flip, exact version)
         run: |
           aws lambda invoke --function-name lux-iot-authorizer \
+            --qualifier "$AUTH_VERSION" \
             --cli-binary-format raw-in-base64-out \
             --payload '{"token":"smoke-test-garbage","protocolData":{"http":{"headers":{}}}}' \
             /tmp/authorizer.json >/dev/null
           cat /tmp/authorizer.json; echo
           grep -q '"isAuthenticated":false' /tmp/authorizer.json
+
+      # The smoked version goes live by repointing the alias IoT invokes
+      # through. Roll back by pointing it at the previous version (echoed
+      # below and in the job summary).
+      - name: Flip authorizer alias
+        run: |
+          prev=$(aws lambda get-alias --function-name lux-iot-authorizer \
+            --name live --query FunctionVersion --output text)
+          aws lambda update-alias --function-name lux-iot-authorizer \
+            --name live --function-version "$AUTH_VERSION" \
+            --query 'AliasArn' --output text
+          {
+            echo "authorizer \`live\` alias: v$prev → v$AUTH_VERSION"
+            echo '```'
+            echo "rollback: aws lambda update-alias --function-name lux-iot-authorizer --name live --function-version $prev"
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       # The bot verifies Discord's ed25519 signature before anything else, so an
       # unsigned request answering 401 proves the new code is up and checking.
