@@ -1026,7 +1026,18 @@ jobs:
   node-release:
     needs: [release, build-macos]
     if: ${{ needs.release.outputs.release_created == 'true' }}
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Native runner per target: Ubuntu's musl-tools only ships musl-gcc
+          # for the host arch. aarch64 is the Raspberry Pi / small-ARM-box story.
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            asset: lux-node-x86_64-linux
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            asset: lux-node-aarch64-linux
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     permissions:
       contents: write # upload the release asset
@@ -1042,7 +1053,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch
         with:
-          targets: x86_64-unknown-linux-musl
+          targets: ${{ matrix.target }}
 
       - name: Install musl-gcc
         run: sudo apt-get update && sudo apt-get install -y musl-tools
@@ -1053,14 +1064,15 @@ jobs:
         with:
           workspaces: "."
           cache-targets: "false"
+          key: ${{ matrix.target }}
 
       - name: Build (static musl)
-        run: cargo build --release --target x86_64-unknown-linux-musl -p lux-node
+        run: cargo build --release --target ${{ matrix.target }} -p lux-node
 
       - name: Upload as a release asset
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp target/x86_64-unknown-linux-musl/release/lux-node lux-node-x86_64-linux
-          gh release upload "$TAG" lux-node-x86_64-linux --clobber
-          echo "uploaded lux-node-x86_64-linux to $TAG"
+          cp "target/${{ matrix.target }}/release/lux-node" "${{ matrix.asset }}"
+          gh release upload "$TAG" "${{ matrix.asset }}" --clobber
+          echo "uploaded ${{ matrix.asset }} to $TAG"
