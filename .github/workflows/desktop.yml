@@ -12,12 +12,12 @@ name: desktop
 
 on:
   pull_request:
-    # release-please's branches are excluded: their pushes are GITHUB_TOKEN-
-    # authored, so runs here could only ever sit "action_required" awaiting
-    # manual approval — and the release pipeline re-runs this exact gate at
-    # the tag (release.yml's ci job) before anything ships, so the machine
-    # PR carries no checks by design.
-    branches-ignore: ["release-please--**"]
+    # Release-please's GITHUB_TOKEN branch pushes land this workflow's runs in
+    # the action_required state (GitHub holds runs for events its own token
+    # caused, and pull_request branch filters can only match the BASE branch,
+    # so the machine branches cannot be excluded here). release.yml approves
+    # those held runs right after pushing; the authoritative gate is its ci
+    # job at the release tag either way.
     paths:
       - 'apps/desktop/**'
       - 'apps/site/**'

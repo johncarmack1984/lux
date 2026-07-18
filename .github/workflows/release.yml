@@ -38,6 +38,7 @@ jobs:
     permissions:
       contents: write # release-please's branch pushes + the tag/release cut below
       pull-requests: write # release-please's PR bookkeeping + the label flip
+      actions: write # approve the release branch's held gate runs
     outputs:
       release_created: ${{ steps.effective.outputs.release_created }}
       tag_name: ${{ steps.effective.outputs.tag_name }}
@@ -74,13 +75,45 @@ jobs:
             exit 0
           fi
           git fetch --depth=1 origin "$BRANCH"
-          tree="origin/$BRANCH"
+          # FETCH_HEAD, not origin/<branch>: it exists regardless of the
+          # checkout's fetch refspec. The awk matchers scan to end of stream —
+          # an early exit SIGPIPEs git show under pipefail (exit 141).
+          tree=FETCH_HEAD
           want=$(git show "$tree:.release-please-manifest.json" | jq -r '."."')
-          lock=$(git show "$tree:Cargo.lock" | awk '/^name = "lux"$/ {getline; sub(/^version = "/, ""); sub(/"$/, ""); print; exit}')
-          plist=$(git show "$tree:apps/desktop/src-tauri/gen/apple/lux_iOS/Info.plist" | awk '/CFBundleShortVersionString/ {getline; gsub(/[[:space:]]*<\/?string>/, ""); print; exit}')
+          lock=$(git show "$tree:Cargo.lock" | awk '/^name = "lux"$/ {getline; sub(/^version = "/, ""); sub(/"$/, ""); print}')
+          plist=$(git show "$tree:apps/desktop/src-tauri/gen/apple/lux_iOS/Info.plist" | awk '/CFBundleShortVersionString/ {getline; gsub(/[[:space:]]*<\/?string>/, ""); print}')
           echo "release branch wants $want (Cargo.lock: $lock, Info.plist: $plist)"
           [ "$lock" = "$want" ] && [ "$plist" = "$want" ] \
             || { echo "::error::release branch stamps out of sync with $want — check the extra-files updaters in release-please-config.json"; exit 1; }
+
+      # A GITHUB_TOKEN branch push creates the release PR's gate run in the
+      # action_required state (GitHub holds workflow runs for events the token
+      # caused; pull_request branch filters can't exclude a head branch, they
+      # match the base). Approve those held runs so the release PR carries a
+      # live green gate instead of an "awaiting approval" banner. Fail-soft:
+      # if the token may not approve its own event's runs, the held run is
+      # cosmetic — merging is not blocked and the authoritative gate is the
+      # ci job at the tag.
+      - name: Approve the release branch's held gate runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: release-please--branches--main--components--lux
+        run: |
+          if ! git ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null 2>&1; then
+            echo "no open release branch; nothing to approve"
+            exit 0
+          fi
+          ids=""
+          for i in 1 2 3; do
+            sleep 10
+            ids=$(gh run list --branch "$BRANCH" --status action_required --limit 10 --json databaseId --jq '.[].databaseId')
+            [ -n "$ids" ] && break
+          done
+          for id in $ids; do
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/$id/approve" >/dev/null \
+              && echo "approved held run $id" \
+              || echo "::warning::could not approve held run $id (cosmetic; the tag gate still rules)"
+          done
 
       # The pipeline keys off observable repo state, never a tool's memory of
       # what it did. The manifest names the current version; from there: no
