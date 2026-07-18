@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-# AWS IoT custom authorizer for the change-nudge channel. The desktop connects
-# to IoT Core over MQTT-over-WebSocket carrying its Cognito ID token; IoT hands
-# the token to this Lambda, which verifies it (lux-auth) and returns an IoT
-# policy scoped to that user's own nudge topic and client-id prefix (lux-wire).
+# AWS IoT custom authorizer for the user channel (change nudges + remote
+# control). The app connects to IoT Core over MQTT-over-WebSocket carrying its
+# Cognito ID token; IoT hands the token to this Lambda, which verifies it
+# (lux-auth) and returns an IoT policy scoped to that user's own nudge topic,
+# remote-control (ctl) space, and client-id prefix (lux-wire).
 # Built and deployed with cargo-lambda, like the sibling services.
 
 [lints]
