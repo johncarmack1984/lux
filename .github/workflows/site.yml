@@ -50,6 +50,13 @@ jobs:
             --exclude "*" --include "*.html" \
             --cache-control "no-cache" \
             --content-type "text/html; charset=utf-8"
+          # The AASA file is extensionless, so the sync's mime guess would call
+          # it octet-stream and cache it for a week — Apple's CDN wants
+          # application/json and prompt refresh on change.
+          aws s3 cp apps/site/dist/.well-known/apple-app-site-association \
+            "s3://lux-johncarmack-com/.well-known/apple-app-site-association" \
+            --cache-control "no-cache" \
+            --content-type "application/json"
 
       - name: Invalidate CloudFront
         run: |
