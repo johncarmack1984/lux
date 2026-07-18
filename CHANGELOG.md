@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.4.0](https://github.com/johncarmack1984/lux/compare/v1.3.3...v1.4.0) (2026-07-18)
+
+
+### Features
+
+* **auth:** add the sign in with apple backend ([#199](https://github.com/johncarmack1984/lux/issues/199)) ([91aad2a](https://github.com/johncarmack1984/lux/commit/91aad2a4c91a1cfa3948d5cc7df0497db6e892a3))
+* **auth:** native sign in with apple on iOS and the Mac App Store ([#200](https://github.com/johncarmack1984/lux/issues/200)) ([44ed35d](https://github.com/johncarmack1984/lux/commit/44ed35d2ad4f03a855a25b397384719002da04fd))
+
+
+### Bug Fixes
+
+* **ios:** wire sign in with apple into the Xcode project ([#203](https://github.com/johncarmack1984/lux/issues/203)) ([a48847e](https://github.com/johncarmack1984/lux/commit/a48847e3bff18778bf63c720c2b5835b4e540797))
+* **release:** keep store notes on the release, not main ([#196](https://github.com/johncarmack1984/lux/issues/196)) ([e0699b4](https://github.com/johncarmack1984/lux/commit/e0699b41061191a21277820488891a54403d347c))
+* **release:** refuse dispatch rebuilds of served macOS artifacts ([#194](https://github.com/johncarmack1984/lux/issues/194)) ([5e61e31](https://github.com/johncarmack1984/lux/commit/5e61e3105d3b4c9bab2f2735d18d37e250d059f7))
+
 ## [1.3.3](https://github.com/johncarmack1984/lux/compare/v1.3.2...v1.3.3) (2026-07-18)
 
 
