@@ -31,6 +31,14 @@ jobs:
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Merge bursts collapse to one rebuild: ordinary pushes share a group and
+    # the newest cancels the rest (each run regenerates the whole branch, so
+    # only the last matters). A release-PR merge gets a unique group instead —
+    # a shipping run's prep stage must never be cancellable by a push landing
+    # behind it (the downstream ship jobs hang off this job's outputs).
+    concurrency:
+      group: ${{ startsWith(github.event.head_commit.message, 'chore(main): release') && format('release-ship-{0}', github.run_id) || 'release-prep' }}
+      cancel-in-progress: true
     permissions:
       contents: write
       pull-requests: write
