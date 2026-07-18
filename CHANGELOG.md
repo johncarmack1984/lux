@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.2.0](https://github.com/johncarmack1984/lux/compare/v1.1.0...v1.2.0) (2026-07-18)
+
+
+### Features
+
+* **ios:** associated domains for password autofill ([#156](https://github.com/johncarmack1984/lux/issues/156)) ([26b2387](https://github.com/johncarmack1984/lux/commit/26b23879f2155070be228653030d26214defa1c1))
+* **remote:** apply ctl frames on the user channel ([#154](https://github.com/johncarmack1984/lux/issues/154)) ([2359e8b](https://github.com/johncarmack1984/lux/commit/2359e8b7600a6bc688304694853f683bf491fad0))
+* **remote:** ctl wire contract and authorizer publish policy ([#152](https://github.com/johncarmack1984/lux/issues/152)) ([1f9fb6c](https://github.com/johncarmack1984/lux/commit/1f9fb6c499cb8639cab2357e1904042c62f85bd3))
+* **remote:** publish local control to the user channel ([#155](https://github.com/johncarmack1984/lux/issues/155)) ([d3ae259](https://github.com/johncarmack1984/lux/commit/d3ae2594e90803d7106e2ac6f2cc7fc243ef088e))
+
+
+### Bug Fixes
+
+* **account:** key credential autofill off the username token ([#160](https://github.com/johncarmack1984/lux/issues/160)) ([376b303](https://github.com/johncarmack1984/lux/commit/376b303cc682433dd99e522b204d206647304c18))
+* **ios:** keep the stored session readable at locked launch ([#157](https://github.com/johncarmack1984/lux/issues/157)) ([8ec54e3](https://github.com/johncarmack1984/lux/commit/8ec54e3d7c37e861bd7c1720b1d674dac89cfcee))
+* **remote:** isolate the ctl subscribe and hold off echoes during input ([#159](https://github.com/johncarmack1984/lux/issues/159)) ([aecea1e](https://github.com/johncarmack1984/lux/commit/aecea1e99fe01528d84b415b1118fe45af019cfc))
+
 ## [1.1.0](https://github.com/johncarmack1984/lux/compare/v0.18.0...v1.1.0) (2026-07-16)
 
 
