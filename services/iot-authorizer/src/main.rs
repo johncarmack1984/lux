@@ -5,9 +5,11 @@
 //! IoT invokes this Lambda on every connect with the Cognito ID token the app
 //! put in the `x-lux-token` handshake header (the authorizer's
 //! `token_key_name`); we verify it exactly as the sync-api does (`lux-auth`)
-//! and answer with an IoT policy scoped to the *verified* user's own topic and
-//! client-id prefix — the same token-derived tenant isolation as the DynamoDB
-//! partition key. A bad token gets `isAuthenticated: false`, never a policy.
+//! and answer with an IoT policy scoped to the *verified* user's own topics —
+//! the nudge subscription plus pub/sub over their remote-control (`ctl`)
+//! space — and client-id prefix: the same token-derived tenant isolation as
+//! the DynamoDB partition key. A bad token gets `isAuthenticated: false`,
+//! never a policy.
 //!
 //! The authorizer is registered with signing disabled: the desktop is a public
 //! client and can't hold a signing key, so the JWT check here is the gate —
@@ -109,9 +111,22 @@ fn authorize(verifier: &lux_auth::Verifier, event: LambdaEvent<Value>) -> Value 
         }
     };
 
+    allow(region, account, &sub)
+}
+
+/// The allow response for a verified user: connect under their own client-id
+/// prefix, the nudge subscription, and full pub/sub over their own
+/// remote-control space (`lux_wire::ctl`) — the ctl channel rides the same
+/// connection, and the topic scheme scopes every grant to the verified sub.
+/// (In the ctl resources, `*` is an IAM string wildcard, so the Subscribe
+/// grant matches the client's `…/#` filter; Subscribe takes `topicfilter`
+/// ARNs, Publish/Receive take `topic` ARNs. The Publish grant also covers the
+/// connection's Last Will on the presence topic.)
+fn allow(region: &str, account: &str, sub: &str) -> Value {
     let prefix = format!("arn:aws:iot:{region}:{account}");
-    let topic = lux_wire::nudge::user_topic(&sub);
-    let client_prefix = lux_wire::nudge::client_id_prefix(&sub);
+    let nudge_topic = lux_wire::nudge::user_topic(sub);
+    let client_prefix = lux_wire::nudge::client_id_prefix(sub);
+    let ctl_prefix = lux_wire::ctl::user_prefix(sub);
 
     json!({
         "isAuthenticated": true,
@@ -132,12 +147,23 @@ fn authorize(verifier: &lux_auth::Verifier, event: LambdaEvent<Value>) -> Value 
                 {
                     "Effect": "Allow",
                     "Action": "iot:Subscribe",
-                    "Resource": format!("{prefix}:topicfilter/{topic}"),
+                    "Resource": [
+                        format!("{prefix}:topicfilter/{nudge_topic}"),
+                        format!("{prefix}:topicfilter/{ctl_prefix}/*"),
+                    ],
                 },
                 {
                     "Effect": "Allow",
                     "Action": "iot:Receive",
-                    "Resource": format!("{prefix}:topic/{topic}"),
+                    "Resource": [
+                        format!("{prefix}:topic/{nudge_topic}"),
+                        format!("{prefix}:topic/{ctl_prefix}/*"),
+                    ],
+                },
+                {
+                    "Effect": "Allow",
+                    "Action": "iot:Publish",
+                    "Resource": format!("{prefix}:topic/{ctl_prefix}/*"),
                 },
             ],
         }],
@@ -218,5 +244,50 @@ mod tests {
         let e = event(json!({ "protocolData": { "http": { "headers": {} } } }));
         assert_eq!(extract_token(&e), None);
         assert_eq!(extract_token(&event(json!({}))), None);
+    }
+
+    #[test]
+    fn allow_policy_grants_nudge_and_ctl_scoped_to_the_sub() {
+        let response = allow("us-west-1", "735853783919", "abc-123");
+        assert_eq!(response["isAuthenticated"], true);
+        assert_eq!(response["principalId"], "abc123"); // non-alphanumerics dropped
+
+        let statements = &response["policyDocuments"][0]["Statement"];
+        let arn = |suffix: &str| format!("arn:aws:iot:us-west-1:735853783919:{suffix}");
+
+        assert_eq!(statements[0]["Action"], "iot:Connect");
+        assert_eq!(
+            statements[0]["Resource"],
+            arn("client/lux-sync-abc-123-*").as_str()
+        );
+
+        assert_eq!(statements[1]["Action"], "iot:Subscribe");
+        assert_eq!(
+            statements[1]["Resource"],
+            json!([
+                arn("topicfilter/lux/sync/user/abc-123"),
+                arn("topicfilter/lux/ctl/user/abc-123/*"),
+            ])
+        );
+
+        assert_eq!(statements[2]["Action"], "iot:Receive");
+        assert_eq!(
+            statements[2]["Resource"],
+            json!([
+                arn("topic/lux/sync/user/abc-123"),
+                arn("topic/lux/ctl/user/abc-123/*"),
+            ])
+        );
+
+        // The one genuinely new capability: publish, ctl space only — nothing
+        // grants publish on the nudge topic or anyone else's prefix.
+        assert_eq!(statements[3]["Action"], "iot:Publish");
+        assert_eq!(
+            statements[3]["Resource"],
+            arn("topic/lux/ctl/user/abc-123/*").as_str()
+        );
+        // json indexing past the end yields Null — asserts there is no fifth
+        // statement without unwrapping.
+        assert_eq!(statements[4], Value::Null);
     }
 }
