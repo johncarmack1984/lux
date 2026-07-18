@@ -125,6 +125,11 @@ export const cmd = {
   },
 
   /** @throws {string} */
+  sign_in_with_apple(): Promise<AuthStatus> {
+    return invoke("cmd.sign_in_with_apple");
+  },
+
+  /** @throws {string} */
   sign_out(): Promise<AuthStatus> {
     return invoke("cmd.sign_out");
   },
@@ -222,6 +227,13 @@ export type AuthStatus = {
 	configured: boolean,
 	signedIn: boolean,
 	email: string | null,
+	/**  How the signed-in session was established; `None` when signed out. */
+	provider: Provider | null,
+	/**
+	 *  Whether native Sign in with Apple is available in this build (platform
+	 *  carries the entitlement AND the backend URL is configured).
+	 */
+	apple: boolean,
 };
 
 export type Channel = {
@@ -279,6 +291,13 @@ export type LuxChannels = {
 export type LuxLabelColor = "Red" | "Green" | "Blue" | "Amber" | "White" | "Brightness" | 
 /**  Raw universe channels (7..=512) with no fixed colour role. */
 "Generic";
+
+/**
+ *  How the current session was established. Password sessions can change
+ *  their password and re-auth by SRP; Apple sessions re-auth by sheet. Stored
+ *  with the session so a restart keeps the distinction.
+ */
+export type Provider = "password" | "apple";
 
 /**
  *  One of the user's other signed-in devices, as the UI sees it (a thinned

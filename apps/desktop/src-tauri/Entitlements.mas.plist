@@ -8,6 +8,10 @@
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
 	<!-- Outbound: sACN/Art-Net UDP, AWS (Cognito/sync/IoT-WSS). -->
 	<key>com.apple.security.network.client</key>
 	<true/>

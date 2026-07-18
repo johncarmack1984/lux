@@ -52,6 +52,17 @@ fn load_config() -> Option<Config> {
         .then_some(config)
 }
 
+/// How the current session was established. Password sessions can change
+/// their password and re-auth by SRP; Apple sessions re-auth by sheet. Stored
+/// with the session so a restart keeps the distinction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum Provider {
+    #[default]
+    Password,
+    Apple,
+}
+
 /// The signed-in session, held in memory. The refresh token is also persisted to
 /// the keychain so sign-in survives a restart; the id/access tokens are short
 /// lived and recreated on refresh.
@@ -61,6 +72,7 @@ struct Session {
     id_token: Option<String>,
     access_token: Option<String>,
     refresh_token: Option<String>,
+    provider: Provider,
 }
 
 impl Session {
@@ -78,6 +90,9 @@ pub struct LuxAccount {
     /// Base URL of the lux-sync-api Function URL (`LUX_SYNC_URL`); `None`
     /// disables cloud sync even when auth is configured.
     sync_url: Option<String>,
+    /// Base URL of the lux-apple-auth Function URL; `None` keeps Sign in with
+    /// Apple dark (endpoints field absent/empty).
+    apple_auth_url: Option<String>,
     session: Arc<Mutex<Session>>,
 }
 
@@ -89,6 +104,11 @@ pub struct AuthStatus {
     pub configured: bool,
     pub signed_in: bool,
     pub email: Option<String>,
+    /// How the signed-in session was established; `None` when signed out.
+    pub provider: Option<Provider>,
+    /// Whether native Sign in with Apple is available in this build (platform
+    /// carries the entitlement AND the backend URL is configured).
+    pub apple: bool,
 }
 
 /// Tokens returned by a Cognito auth flow. `refresh` is `None` on a refresh
@@ -100,10 +120,13 @@ struct Tokens {
 }
 
 /// What we persist to the keychain — enough to restore a session on next launch.
+/// `provider` defaults for items written by pre-Apple builds.
 #[derive(Serialize, Deserialize)]
 struct StoredSession {
     refresh_token: String,
     email: String,
+    #[serde(default)]
+    provider: Provider,
 }
 
 impl LuxAccount {
@@ -115,12 +138,16 @@ impl LuxAccount {
                 "accounts not configured (endpoints file has no Cognito values); sign-in disabled"
             ),
         }
-        let sync_url = Some(crate::endpoints::effective().sync_url.clone())
-            .filter(|url| !url.is_empty())
-            .map(|url| url.trim_end_matches('/').to_string());
+        let base_url = |url: &str| {
+            Some(url.to_string())
+                .filter(|url| !url.is_empty())
+                .map(|url| url.trim_end_matches('/').to_string())
+        };
+        let endpoints = crate::endpoints::effective();
         LuxAccount {
             config,
-            sync_url,
+            sync_url: base_url(&endpoints.sync_url),
+            apple_auth_url: base_url(&endpoints.apple_auth_url),
             session: Arc::new(Mutex::new(Session::default())),
         }
     }
@@ -167,7 +194,19 @@ impl LuxAccount {
             configured: self.config.is_some(),
             signed_in: session.signed_in(),
             email: session.email.clone(),
+            provider: session.signed_in().then_some(session.provider),
+            apple: self.apple_sign_in_available(),
         }
+    }
+
+    /// Native Sign in with Apple, on THIS build: the backend must be
+    /// configured, accounts must be configured, and the binary must carry the
+    /// applesignin entitlement — iOS and the Mac App Store flavor today. The
+    /// Developer ID .dmg stays dark until it embeds a provisioning profile
+    /// with the entitlement.
+    fn apple_sign_in_available(&self) -> bool {
+        let entitled = cfg!(target_os = "ios") || (cfg!(target_os = "macos") && cfg!(feature = "mas"));
+        entitled && self.config.is_some() && self.apple_auth_url.is_some()
     }
 
     fn config(&self) -> Result<Config, String> {
@@ -193,10 +232,135 @@ impl LuxAccount {
             save_session(&StoredSession {
                 refresh_token: refresh.clone(),
                 email: email.clone(),
+                provider: Provider::Password,
             });
         }
-        self.apply(tokens, Some(email));
+        self.apply(tokens, Some(email), Some(Provider::Password));
         Ok(self.status())
+    }
+
+    /// Sign in with Apple: run the native sheet, then trade its identity token
+    /// for ordinary user-pool tokens at the lux-apple-auth service. Async on
+    /// purpose — the sheet is user-paced, and this must never block the main
+    /// thread the sheet's callbacks are delivered on.
+    pub async fn sign_in_with_apple(&self, app: &AppHandle) -> Result<AuthStatus, String> {
+        if !self.apple_sign_in_available() {
+            return Err("sign in with apple is not available in this build".into());
+        }
+        let base = self
+            .apple_auth_url
+            .clone()
+            .ok_or("sign in with apple is not configured")?;
+
+        // The token's nonce claim must be SHA-256(raw); the raw value goes only
+        // to our backend, which re-hashes and compares — binding the token to
+        // this sheet run.
+        let raw_nonce = format!(
+            "{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        );
+        let hashed_nonce = sha256_hex(&raw_nonce);
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        app.run_on_main_thread(move || {
+            lux_apple_id::authorize(
+                &hashed_nonce,
+                Box::new(move |result| {
+                    let _ = tx.send(result);
+                }),
+            );
+        })
+        .map_err(|e| format!("could not present the sign-in sheet: {e}"))?;
+        let authorization = rx
+            .await
+            .map_err(|_| "the sign-in sheet never completed".to_string())??;
+
+        let request = lux_wire::apple::SignInRequest {
+            identity_token: authorization.identity_token,
+            authorization_code: authorization.authorization_code,
+            raw_nonce,
+            email: authorization.email,
+            full_name: authorization.full_name,
+        };
+        let response = reqwest::Client::new()
+            .post(format!(
+                "{base}/{}/{}",
+                lux_wire::apple::AUTH_SEGMENT,
+                lux_wire::apple::APPLE_SEGMENT
+            ))
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| format!("could not reach the sign-in service: {e}"))?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let message = response
+                .json::<lux_wire::ErrorResponse>()
+                .await
+                .map(|body| body.error)
+                .unwrap_or_else(|_| format!("sign-in service answered {status}"));
+            return Err(message);
+        }
+        let tokens: lux_wire::apple::SignInResponse = response
+            .json()
+            .await
+            .map_err(|e| format!("malformed sign-in response: {e}"))?;
+
+        // The session's email (the local store's cloud-binding key) comes from
+        // our own id token — the sheet only carries one on first authorization.
+        let email = email_from_id_token(&tokens.id_token)
+            .ok_or("sign-in response carried no email")?;
+        save_session(&StoredSession {
+            refresh_token: tokens.refresh_token.clone(),
+            email: email.clone(),
+            provider: Provider::Apple,
+        });
+        self.apply(
+            Tokens {
+                id: tokens.id_token,
+                access: tokens.access_token,
+                refresh: Some(tokens.refresh_token),
+            },
+            Some(email),
+            Some(Provider::Apple),
+        );
+        Ok(self.status())
+    }
+
+    /// Best-effort Apple-side revocation ahead of account deletion (App Store
+    /// guideline 5.1.1): the backend revokes the stored Apple token and drops
+    /// the link. Never linked is a quiet no-op; a failure is logged and
+    /// deletion proceeds — the user can still revoke from Settings, and the
+    /// sign-in path self-heals a stale link.
+    pub fn revoke_apple_link(&self) {
+        let Some(base) = self.apple_auth_url.clone() else {
+            return;
+        };
+        let Some(token) = self.current_id_token() else {
+            return;
+        };
+        let result = block_on(async move {
+            let response = reqwest::Client::new()
+                .post(format!(
+                    "{base}/{}/{}/{}",
+                    lux_wire::apple::AUTH_SEGMENT,
+                    lux_wire::apple::APPLE_SEGMENT,
+                    lux_wire::apple::REVOKE_SEGMENT
+                ))
+                .bearer_auth(token)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+            if response.status().is_success() {
+                Ok(())
+            } else {
+                Err(format!("revoke answered {}", response.status()))
+            }
+        });
+        if let Err(e) = result {
+            log::warn!("apple revoke skipped ({e}); continuing with deletion");
+        }
     }
 
     pub fn sign_out(&self) -> AuthStatus {
@@ -229,7 +393,7 @@ impl LuxAccount {
                 .clone()
                 .ok_or_else(|| first.clone())?;
             let tokens = block_on(do_refresh(cfg.clone(), refresh)).map_err(|_| first.clone())?;
-            self.apply(tokens, None);
+            self.apply(tokens, None, None);
             let access = self
                 .session
                 .lock_or_recover()
@@ -244,9 +408,10 @@ impl LuxAccount {
         Ok(self.status())
     }
 
-    /// Store freshly-issued tokens. `email` is set on sign-in; left untouched on
-    /// a silent refresh (it carries over from the restored session).
-    fn apply(&self, tokens: Tokens, email: Option<String>) {
+    /// Store freshly-issued tokens. `email`/`provider` are set on sign-in and
+    /// left untouched on a silent refresh (they carry over from the restored
+    /// session).
+    fn apply(&self, tokens: Tokens, email: Option<String>, provider: Option<Provider>) {
         let mut session = self.session.lock_or_recover();
         session.id_token = Some(tokens.id);
         session.access_token = Some(tokens.access);
@@ -255,6 +420,9 @@ impl LuxAccount {
         }
         if email.is_some() {
             session.email = email;
+        }
+        if let Some(provider) = provider {
+            session.provider = provider;
         }
     }
 }
@@ -280,12 +448,9 @@ pub fn restore_on_startup(app: &AppHandle) {
                     s.access_token = Some(tokens.access);
                     s.refresh_token = load_session().map(|s| s.refresh_token);
                     s.email = Some(stored.email.clone());
+                    s.provider = stored.provider;
                 }
-                let status = AuthStatus {
-                    configured: true,
-                    signed_in: true,
-                    email: Some(stored.email),
-                };
+                let status = app.state::<LuxAccount>().status();
                 let _ = CmdEvent::AuthChanged { status }.emit(&app);
                 log::info!("restored signed-in session from keychain");
                 // Pull any setups changed on other devices since last run, and
@@ -449,6 +614,32 @@ fn tokens_from(
         access: r.access_token().unwrap_or_default().to_owned(),
         refresh: r.refresh_token().map(str::to_owned),
     })
+}
+
+fn sha256_hex(raw: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(raw.as_bytes())
+        .iter()
+        .fold(String::new(), |mut acc, b| {
+            use std::fmt::Write;
+            let _ = write!(acc, "{b:02x}");
+            acc
+        })
+}
+
+/// The `email` claim from our OWN Cognito id token, parsed without
+/// verification on purpose: the desktop holds tokens, it doesn't verify them
+/// (that's the services' job), and this one just arrived over TLS from our
+/// backend.
+fn email_from_id_token(id_token: &str) -> Option<String> {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    let payload = id_token.split('.').nth(1)?;
+    let bytes = URL_SAFE_NO_PAD.decode(payload).ok()?;
+    let claims: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    claims
+        .get("email")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
 }
 
 /// Best-effort message from a Cognito SDK error — the modeled service message

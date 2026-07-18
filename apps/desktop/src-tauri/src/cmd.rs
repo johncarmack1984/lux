@@ -107,6 +107,13 @@ pub trait CmdMethods {
         email: String,
         password: String,
     ) -> Result<AuthStatus, String>;
+    /// Run the native Sign in with Apple sheet and exchange its identity token
+    /// for a session. Async: the sheet is user-paced and its callbacks arrive
+    /// on the main thread, which must stay unblocked — a sync procedure would
+    /// run (and block) exactly there. No injected parameters (a ttipc async
+    /// limitation); the impl reaches the app handle through `crate::app_handle`.
+    /// Rejects with "canceled" (verbatim) when the user dismisses the sheet.
+    async fn sign_in_with_apple(&self) -> Result<AuthStatus, String>;
     fn sign_out(&self, app_handle: AppHandle) -> Result<AuthStatus, String>;
     fn delete_account(&self, app_handle: AppHandle) -> Result<AuthStatus, String>;
     // Cloud sync — current status for the indicator, and a manual pull (fired on
@@ -395,6 +402,20 @@ impl CmdMethods for CmdEndpoint {
         Ok(status)
     }
 
+    async fn sign_in_with_apple(&self) -> Result<AuthStatus, String> {
+        let app_handle = crate::app_handle()?;
+        let status = app_handle
+            .state::<LuxAccount>()
+            .sign_in_with_apple(&app_handle)
+            .await?;
+        emit_auth_changed(&app_handle, status.clone())?;
+        // Same post-sign-in tail as the SRP path: pull the account's setups,
+        // then listen for change nudges from their other devices.
+        crate::cloud::schedule_sync(&app_handle);
+        crate::nudge::start(&app_handle);
+        Ok(status)
+    }
+
     fn sign_out(&self, app_handle: AppHandle) -> Result<AuthStatus, String> {
         let status = app_handle.state::<LuxAccount>().sign_out();
         crate::nudge::stop(&app_handle);
@@ -403,6 +424,10 @@ impl CmdMethods for CmdEndpoint {
     }
 
     fn delete_account(&self, app_handle: AppHandle) -> Result<AuthStatus, String> {
+        // Revoke the Apple-side grant first (required when an Apple link
+        // exists; a quiet no-op otherwise) — best-effort, never blocks the
+        // deletion itself.
+        app_handle.state::<LuxAccount>().revoke_apple_link();
         // Wipe the cloud data while the tokens still authenticate, then remove
         // the Cognito user; a failure at either step leaves the account intact
         // and the whole flow retryable.

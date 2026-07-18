@@ -1,0 +1,49 @@
+[package]
+name = "lux-apple-id"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# The native Sign in with Apple sheet (ASAuthorizationController) behind a
+# plain-Rust callback API, for macOS and iOS; a stub that errors everywhere
+# else. Deliberately OUTSIDE the workspace lint policy: the workspace forbids
+# `unsafe_code`, and Objective-C interop is exactly the kind of FFI that policy
+# wants fenced into one small, reviewable leaf crate — nothing else in the
+# workspace may write `unsafe`. The rest of the shared policy is restated here.
+
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+unwrap_used = "deny"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = [
+    "NSArray",
+    "NSData",
+    "NSError",
+    "NSPersonNameComponents",
+    "NSString",
+] }
+objc2-authentication-services = { version = "0.3", features = [
+    "ASAuthorization",
+    "ASAuthorizationAppleIDCredential",
+    "ASAuthorizationAppleIDProvider",
+    "ASAuthorizationAppleIDRequest",
+    "ASAuthorizationController",
+    "ASAuthorizationCredential",
+    "ASAuthorizationOpenIDRequest",
+    "ASAuthorizationRequest",
+    "ASFoundation",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", features = [
+    "NSApplication",
+    "NSResponder",
+    "NSWindow",
+] }
