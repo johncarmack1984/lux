@@ -136,9 +136,7 @@ mod tests {
         assert!(!endpoints.cognito_app_client_id.is_empty());
         assert!(!endpoints.sync_url.is_empty());
         assert!(!endpoints.nudge_endpoint.is_empty());
-        // `apple_auth_url` is deliberately NOT asserted populated: the key only
-        // enters the generated file once the Function URL exists in applied
-        // Terraform state, and an absent/empty value means "feature dark".
+        assert!(!endpoints.apple_auth_url.is_empty());
         assert!(endpoints.remote_control.is_none(), "prod never configures remote control");
     }
 

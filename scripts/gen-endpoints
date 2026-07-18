@@ -20,12 +20,14 @@ jq -Sn \
   --arg cognitoAppClientId "$(out cognito_app_client_id)" \
   --arg syncUrl            "$(out lux_sync_url)" \
   --arg nudgeEndpoint      "$(out iot_endpoint)" \
+  --arg appleAuthUrl       "$(out apple_auth_url)" \
   '{
     cognitoRegion:      $cognitoRegion,
     cognitoUserPoolId:  $cognitoUserPoolId,
     cognitoAppClientId: $cognitoAppClientId,
     syncUrl:            $syncUrl,
-    nudgeEndpoint:      $nudgeEndpoint
+    nudgeEndpoint:      $nudgeEndpoint,
+    appleAuthUrl:       $appleAuthUrl
   }' > apps/desktop/src-tauri/endpoints.prod.json
 
 echo "wrote apps/desktop/src-tauri/endpoints.prod.json:"
