@@ -74,6 +74,7 @@ rumqttc = { version = "0.25", features = ["websocket"] }
 # features here (no cmake / aws-lc-sys C build).
 rustls = { workspace = true, features = ["logging", "std", "tls12"] }
 tauri-plugin-process = "2"
+gethostname = "1.1.0"
 
 # Desktop-only outputs and integrations with no iOS/Android equivalent: USB/FTDI
 # (Enttec Open DMX), the system tray, and the self-updater. Mobile drives output

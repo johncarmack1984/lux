@@ -103,6 +103,9 @@ impl LuxBuffer {
     ) -> Result<LuxBuffer, String> {
         emit_buffer(snapshot.clone(), &app)?;
         schedule_persist(&app);
+        // Refresh the retained remote-control state echo (no-op when the user
+        // channel is down) — remote surfaces reflect local changes through it.
+        crate::nudge::schedule_state_echo(&app);
         render(&snapshot, &app)?;
         Ok(self.clone())
     }
