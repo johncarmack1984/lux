@@ -3,8 +3,7 @@
 # live only in AWS Secrets Manager (created out-of-band): the Tauri updater
 # signing key, the Apple signing material (Developer ID + ASC API key), the
 # Mac App Store signing material (Apple Distribution + installer certs and the
-# provisioning profile), and the release-bot GitHub App private key
-# (release-please mints an installation token from it).
+# provisioning profile), and the Anthropic key the store-notes draft uses.
 
 data "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
@@ -18,17 +17,12 @@ data "aws_secretsmanager_secret" "apple_signing" {
   name = "lux/apple-signing"
 }
 
-data "aws_secretsmanager_secret" "release_app_private_key" {
-  name = "lux/release-app-private-key"
-}
-
 data "aws_secretsmanager_secret" "mas_signing" {
   name = "lux/mas-signing"
 }
 
-# The release-please job drafts the App Store notes onto the release branch
-# (one consolidated push with the version stamps), so this main-pinned role
-# reads the Anthropic key.
+# The store-notes job drafts the App Store notes at ship time (release.yml),
+# so this main-pinned role reads the Anthropic key.
 data "aws_secretsmanager_secret" "anthropic_api_key" {
   name = "lux/anthropic-api-key"
 }
@@ -66,7 +60,6 @@ resource "aws_iam_role_policy" "read_updater_signing_key" {
       Resource = [
         data.aws_secretsmanager_secret.updater_signing_key.arn,
         data.aws_secretsmanager_secret.apple_signing.arn,
-        data.aws_secretsmanager_secret.release_app_private_key.arn,
         data.aws_secretsmanager_secret.mas_signing.arn,
         data.aws_secretsmanager_secret.anthropic_api_key.arn,
       ]
