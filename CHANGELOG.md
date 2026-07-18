@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/johncarmack1984/lux/compare/v1.4.0...v1.5.0) (2026-07-18)
+
+
+### Features
+
+* **auth:** carry the apple auth endpoint ([#204](https://github.com/johncarmack1984/lux/issues/204)) ([49127b8](https://github.com/johncarmack1984/lux/commit/49127b8606a5ebe3966744c64abe6182af542b71))
+
 ## [1.4.0](https://github.com/johncarmack1984/lux/compare/v1.3.3...v1.4.0) (2026-07-18)
 
 
