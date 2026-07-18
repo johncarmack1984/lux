@@ -1,5 +1,8 @@
 //! lux-node — headless lux for an always-on Linux box.
 //!
+//!   sudo lux-node install      one-command setup: binary, user, unit, config,
+//!                              login, enable (idempotent; --keep-sleep to
+//!                              skip masking suspend)
 //!   lux-node login <email>     sign in once; stores the refresh token (0600)
 //!   lux-node run [--config P]  hold the user channel and drive the rig
 //!
@@ -8,6 +11,7 @@
 
 mod auth;
 mod config;
+mod install;
 mod node;
 
 use std::net::Ipv4Addr;
@@ -30,6 +34,7 @@ fn main() {
 fn dispatch() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
+        Some("install") => install::install(args.iter().any(|a| a == "--keep-sleep")),
         Some("login") => {
             let email = args
                 .get(1)
@@ -39,7 +44,7 @@ fn dispatch() -> Result<(), String> {
         }
         Some("run") | None => run(config_path(&args)?),
         Some(other) => Err(format!(
-            "unknown command {other}; usage: lux-node login <email> | lux-node run [--config <path>]"
+            "unknown command {other}; usage: lux-node install | lux-node login <email> | lux-node run [--config <path>]"
         )),
     }
 }

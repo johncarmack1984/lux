@@ -4,41 +4,19 @@ Headless lux for an always-on Linux box: it signs into your lux account, holds t
 
 It transmits at E1.31 priority 90 (surfaces send 100), so touching a fader on any device on the LAN overrides the node until you let go.
 
-## Get the binary
-
-Run the **node-build** workflow (Actions → node-build → Run workflow) and download the `lux-node-x86_64-linux` artifact, or build from a checkout:
+## Install
 
 ```bash
-cargo build --release --target x86_64-unknown-linux-musl -p lux-node
+curl -fsSL -o lux-node https://github.com/johncarmack1984/lux/releases/latest/download/lux-node-x86_64-linux
+chmod +x lux-node
+sudo ./lux-node install
 ```
 
-## Install (Ubuntu)
+`install` does everything and is safe to re-run (it upgrades the binary and fixes whatever is missing): copies itself to `/usr/local/bin`, creates the `lux-node` system user and dirs, writes the systemd unit, prompts for the setup id + universe (only when no config exists), signs in as the service identity, enables the service, and masks sleep/suspend — pass `--keep-sleep` to skip that last part. Watch it with `journalctl -u lux-node -f`.
 
-```bash
-sudo install -m 755 lux-node /usr/local/bin/lux-node
-sudo useradd --system --home /var/lib/lux-node --shell /usr/sbin/nologin lux-node || true
-sudo mkdir -p /etc/lux-node
-sudo tee /etc/lux-node/config.json > /dev/null <<'EOF'
-{ "setupId": "<your setup uuid>", "universe": 1 }
-EOF
-sudo install -m 644 lux-node.service /etc/systemd/system/lux-node.service
+The setup id is the id of the setup this node applies — visible in the app's sync record, or ask any signed-in device. Optional keys in `/etc/lux-node/config.json`: `"interface"` (IPv4 of the NIC to egress multicast from, for multi-homed hosts) and `"priority"` (default 90).
 
-# Sign in once as the service user (stores the refresh token, 0600):
-sudo mkdir -p /var/lib/lux-node && sudo chown lux-node /var/lib/lux-node
-sudo -u lux-node XDG_CONFIG_HOME=/var/lib/lux-node lux-node login you@example.com
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now lux-node
-journalctl -u lux-node -f
-```
-
-`setupId` is the id of the setup this node applies — visible in the app's sync record, or ask any signed-in device. Optional config keys: `"interface"` (IPv4 of the NIC to egress multicast from, for multi-homed hosts) and `"priority"` (default 90).
-
-## An always-on box should stay on
-
-```bash
-sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
-```
+(No release with the asset yet, or hacking on a checkout? The **node-build** workflow's `lux-node-x86_64-linux` artifact and `cargo build --release --target x86_64-unknown-linux-musl -p lux-node` produce the same binary.)
 
 On an Intel Mac mini, also enable auto power-on after a power failure (the setpci register varies by generation — verify for the model before poking):
 
