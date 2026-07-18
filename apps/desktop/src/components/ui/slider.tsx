@@ -10,7 +10,12 @@ const Slider = React.forwardRef<
   <SliderPrimitive.Root
     ref={ref}
     className={cn(
-      "relative flex touch-none select-none items-center data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-auto data-[orientation=vertical]:flex-col",
+      // Vertical faders get a 44px-wide root (the Apple HIG touch minimum):
+      // Radix takes pointer events on the whole root and reads a vertical
+      // slider's value from Y only, so the width is pure hit area — a near
+      // miss grabs the fader instead of falling through to the card surface
+      // (whose click-to-collapse guard also excludes this root via touch-none).
+      "relative flex touch-none select-none items-center data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-11 data-[orientation=vertical]:flex-col",
       className
     )}
     {...props}
