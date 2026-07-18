@@ -217,7 +217,10 @@ export default function AccountMenu() {
             <Input
               id="account-email"
               type="email"
-              autoComplete="email"
+              // `username`, not `email`: credential autofill (iCloud Keychain,
+              // password managers) keys the saved login off the username +
+              // current-password pair; `email` is the contact-info token.
+              autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
