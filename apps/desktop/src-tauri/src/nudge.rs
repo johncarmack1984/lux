@@ -31,14 +31,14 @@
 //! while signed in; [`stop`] on sign-out.
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use rumqttc::{
-    AsyncClient, ConnectionError, Event, LastWill, MqttOptions, Packet, QoS, SubscribeFilter,
-    TlsConfiguration, Transport,
+    AsyncClient, ConnectionError, Event, LastWill, MqttOptions, Packet, QoS, TlsConfiguration,
+    Transport,
 };
 use tauri::{AppHandle, Manager, Runtime};
 use tokio::sync::watch;
@@ -57,6 +57,18 @@ const ECHO_WINDOW: Duration = Duration::from_millis(200);
 /// drag calls the input commands far faster than the wire needs; the outbox
 /// keeps the latest value per touched slot and the flush publishes one batch.
 const PUBLISH_WINDOW: Duration = Duration::from_millis(40);
+
+/// How long after local input the incoming state echo is ignored. An applier's
+/// echo lags a live drag by up to a few hundred milliseconds, so reflecting it
+/// mid-drag would yank the slider backward (rubber-banding); local truth wins
+/// while the user's hand is on the desk, and echoes re-converge within one
+/// echo window once they stop.
+const REFLECT_HOLDOFF: Duration = Duration::from_secs(2);
+
+/// Consecutive connections that died after the sync subscribe was acked but
+/// before the ctl one — the signature of a broker rejecting the ctl grant —
+/// after which remote control latches off so sync stops flapping.
+const CTL_FAILURE_LIMIT: u32 = 3;
 
 fn nudge_endpoint() -> Option<String> {
     Some(crate::endpoints::effective().nudge_endpoint.clone()).filter(|e| !e.is_empty())
@@ -80,6 +92,11 @@ pub struct LuxNudge {
     /// Outgoing ctl writes accumulated between flushes (see [`PUBLISH_WINDOW`]).
     outbox: Mutex<Outbox>,
     publish_pending: AtomicBool,
+    /// When the user last drove this device locally — gates the state echo's
+    /// reflection (see [`REFLECT_HOLDOFF`]).
+    local_input_at: Mutex<Option<Instant>>,
+    /// Consecutive ctl-suspect connection deaths (see [`CTL_FAILURE_LIMIT`]).
+    ctl_failures: AtomicU32,
 }
 
 impl Default for LuxNudge {
@@ -92,6 +109,8 @@ impl Default for LuxNudge {
             peers: Mutex::new(HashMap::new()),
             outbox: Mutex::new(Outbox::default()),
             publish_pending: AtomicBool::new(false),
+            local_input_at: Mutex::new(None),
+            ctl_failures: AtomicU32::new(0),
         }
     }
 }
@@ -124,6 +143,18 @@ impl LuxNudge {
     /// be redelivered (and re-learned) on the next subscribe.
     fn clear_peers(&self) {
         self.peers.lock_or_recover().clear();
+    }
+
+    fn note_local_input(&self) {
+        *self.local_input_at.lock_or_recover() = Some(Instant::now());
+    }
+
+    /// Whether local input happened within [`REFLECT_HOLDOFF`] — while true,
+    /// incoming state echoes are ignored instead of reflected.
+    fn within_reflect_holdoff(&self) -> bool {
+        self.local_input_at
+            .lock_or_recover()
+            .is_some_and(|at| at.elapsed() < REFLECT_HOLDOFF)
     }
 
     /// The user's other live connections, stable-ordered for the UI poll.
@@ -219,6 +250,9 @@ pub fn start(app: &AppHandle) {
     let mut generation = state.generation.subscribe();
     state.generation.send_modify(|g| *g += 1);
     let my_generation = *generation.borrow_and_update();
+    // A fresh sign-in gets a fresh chance at the ctl subscribe (see
+    // CTL_FAILURE_LIMIT).
+    state.ctl_failures.store(0, Ordering::SeqCst);
 
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -327,6 +361,7 @@ pub fn publish_input_overlay<R: Runtime>(app: &AppHandle<R>, bytes: Vec<u8>) {
     if state.echo.lock_or_recover().is_none() {
         return;
     }
+    state.note_local_input();
     state.outbox.lock_or_recover().push_overlay(bytes);
     schedule_publish(app);
 }
@@ -338,6 +373,7 @@ pub fn publish_input_channel<R: Runtime>(app: &AppHandle<R>, ch: u16, val: u8) {
     if state.echo.lock_or_recover().is_none() {
         return;
     }
+    state.note_local_input();
     state.outbox.lock_or_recover().push_channel(ch, val);
     schedule_publish(app);
 }
@@ -433,53 +469,80 @@ async fn run_connection(
         }
     });
 
+    let state = app.state::<LuxNudge>();
+
+    // Two subscribe packets, sync first, so the nudge subscription never
+    // shares fate with the ctl one: if the broker ever rejects the ctl grant
+    // (which kills the whole connection), sync reconnects on its own, and
+    // after CTL_FAILURE_LIMIT such deaths remote control latches off for this
+    // sign-in while sync carries on unharmed.
     let (client, mut eventloop) = AsyncClient::new(opts, 10);
     if let Err(e) = client
-        .subscribe_many([
-            SubscribeFilter::new(lux_wire::nudge::user_topic(sub), QoS::AtMostOnce),
-            SubscribeFilter::new(lux_wire::ctl::user_filter(sub), QoS::AtMostOnce),
-        ])
+        .subscribe(lux_wire::nudge::user_topic(sub), QoS::AtMostOnce)
         .await
     {
         log::warn!("nudge: could not queue subscribe: {e}");
         return false;
     }
+    let try_ctl = state.ctl_failures.load(Ordering::SeqCst) < CTL_FAILURE_LIMIT;
+    if try_ctl {
+        if let Err(e) = client
+            .subscribe(lux_wire::ctl::user_filter(sub), QoS::AtMostOnce)
+            .await
+        {
+            log::warn!("could not queue the remote-control subscribe: {e}");
+        }
+    }
 
-    let state = app.state::<LuxNudge>();
     let mut presence_rx = state.presence.subscribe();
     presence_rx.borrow_and_update();
+    // SubAcks arrive in subscribe order: 1st = sync live, 2nd = ctl live. All
+    // ctl publishing (presence, echoes) waits for the 2nd, so a connection
+    // without the ctl grant never attempts a publish the policy would refuse.
+    let mut acks = 0u32;
 
     loop {
         tokio::select! {
             _ = generation.changed() => {
-                // Graceful goodbye: clear the retained presence card so other
-                // surfaces grey out immediately (the Last Will only fires on
-                // ungraceful drops).
-                let _ = client
-                    .publish(presence_topic.clone(), QoS::AtMostOnce, true, Vec::<u8>::new())
-                    .await;
+                if acks >= 2 {
+                    // Graceful goodbye: clear the retained presence card so
+                    // other surfaces grey out immediately (the Last Will only
+                    // fires on ungraceful drops).
+                    let _ = client
+                        .publish(presence_topic.clone(), QoS::AtMostOnce, true, Vec::<u8>::new())
+                        .await;
+                }
                 let _ = client.disconnect().await;
                 state.clear_echo(&session);
                 state.clear_peers();
                 return false; // superseded — the outer loop exits
             }
             _ = presence_rx.changed() => {
-                publish_presence(&client, app, sub, &session).await;
+                if acks >= 2 {
+                    publish_presence(&client, app, sub, &session).await;
+                }
             }
             event = eventloop.poll() => match event {
                 Ok(Event::Incoming(Packet::SubAck(_))) => {
-                    log::info!("user channel connected; nudges + remote control live");
-                    *backoff_secs = 1;
-                    state.set_echo(EchoHandle {
-                        client: client.clone(),
-                        sub: sub.to_owned(),
-                        session: session.clone(),
-                    });
-                    publish_presence(&client, app, sub, &session).await;
-                    // Refresh the retained truth for whoever is watching.
-                    schedule_state_echo(app);
-                    // On-(re)connect pull: cover anything nudged while offline.
-                    crate::cloud::schedule_sync(app);
+                    acks += 1;
+                    if acks == 1 {
+                        log::info!("user channel connected; change nudges live");
+                        *backoff_secs = 1;
+                        // On-(re)connect pull: cover anything nudged while offline.
+                        crate::cloud::schedule_sync(app);
+                    }
+                    if acks == 2 {
+                        log::info!("remote control live on the user channel");
+                        state.ctl_failures.store(0, Ordering::SeqCst);
+                        state.set_echo(EchoHandle {
+                            client: client.clone(),
+                            sub: sub.to_owned(),
+                            session: session.clone(),
+                        });
+                        publish_presence(&client, app, sub, &session).await;
+                        // Refresh the retained truth for whoever is watching.
+                        schedule_state_echo(app);
+                    }
                 }
                 Ok(Event::Incoming(Packet::Publish(publish))) => {
                     match route(&publish.topic, sub) {
@@ -506,6 +569,17 @@ async fn run_connection(
                 Ok(_) => {}
                 Err(e) => {
                     log::info!("nudge connection error (will reconnect): {e}");
+                    if try_ctl && acks == 1 {
+                        // Sync was acked but the connection died before the
+                        // ctl ack — the signature of a rejected ctl subscribe.
+                        let failures = state.ctl_failures.fetch_add(1, Ordering::SeqCst) + 1;
+                        if failures == CTL_FAILURE_LIMIT {
+                            log::warn!(
+                                "connection died right after the remote-control subscribe \
+                                 {failures} times; disabling remote control until next sign-in"
+                            );
+                        }
+                    }
                     state.clear_echo(&session);
                     state.clear_peers();
                     return matches!(e, ConnectionError::ConnectionRefused(_));
@@ -556,6 +630,13 @@ fn reflect_state(app: &AppHandle, payload: &[u8], frame_setup: &str, own_session
         return; // our own echo delivered back
     }
     if frame_setup != app.state::<LuxSetups>().active_id().to_string() {
+        return;
+    }
+    if app.state::<LuxNudge>().within_reflect_holdoff() {
+        // The user is driving this device right now; an echo lags their hand
+        // by up to a few hundred ms and would rubber-band the faders. Local
+        // truth wins until they let go, then echoes re-converge.
+        log::trace!("ignoring state echo during local input");
         return;
     }
     let lux_wire::ctl::Frame::Buffer { buffer, .. } = frame else {
@@ -833,6 +914,18 @@ mod tests {
         // Unknown version → dropped (parse it as the reader would).
         let future: Frame = serde_json::from_str(r#"{"v":9,"ch":1,"val":1}"#).expect("parses");
         assert_eq!(gate(future, "s-1", "s-1", "me00"), None);
+    }
+
+    #[test]
+    fn reflect_holdoff_gates_recent_local_input() {
+        let state = LuxNudge::default();
+        assert!(!state.within_reflect_holdoff()); // no input yet — echoes reflect
+
+        state.note_local_input();
+        assert!(state.within_reflect_holdoff()); // hand on the desk — hold off
+
+        *state.local_input_at.lock_or_recover() = Some(Instant::now() - REFLECT_HOLDOFF * 2);
+        assert!(!state.within_reflect_holdoff()); // input long past — reflect again
     }
 
     #[test]
