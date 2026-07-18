@@ -29,14 +29,16 @@ function RootLayout() {
             <AccountMenu />
           </div>
         </nav>
-        <div className="flex flex-1 flex-col items-center overflow-y-auto">
+        {/* Routes own their scrolling: the fixtures list scrolls as a page,
+            the universe desk fits the viewport and scrolls internally — a
+            shared scroller can't serve both. min-h-0 lets flex children
+            actually shrink to fit. */}
+        <div className="flex min-h-0 flex-1 flex-col">
           <Outlet />
-          {/* mt-auto: sits at the viewport bottom until the content is tall
-              enough to scroll, then trails it. */}
-          <footer className="mt-auto pb-3 pt-8 text-xs text-muted-foreground/70">
-            lux v{__APP_VERSION__}
-          </footer>
         </div>
+        <footer className="shrink-0 pb-2 pt-1 text-center text-xs text-muted-foreground/70">
+          lux v{__APP_VERSION__}
+        </footer>
       </div>
       <Toaster closeButton />
       <Updater />

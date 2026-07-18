@@ -46,7 +46,7 @@ export default function ControlGrid() {
 
   if (!data.length || settings === null) {
     return (
-      <div className="mt-4 w-full max-w-xl rounded-md border py-10 text-center text-muted-foreground">
+      <div className="mx-auto mt-4 w-full max-w-xl rounded-md border py-10 text-center text-muted-foreground">
         {/* Blank while queries settle; "No channels" only once we know. */}
         {settings === null ? " " : "No channels"}
       </div>
@@ -82,9 +82,12 @@ function Desk({ data, vertical }: { data: Channels; vertical: boolean }) {
     <div
       ref={parentRef}
       className={cn(
-        "mt-4 h-[68vh] w-full overflow-auto rounded-md border",
+        // Fill whatever the route hands us (it fits the desk to the viewport)
+        // instead of a hardcoded viewport fraction that overflowed under the
+        // presets row.
+        "h-full w-full overflow-auto rounded-md border",
         // Horizontal rows read badly at full width; columns want all of it.
-        !vertical && "max-w-xl"
+        !vertical && "mx-auto max-w-xl"
       )}
     >
       <div
