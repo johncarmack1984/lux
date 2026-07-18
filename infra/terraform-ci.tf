@@ -130,6 +130,10 @@ resource "aws_iam_role_policy" "terraform_apply" {
           "lambda:CreateFunction", "lambda:GetFunction", "lambda:GetFunctionConfiguration",
           "lambda:UpdateFunctionCode", "lambda:UpdateFunctionConfiguration", "lambda:DeleteFunction",
           "lambda:ListVersionsByFunction", "lambda:AddPermission", "lambda:RemovePermission",
+          # The IoT authorizer's `live` alias (blue/green Phase 1, nudge.tf):
+          # terraform creates + owns the alias, the deploy pipeline flips it.
+          "lambda:CreateAlias", "lambda:GetAlias", "lambda:UpdateAlias",
+          "lambda:DeleteAlias", "lambda:ListAliases",
           "lambda:GetPolicy", "lambda:CreateFunctionUrlConfig", "lambda:GetFunctionUrlConfig",
           "lambda:UpdateFunctionUrlConfig", "lambda:DeleteFunctionUrlConfig",
           "lambda:TagResource", "lambda:UntagResource", "lambda:ListTags",
