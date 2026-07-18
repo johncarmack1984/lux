@@ -37,7 +37,9 @@ jobs:
     # a shipping run's prep stage must never be cancellable by a push landing
     # behind it (the downstream ship jobs hang off this job's outputs).
     concurrency:
-      group: ${{ startsWith(github.event.head_commit.message, 'chore(main): release') && format('release-ship-{0}', github.run_id) || 'release-prep' }}
+      # Quoted: the ': ' inside the message literal is a nested-mapping to a
+      # plain YAML scalar (GitHub's parser tolerates it, stricter ones don't).
+      group: "${{ startsWith(github.event.head_commit.message, 'chore(main): release') && format('release-ship-{0}', github.run_id) || 'release-prep' }}"
       cancel-in-progress: true
     permissions:
       contents: write
@@ -88,18 +90,20 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token || github.token }}
 
-      # release-please gets the DEFAULT token on purpose: its branch rebuild
-      # (force-push) and PR bookkeeping then start no workflow runs. The
-      # consolidated stamps+notes push below — made with the App token via the
-      # checkout — is the branch's single run-starting push, so each rebuild
-      # produces exactly one gate run, on the final tip: no superseded runs to
-      # cancel (red ✗ litter) and no duplicate jobs to pay for.
+      # release-please MUST use the App token: creating the GitHub release (on a
+      # release-PR merge) and opening the release PR are "not accessible by
+      # integration" for the default GITHUB_TOKEN in this repo. Its branch
+      # rebuild does then trigger a gate run, and the consolidated stamps+notes
+      # push below triggers a second — both are kept green (not cancelled) by
+      # desktop.yml's release-branch finish-both carve-out, so the timeline
+      # shows no red ✗. (Collapsing prep to a single gate run while keeping the
+      # App token is a known follow-up — see the release-pipeline memory.)
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-          token: ${{ github.token }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       # The pipeline keys off observable repo state, never off the action's
       # memory of what it did (release-please publishes the release FIRST, so
@@ -160,6 +164,11 @@ jobs:
           VER="$version" perl -0pi -e 's/(<key>CFBundleShortVersionString<\/key>\s*<string>)[^<]*/$1$ENV{VER}/; s/(<key>CFBundleVersion<\/key>\s*<string>)[^<]*/$1$ENV{VER}/' "$PLIST"
           perl -0pi -e 's/\n\z//' "$PLIST"
 
+      # NOTE: with release-please back on the App token, its branch rebuild
+      # already triggers one gate run; this consolidated push triggers a
+      # second. Both finish green (desktop.yml release-branch carve-out). The
+      # push still consolidates stamps + notes into one commit, which is worth
+      # keeping regardless of the run count.
       # The store-notes draft rides the same push as the stamps (below): the
       # rebuild discarded the branch's copy, so restore a human edit from run
       # history, else draft once (the draft script is write-once).
