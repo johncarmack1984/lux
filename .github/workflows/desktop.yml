@@ -12,6 +12,12 @@ name: desktop
 
 on:
   pull_request:
+    # release-please's branches are excluded: their pushes are GITHUB_TOKEN-
+    # authored, so runs here could only ever sit "action_required" awaiting
+    # manual approval — and the release pipeline re-runs this exact gate at
+    # the tag (release.yml's ci job) before anything ships, so the machine
+    # PR carries no checks by design.
+    branches-ignore: ["release-please--**"]
     paths:
       - 'apps/desktop/**'
       - 'apps/site/**'
@@ -61,13 +67,7 @@ permissions:
 # own parent (GitHub kills the job at startup; broke the v0.12.2 run).
 concurrency:
   group: ${{ github.workflow }}-gate-${{ github.ref }}
-  # Cancel superseded runs on ordinary PRs (fast feedback), but let them finish
-  # on release-please branches: a rebuild there lands two pushes seconds apart
-  # (release-please's App-token branch rebuild, then the consolidated
-  # stamps+notes push), and cancelling the first paints a red ✗ on the
-  # superseded commit in the release PR. Finishing both keeps the history green
-  # at the cost of duplicate public-runner minutes.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release-please--') }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   deny:

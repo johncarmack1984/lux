@@ -5,6 +5,7 @@
       "release-type": "simple",
       "package-name": "lux",
       "include-component-in-tag": false,
+      "skip-github-release": true,
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         { "type": "json", "path": "apps/desktop/package.json", "jsonpath": "$.version" },
