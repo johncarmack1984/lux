@@ -8,9 +8,13 @@ export const Route = createFileRoute("/")({
 
 function Home() {
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col items-center">
-      <ButtonRow />
-      <FixturesView />
+    // This view scrolls as a page (many fixtures); min-h-full keeps the
+    // vertical console able to fill the viewport when content is short.
+    <div className="h-full w-full overflow-y-auto">
+      <div className="flex min-h-full w-full flex-col items-center">
+        <ButtonRow />
+        <FixturesView />
+      </div>
     </div>
   );
 }
