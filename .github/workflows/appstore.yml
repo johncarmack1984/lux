@@ -42,9 +42,21 @@ jobs:
           echo "VERSION=$v" >> "$GITHUB_ENV"
 
       - name: Require approved store notes
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          test -f "apps/desktop/store-notes/${VERSION}.md" || {
-            echo "::error::apps/desktop/store-notes/${VERSION}.md is missing — the release's store-notes job drafts it onto main (or write it there) before submitting"
+          file="apps/desktop/store-notes/${VERSION}.md"
+          if [ ! -f "$file" ]; then
+            # Notes live in the GitHub Release body (between the store-notes
+            # markers) since the release job started attaching them there;
+            # materialize the section at the path the submit script reads.
+            # Committed files (releases predating that flow) take precedence.
+            mkdir -p "$(dirname "$file")"
+            gh release view "v${VERSION}" --json body --jq .body \
+              | awk '/<!-- store-notes -->/{grab=1; next} /<!-- \/store-notes -->/{exit} grab{print}' > "$file"
+          fi
+          grep -q . "$file" || {
+            echo "::error::no store notes for ${VERSION} — edit the store-notes section on the v${VERSION} release (or commit ${file}) before submitting"
             exit 1
           }
 

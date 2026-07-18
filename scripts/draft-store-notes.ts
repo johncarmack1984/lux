@@ -1,16 +1,16 @@
 // Draft the App Store "What's New" for the release just cut, from its
 // CHANGELOG section. Runs at ship time (release.yml's store-notes job, checked
-// out at the release tag); the job lands the file on main through an
-// immediately-merged PR, and appstore.yml refuses to submit a version whose
-// file is missing — edit the committed file on main any time before then.
+// out at the release tag); the job attaches the drafted text to the GitHub
+// Release body between <!-- store-notes --> markers, and appstore.yml
+// extracts that section at submit time — edit it on the release page any
+// time before then. This script only writes the local file; write-once
+// against the release body is the workflow's job.
 //
-// The draft is exactly that — a draft, written once: the file is only created
-// when it doesn't exist. Existing files are never rewritten (human edits are
-// sacred; regenerating a draft produces different text — see the guard
-// below). To force a fresh draft, delete the file on main and re-run the
-// store-notes job for the tag.
+// The voice-anchor example comes from PREV_NOTES_FILE when the workflow
+// provides one (extracted from the previous release's section), else from
+// the newest notes file committed back when drafts landed on main.
 //
-// Usage: ANTHROPIC_API_KEY=... bun scripts/draft-store-notes.ts
+// Usage: [PREV_NOTES_FILE=...] ANTHROPIC_API_KEY=... bun scripts/draft-store-notes.ts
 
 import Anthropic from "@anthropic-ai/sdk";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "fs";
@@ -27,10 +27,9 @@ if (!version || !/^\d+\.\d+\.\d+$/.test(version)) {
 
 const notesPath = join(NOTES_DIR, `${version}.md`);
 
-// Never redraft an existing file, whoever wrote it. Human edits are sacred,
-// and regenerating a draft through the model produces *different* text (the
-// model is nondeterministic), so a re-run must never replace what shipped to
-// the repo. Delete the file on main to force a redraft explicitly.
+// Never redraft an existing file (committed notes from the drafts-on-main
+// era, or a prior local draft): regenerating through the model produces
+// *different* text, and existing text may carry human edits.
 if (existsSync(notesPath)) {
   console.log(`${notesPath} already exists; leaving it alone.`);
   process.exit(0);
@@ -50,7 +49,13 @@ if (!section) {
   process.exit(0);
 }
 
-// The most recent shipped notes file anchors the voice.
+// The most recent shipped notes anchor the voice: the workflow-provided file
+// (previous release's section) when present, else the newest committed file.
+const prevNotesFile = process.env.PREV_NOTES_FILE;
+const fromRelease =
+  prevNotesFile && existsSync(prevNotesFile)
+    ? readFileSync(prevNotesFile, "utf8").trim()
+    : "";
 const previous = existsSync(NOTES_DIR)
   ? readdirSync(NOTES_DIR)
       .filter((f) => f.endsWith(".md") && f !== `${version}.md`)
@@ -58,9 +63,9 @@ const previous = existsSync(NOTES_DIR)
         b.localeCompare(a, undefined, { numeric: true, sensitivity: "base" })
       )[0]
   : undefined;
-const example = previous
-  ? readFileSync(join(NOTES_DIR, previous), "utf8").trim()
-  : undefined;
+const example =
+  fromRelease ||
+  (previous ? readFileSync(join(NOTES_DIR, previous), "utf8").trim() : undefined);
 
 const client = new Anthropic();
 const response = await client.messages.create({
