@@ -162,7 +162,10 @@ fn allow(region: &str, account: &str, sub: &str) -> Value {
                 },
                 {
                     "Effect": "Allow",
-                    "Action": "iot:Publish",
+                    // RetainPublish too: presence cards, state echoes, and the
+                    // connection's Last Will are all retained — and IoT refuses
+                    // the CONNECT itself when the retained will isn't covered.
+                    "Action": ["iot:Publish", "iot:RetainPublish"],
                     "Resource": format!("{prefix}:topic/{ctl_prefix}/*"),
                 },
             ],
@@ -280,8 +283,12 @@ mod tests {
         );
 
         // The one genuinely new capability: publish, ctl space only — nothing
-        // grants publish on the nudge topic or anyone else's prefix.
-        assert_eq!(statements[3]["Action"], "iot:Publish");
+        // grants publish on the nudge topic or anyone else's prefix. Retained
+        // publish rides along for the presence card, state echo, and the will.
+        assert_eq!(
+            statements[3]["Action"],
+            json!(["iot:Publish", "iot:RetainPublish"])
+        );
         assert_eq!(
             statements[3]["Resource"],
             arn("topic/lux/ctl/user/abc-123/*").as_str()
