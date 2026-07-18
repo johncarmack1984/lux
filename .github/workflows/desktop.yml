@@ -61,10 +61,13 @@ permissions:
 # own parent (GitHub kills the job at startup; broke the v0.12.2 run).
 concurrency:
   group: ${{ github.workflow }}-gate-${{ github.ref }}
-  # (Release branches receive exactly one run-starting push per rebuild — the
-  # consolidated stamps+notes push in release.yml — so PR-cancel never fires
-  # on a release PR's history.)
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Cancel superseded runs on ordinary PRs (fast feedback), but let them finish
+  # on release-please branches: a rebuild there lands two pushes seconds apart
+  # (release-please's App-token branch rebuild, then the consolidated
+  # stamps+notes push), and cancelling the first paints a red ✗ on the
+  # superseded commit in the release PR. Finishing both keeps the history green
+  # at the cost of duplicate public-runner minutes.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release-please--') }}
 
 jobs:
   deny:
