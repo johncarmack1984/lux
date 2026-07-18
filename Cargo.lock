@@ -3575,8 +3575,8 @@ dependencies = [
  "keyring-core",
  "libftd2xx 0.33.1",
  "log",
+ "lux-engine",
  "lux-wire",
- "pem",
  "reqwest",
  "rumqttc",
  "rustls 0.23.41",
@@ -3595,7 +3595,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "uuid",
- "webpki-root-certs",
 ]
 
 [[package]]
@@ -3620,6 +3619,19 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "lux-engine"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "log",
+ "lux-wire",
+ "pem",
+ "serde_json",
+ "uuid",
+ "webpki-root-certs",
 ]
 
 [[package]]

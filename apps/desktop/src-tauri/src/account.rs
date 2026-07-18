@@ -14,7 +14,7 @@
 //! keeps the password on-device: only a zero-knowledge proof crosses the wire.
 
 use crate::lock::LockPolicy;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use aws_cognito_srp::{SrpClient, User};
 use aws_config::BehaviorVersion;
@@ -300,24 +300,10 @@ pub fn restore_on_startup(app: &AppHandle) {
 
 // --- Cognito calls (unauthenticated; owned args so the future is 'static) -----
 
-/// The Mozilla CA set (webpki) as a single PEM bundle, built once.
-///
-/// The AWS SDK's default HTTP client trusts the platform *native* root store.
-/// iOS apps can't read the system CA store, so rustls parses zero roots and the
-/// SDK aborts (`debug_assert` in debug, empty trust store in release). Bundling
-/// the webpki roots makes TLS verification identical on every platform.
-pub(crate) fn webpki_pem_bundle() -> &'static [u8] {
-    static BUNDLE: OnceLock<Vec<u8>> = OnceLock::new();
-    BUNDLE.get_or_init(|| {
-        let mut pem = Vec::new();
-        for cert in webpki_root_certs::TLS_SERVER_ROOT_CERTS {
-            pem.extend_from_slice(
-                ::pem::encode(&::pem::Pem::new("CERTIFICATE", cert.as_ref().to_vec())).as_bytes(),
-            );
-        }
-        pem
-    })
-}
+// The AWS SDK's default HTTP client trusts the platform *native* root store,
+// unreadable on iOS — the bundled webpki roots (lux-engine) make TLS
+// verification identical on every platform.
+pub(crate) use lux_engine::tls::webpki_pem_bundle;
 
 async fn cognito_client(region: &str) -> Client {
     // Trust the bundled webpki roots rather than the platform native store

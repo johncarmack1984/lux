@@ -1,0 +1,23 @@
+[package]
+name = "lux-engine"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# The Tauri-free DMX core shared by the desktop app and the headless node:
+# the DmxSink trait + sACN/E1.31 sender, universe overlay semantics, the
+# remote-control routing/gating decisions, and the TLS/JWT glue every
+# connection needs. Nothing in here may depend on Tauri — this crate is what
+# lets lux run on a headless Linux box.
+
+[lints]
+workspace = true
+
+[dependencies]
+lux-wire = { path = "../lux-wire" }
+serde_json.workspace = true
+log = "^0.4.33"
+uuid = { version = "1.23.4", features = ["v4"] }
+base64 = "0.22"
+webpki-root-certs = "1"
+pem = "3"

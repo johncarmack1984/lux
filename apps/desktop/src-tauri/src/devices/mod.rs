@@ -11,7 +11,6 @@
 pub mod discovery;
 #[cfg(desktop)]
 pub mod enttec_open_dmx_usb;
-pub mod sacn;
 
 use crate::lock::LockPolicy;
 use std::net::Ipv4Addr;
@@ -23,11 +22,8 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::{AppHandle, Manager, Runtime};
 
-/// A DMX output: take the fixture's channel bytes (lux uses 6: RGBAW + master)
-/// and push them to hardware.
-pub trait DmxSink: Send + Sync {
-    fn render(&self, channels: &[u8]) -> Result<(), String>;
-}
+pub use lux_engine::sacn;
+pub use lux_engine::DmxSink;
 
 /// The kind of transport behind a [`Device`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -238,7 +234,12 @@ fn build_sink(device: &Device) -> Arc<dyn DmxSink> {
         // No USB transport on mobile; a stray Enttec selection drops to silence.
         #[cfg(mobile)]
         Transport::Enttec => Arc::new(NullSink),
-        Transport::Sacn => match sacn::SacnSink::new(device.universe, sacn_interface_override()) {
+        Transport::Sacn => match sacn::SacnSink::new(
+            device.universe,
+            sacn_interface_override(),
+            sacn::DEFAULT_PRIORITY,
+            "lux",
+        ) {
             Ok(sink) => Arc::new(sink),
             Err(e) => {
                 log::error!("sACN init failed ({e}); output disabled until reselected");
@@ -277,7 +278,11 @@ pub fn switch_to_device<R: Runtime>(app: &AppHandle<R>, device: &Device) {
         app.state::<DmxOutput>().retarget_universe(universe);
     }
     persist_key(app, &device.key());
-    let buffer = app.state::<crate::buffer::LuxBuffer>().buffer.lock_or_recover().clone();
+    let buffer = app
+        .state::<crate::buffer::LuxBuffer>()
+        .buffer
+        .lock_or_recover()
+        .clone();
     if let Err(e) = app.state::<DmxOutput>().render(&buffer) {
         log::trace!("post-switch render failed: {e}");
     }
@@ -412,7 +417,11 @@ pub fn start_keepalive<R: Runtime>(app: &AppHandle<R>) {
                 continue;
             }
             // Copy out of the lock before the render so no guard is held across it.
-            let buffer = app.state::<crate::buffer::LuxBuffer>().buffer.lock_or_recover().clone();
+            let buffer = app
+                .state::<crate::buffer::LuxBuffer>()
+                .buffer
+                .lock_or_recover()
+                .clone();
             if let Err(e) = app.state::<DmxOutput>().render(&buffer) {
                 log::trace!("sACN keepalive render failed: {e}");
             }
