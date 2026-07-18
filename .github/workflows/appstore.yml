@@ -44,7 +44,7 @@ jobs:
       - name: Require approved store notes
         run: |
           test -f "apps/desktop/store-notes/${VERSION}.md" || {
-            echo "::error::apps/desktop/store-notes/${VERSION}.md is missing — approve the drafted notes on the release PR (or write them) before submitting"
+            echo "::error::apps/desktop/store-notes/${VERSION}.md is missing — the release's store-notes job drafts it onto main (or write it there) before submitting"
             exit 1
           }
 

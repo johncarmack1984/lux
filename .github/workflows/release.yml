@@ -1,10 +1,14 @@
 name: release
 
-# release-please maintains a release PR (version bump + CHANGELOG) from
-# conventional-commit history. Merging it cuts a vX.Y.Z tag + GitHub Release,
-# which triggers the macOS build to attach the .dmg and the iOS + Mac App
-# Store builds to ship the release to TestFlight (both platforms, one app
-# record). All are also runnable on demand for an existing tag via
+# release-please (the pinned action on the workflow's own GITHUB_TOKEN — no
+# GitHub App, no minted tokens) maintains a release PR (version bump +
+# CHANGELOG + every derived version stamp via extra-files) from
+# conventional-commit history. Merging it lands the bumped manifest on main;
+# the release job below cuts the vX.Y.Z tag + GitHub Release itself and the
+# pipeline ships: gate at the tag, terraform apply, Lambda deploys + smokes,
+# then the macOS build attaches the .dmg + updater manifest and the iOS +
+# Mac App Store builds ship to TestFlight (both platforms, one app record).
+# Apple artifacts are also rebuildable on demand for an existing tag via
 # workflow_dispatch.
 on:
   push:
@@ -18,231 +22,197 @@ on:
 permissions: {}
 
 # Strictly one release run at a time, never cancelled: back-to-back merges to
-# main once raced two runs, and the EARLIER commit's run cut the release
-# (release-please acts on latest main, not its checkout) — so its gates ran one
-# commit behind the tag. Queueing serializes them; the tag-pinned checkouts
-# below make whichever run cuts the release gate/build the tag itself.
+# main once raced two runs, and the EARLIER commit's run cut the release — so
+# its gates ran one commit behind the tag. Queueing serializes them, the cut
+# step tags only its own commit, and the tag-pinned checkouts below make
+# whichever run ships a tag gate/build that tag itself.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  release-please:
+  release:
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Merge bursts collapse to one rebuild: ordinary pushes share a group and
-    # the newest cancels the rest (each run regenerates the whole branch, so
-    # only the last matters). A release-PR merge gets a unique group instead —
-    # a shipping run's prep stage must never be cancellable by a push landing
-    # behind it (the downstream ship jobs hang off this job's outputs).
-    concurrency:
-      # Quoted: the ': ' inside the message literal is a nested-mapping to a
-      # plain YAML scalar (GitHub's parser tolerates it, stricter ones don't).
-      group: "${{ startsWith(github.event.head_commit.message, 'chore(main): release') && format('release-ship-{0}', github.run_id) || 'release-prep' }}"
-      cancel-in-progress: true
     permissions:
-      contents: write
-      pull-requests: write
-      actions: read # the store-notes restore reads prior branch tips from run history
-      id-token: write # AWS OIDC, to read the release-bot App key + Anthropic key
+      contents: write # release-please's branch pushes + the tag/release cut below
+      pull-requests: write # release-please's PR bookkeeping + the label flip
     outputs:
       release_created: ${{ steps.effective.outputs.release_created }}
       tag_name: ${{ steps.effective.outputs.tag_name }}
     steps:
-      # Authenticate as a GitHub App (when configured) instead of the default
-      # GITHUB_TOKEN. GitHub deliberately won't let GITHUB_TOKEN-authored events
-      # start new workflow runs, so a release PR opened by it — and the
-      # Cargo.lock-sync push below — leave the `desktop` PR gate stuck "awaiting
-      # approval". An App-token-authored PR/push triggers it normally.
-      # The App's Client ID is the RELEASE_APP_CLIENT_ID variable; its private
-      # key is read from AWS Secrets Manager via OIDC (no key stored in GitHub),
-      # matching how the macOS build below loads its signing material. All gated
-      # on that variable, falling back to GITHUB_TOKEN when it's unset.
-      - name: Configure AWS credentials (OIDC)
-        if: ${{ vars.RELEASE_APP_CLIENT_ID != '' }}
-        uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      # Maintains the release PR (version bump + CHANGELOG + every version
+      # stamp via extra-files, one generated commit) on the workflow's own
+      # GITHUB_TOKEN — no GitHub App, no minted tokens. GITHUB_TOKEN-authored
+      # pushes and PRs start no workflow runs, so the release PR carries no
+      # checks (desktop.yml ignores its branches outright); the authoritative
+      # gate is the `ci` job below, re-run against the exact release commit
+      # before anything ships. skip-github-release in the config keeps the
+      # action away from tagging — the cut step below owns that.
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          token: ${{ github.token }}
+
+      # Loud tripwire, not a silent fix: while a release PR is open, its
+      # branch must carry every version stamp the extra-files above are
+      # configured to write. A mismatch means the updaters and the file
+      # shapes drifted apart — fail this run on main where it is impossible
+      # to miss, instead of letting an unstamped Cargo.lock surface as a
+      # --locked failure halfway through shipping a release.
+      - name: Verify release-branch version stamps
+        env:
+          BRANCH: release-please--branches--main--components--lux
+        run: |
+          set -euo pipefail
+          if ! git ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null 2>&1; then
+            echo "no open release branch; nothing to verify"
+            exit 0
+          fi
+          git fetch --depth=1 origin "$BRANCH"
+          tree="origin/$BRANCH"
+          want=$(git show "$tree:.release-please-manifest.json" | jq -r '."."')
+          lock=$(git show "$tree:Cargo.lock" | awk '/^name = "lux"$/ {getline; sub(/^version = "/, ""); sub(/"$/, ""); print; exit}')
+          plist=$(git show "$tree:apps/desktop/src-tauri/gen/apple/lux_iOS/Info.plist" | awk '/CFBundleShortVersionString/ {getline; gsub(/[[:space:]]*<\/?string>/, ""); print; exit}')
+          echo "release branch wants $want (Cargo.lock: $lock, Info.plist: $plist)"
+          [ "$lock" = "$want" ] && [ "$plist" = "$want" ] \
+            || { echo "::error::release branch stamps out of sync with $want — check the extra-files updaters in release-please-config.json"; exit 1; }
+
+      # The pipeline keys off observable repo state, never a tool's memory of
+      # what it did. The manifest names the current version; from there: no
+      # release for it yet means this push merged the release PR — cut the
+      # tag + an assetless release at THIS run's commit (never "latest main":
+      # a queued run must not tag a commit its gates didn't see); an assetless
+      # release means a prior attempt died before the artifacts landed — ship
+      # it, whoever created it; a release WITH assets is finished and is
+      # never rebuilt (re-signing an already-served tag is the known
+      # updater-breaker).
+      - name: Resolve or cut the release (from repo state)
+        id: effective
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(jq -r '."."' .release-please-manifest.json)
+          tag="v$version"
+          if assets=$(gh release view "$tag" --json assets --jq '.assets | length' 2>/dev/null); then
+            if [ "$assets" = "0" ]; then
+              echo "::notice::shipping assetless release $tag (attempt ${{ github.run_attempt }})"
+              { echo "release_created=true"; echo "tag_name=$tag"; } >> "$GITHUB_OUTPUT"
+            else
+              echo "$tag is fully released; nothing to ship"
+              { echo "release_created=false"; echo "tag_name="; } >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+          # The version's CHANGELOG section becomes the release body, matching
+          # the releases release-please used to publish.
+          notes=$(awk -v ver="$version" '
+            index($0, "## [" ver "]") == 1 { grab = 1; next }
+            grab && index($0, "## [") == 1 { exit }
+            grab { print }
+          ' CHANGELOG.md)
+          gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --notes "${notes:-$tag}"
+          echo "::notice::cut $tag at ${GITHUB_SHA:0:7}"
+          { echo "release_created=true"; echo "tag_name=$tag"; } >> "$GITHUB_OUTPUT"
+
+      # Tagging is what used to flip the release PR's label; with tagging done
+      # here, flip it here too, so merged release PRs don't linger "pending"
+      # (and the action's pending-PR scans stay empty). Cosmetic — never fatal.
+      - name: Flip the release PR label (pending → tagged)
+        if: ${{ steps.effective.outputs.release_created == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for n in $(gh pr list --state merged --label "autorelease: pending" --json number --jq '.[].number'); do
+            gh pr edit "$n" --remove-label "autorelease: pending" --add-label "autorelease: tagged" \
+              || echo "::warning::could not flip the autorelease label on PR #$n"
+          done
+
+  # Draft the App Store "What's New" for the version just cut and land it on
+  # main through an immediately-merged PR: the main ruleset requires changes
+  # to arrive by PR, and a GITHUB_TOKEN squash-merge satisfies it while
+  # starting no workflow runs. The draft is write-once (the script refuses to
+  # touch an existing file) — edit the committed file on main any time before
+  # appstore.yml submits the version; it refuses to submit without the file.
+  store-notes:
+    needs: release
+    if: ${{ needs.release.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # push the notes branch
+      pull-requests: write # open + merge the notes PR
+      id-token: write # AWS OIDC, to read the Anthropic key
+    env:
+      TAG: ${{ needs.release.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: apps/desktop/package.json
+
+      - run: bun install --frozen-lockfile
+
+      - uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6
         with:
           role-to-assume: arn:aws:iam::735853783919:role/lux-release-signing
           aws-region: us-west-1
 
-      - name: Load release-bot App private key
-        if: ${{ vars.RELEASE_APP_CLIENT_ID != '' }}
-        # Multi-line PEM into $GITHUB_ENV via a heredoc. Runtime-fetched values
-        # are NOT auto-masked (only the `secrets.` context is) and the runner
-        # echoes accumulated env in later steps' log groups — so mask every
-        # line of the key BEFORE it touches $GITHUB_ENV.
+      - name: Draft the notes (write-once)
         run: |
-          key=$(aws secretsmanager get-secret-value --secret-id lux/release-app-private-key --query SecretString --output text)
-          while IFS= read -r line; do echo "::add-mask::$line"; done <<< "$key"
-          {
-            echo "RELEASE_APP_PRIVATE_KEY<<__EOF__"
-            printf '%s\n' "$key"
-            echo "__EOF__"
-          } >> "$GITHUB_ENV"
-
-      - name: Mint release token (GitHub App)
-        id: app-token
-        if: ${{ vars.RELEASE_APP_CLIENT_ID != '' }}
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
-          private-key: ${{ env.RELEASE_APP_PRIVATE_KEY }}
-
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          token: ${{ steps.app-token.outputs.token || github.token }}
-
-      # release-please MUST use the App token: creating the GitHub release (on a
-      # release-PR merge) and opening the release PR are "not accessible by
-      # integration" for the default GITHUB_TOKEN in this repo. Its branch
-      # rebuild does then trigger a gate run, and the consolidated stamps+notes
-      # push below triggers a second — both are kept green (not cancelled) by
-      # desktop.yml's release-branch finish-both carve-out, so the timeline
-      # shows no red ✗. (Collapsing prep to a single gate run while keeping the
-      # App token is a known follow-up — see the release-pipeline memory.)
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
-        id: release
-        with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-          token: ${{ steps.app-token.outputs.token || github.token }}
-
-      # The pipeline keys off observable repo state, never off the action's
-      # memory of what it did (release-please publishes the release FIRST, so
-      # its release_created output is false on any later attempt — that
-      # stranded v0.12.2 as a published release with nothing behind it). Rule:
-      # an assetless release for the manifest version ships, whoever/whenever
-      # created it; a release WITH assets is finished and is never rebuilt —
-      # re-signing an already-served tag is the known updater-breaker.
-      - name: Resolve the release to ship (from repo state)
-        id: effective
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RP_CREATED: ${{ steps.release.outputs.release_created }}
-          RP_TAG: ${{ steps.release.outputs.tag_name }}
-        run: |
-          if [ "$RP_CREATED" = "true" ]; then
-            { echo "release_created=true"; echo "tag_name=$RP_TAG"; } >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          version="${TAG#v}"
+          git fetch --depth=1 origin main
+          if git cat-file -e "origin/main:apps/desktop/store-notes/$version.md" 2>/dev/null; then
+            echo "notes for $version already on main; skipping the draft"
             exit 0
           fi
-          tag="v$(jq -r '."."' .release-please-manifest.json)"
-          if [ "$(gh release view "$tag" --json assets --jq '.assets | length' 2>/dev/null)" = "0" ]; then
-            echo "::notice::shipping assetless release $tag (attempt ${{ github.run_attempt }})"
-            { echo "release_created=true"; echo "tag_name=$tag"; } >> "$GITHUB_OUTPUT"
-          else
-            { echo "release_created=false"; echo "tag_name="; } >> "$GITHUB_OUTPUT"
+          key=$(aws secretsmanager get-secret-value --secret-id lux/anthropic-api-key --query SecretString --output text)
+          echo "::add-mask::$key"
+          ANTHROPIC_API_KEY="$key" bun scripts/draft-store-notes.ts
+
+      - name: Land the draft on main (squash-merged PR)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          file="apps/desktop/store-notes/$version.md"
+          if [ -z "$(git status --porcelain -- "$file")" ]; then
+            echo "no fresh draft ($file is already committed); nothing to land"
+            exit 0
           fi
-
-      # release-please uses release-type "simple", which bumps the version in
-      # apps/desktop/src-tauri/Cargo.toml but leaves two derived version stamps
-      # stale: the `lux` entry in the root Cargo.lock (dirties the next local
-      # `cargo` run) and the committed gen/apple Info.plist (tauri ios build
-      # restamps CFBundle*Version from tauri.conf.json and writes the file back,
-      # dirtying the tree after every post-release iOS build). While a release PR
-      # is open, sync both onto its branch so main never lands stale stamps.
-      # Runs in this job by necessity: a push authored by GITHUB_TOKEN can't trigger
-      # a separate workflow, so the release branch wouldn't get picked up elsewhere.
-      - name: Check out the release branch + sync version stamps
-        id: branch
-        if: ${{ steps.release.outputs.pr }}
-        env:
-          PR_JSON: ${{ steps.release.outputs.pr }}
-        run: |
-          set -euo pipefail
-          PR_BRANCH=$(printf '%s' "$PR_JSON" | jq -r '.headBranchName')
-          echo "Release PR branch: $PR_BRANCH"
-          echo "name=$PR_BRANCH" >> "$GITHUB_OUTPUT"
-          git fetch --depth=1 origin "$PR_BRANCH"
-          git checkout "$PR_BRANCH"
-          echo "tip=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          version=$(jq -r '."."' .release-please-manifest.json)
-          # The `lux` workspace member has no checksum in the lock, so its version
-          # is a pure text field — sync it without invoking cargo (no dep churn).
-          VER="$version" perl -0pi -e 's/(name = "lux"\nversion = ")[^"]*/$1$ENV{VER}/' Cargo.lock
-          # Match tauri's own plist write byte-for-byte: both CFBundle version
-          # keys stamped, and no trailing newline (tauri writes the file without
-          # one — a lone newline diff would re-dirty every build).
-          PLIST=apps/desktop/src-tauri/gen/apple/lux_iOS/Info.plist
-          VER="$version" perl -0pi -e 's/(<key>CFBundleShortVersionString<\/key>\s*<string>)[^<]*/$1$ENV{VER}/; s/(<key>CFBundleVersion<\/key>\s*<string>)[^<]*/$1$ENV{VER}/' "$PLIST"
-          perl -0pi -e 's/\n\z//' "$PLIST"
-
-      # NOTE: with release-please back on the App token, its branch rebuild
-      # already triggers one gate run; this consolidated push triggers a
-      # second. Both finish green (desktop.yml release-branch carve-out). The
-      # push still consolidates stamps + notes into one commit, which is worth
-      # keeping regardless of the run count.
-      # The store-notes draft rides the same push as the stamps (below): the
-      # rebuild discarded the branch's copy, so restore a human edit from run
-      # history, else draft once (the draft script is write-once).
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        if: ${{ steps.release.outputs.pr }}
-        with:
-          bun-version-file: apps/desktop/package.json
-
-      - name: Install script dependencies
-        if: ${{ steps.release.outputs.pr }}
-        run: bun install --frozen-lockfile
-
-      - name: Restore a human-edited store-notes draft
-        id: restore
-        if: ${{ steps.release.outputs.pr }}
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          # The script was born under pull_request events; running from the
-          # push context, the branch is handed to it explicitly.
-          GITHUB_HEAD_REF: ${{ steps.branch.outputs.name }}
-        run: bun scripts/restore-store-notes.ts
-
-      - name: Draft store notes (if new)
-        if: ${{ steps.release.outputs.pr && steps.restore.outputs.restored != 'true' }}
-        run: |
-          set -euo pipefail
-          # Fail-soft: the Anthropic-key grant on the release-signing role
-          # ships via terraform apply; until it lands, skip drafting rather
-          # than fail the job (appstore.yml still refuses to submit a version
-          # whose notes file is missing, so nothing ships noteless).
-          if key=$(aws secretsmanager get-secret-value --secret-id lux/anthropic-api-key --query SecretString --output text 2>/dev/null); then
-            echo "::add-mask::$key"
-            ANTHROPIC_API_KEY="$key" bun scripts/draft-store-notes.ts
-          else
-            echo "::warning::anthropic key unreadable (role grant not applied yet?); skipping the draft"
+          if git cat-file -e "origin/main:$file" 2>/dev/null; then
+            echo "$file already exists on main; leaving it alone"
+            exit 0
           fi
-
-      # The branch's single run-starting push: stamps + notes together, with
-      # the App token from the checkout. One push = one gate run on the final
-      # tip — nothing superseded, nothing cancelled, nothing run twice.
-      - name: Push the branch updates (one push)
-        if: ${{ steps.release.outputs.pr }}
-        env:
-          PR_BRANCH: ${{ steps.branch.outputs.name }}
-          START_TIP: ${{ steps.branch.outputs.tip }}
-          RESTORED: ${{ steps.restore.outputs.restored }}
-          RESTORE_AUTHOR: ${{ steps.restore.outputs.author }}
-        run: |
-          set -euo pipefail
-          version=$(jq -r '."."' .release-please-manifest.json)
+          branch="store-notes/$version"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if ! git diff --quiet -- Cargo.lock apps/desktop/src-tauri/gen/apple/lux_iOS/Info.plist; then
-            git add Cargo.lock apps/desktop/src-tauri/gen/apple/lux_iOS/Info.plist
-            git commit -m "chore: sync version stamps to $version"
-          fi
-          if [ -n "$(git status --porcelain apps/desktop/store-notes)" ]; then
-            git add apps/desktop/store-notes
-            if [ "$RESTORED" = "true" ]; then
-              # Keep the human author so the draft script's guard holds.
-              git commit --author "$RESTORE_AUTHOR" -m "chore: restore edited App Store notes"
-            else
-              git commit -m "chore: draft App Store notes"
+          git checkout -B "$branch" origin/main
+          git add "$file"
+          git commit -m "chore: draft App Store notes for $version"
+          git push -f origin "$branch"
+          gh pr create --head "$branch" \
+            --title "chore: draft App Store notes for $version" \
+            --body "Automated draft from the $TAG changelog. Edit apps/desktop/store-notes/$version.md on main any time before submitting the version in appstore.yml."
+          for attempt in 1 2 3 4 5; do
+            if gh pr merge "$branch" --squash --delete-branch; then
+              echo "notes landed on main"
+              exit 0
             fi
-          fi
-          if [ "$(git rev-parse HEAD)" != "$START_TIP" ]; then
-            git push origin "HEAD:$PR_BRANCH"
-            echo "pushed branch updates for $version"
-          else
-            echo "branch already up to date"
-          fi
+            sleep 5
+          done
+          echo "::error::could not merge the notes PR for $version"
+          exit 1
 
   # The release gate: the same checks as the PR/main `desktop` workflow
   # (tauri-versions, frontend build/typecheck/lint, cargo test --workspace),
@@ -250,26 +220,26 @@ jobs:
   # Lambda code, the desktop bundle — is downstream of this job, so a red main
   # cannot release.
   ci:
-    needs: release-please
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    needs: release
+    if: ${{ needs.release.outputs.release_created == 'true' }}
     permissions:
       contents: read
     uses: ./.github/workflows/desktop.yml
     with:
       # Gate the tag itself, not this run's triggering sha — the two can differ
       # when a race let an earlier push's run cut the release.
-      ref: ${{ needs.release-please.outputs.tag_name }}
+      ref: ${{ needs.release.outputs.tag_name }}
 
   # Builds, signs, and notarizes the macOS app and attaches it (plus the
-  # updater's latest.json) to the release — after a release-please release, or
+  # updater's latest.json) to the release — after the release job cuts one, or
   # on a manual dispatch for an existing tag. On the release path this runs
   # LAST, only after the Lambdas deployed and passed their smokes: the updater
   # manifest publishing is what makes a release visible to users, so a release
   # whose backend didn't ship never reaches them. Manual dispatch rebuilds an
   # existing tag whose backend already shipped, so it skips those gates.
   build-macos:
-    needs: [release-please, deploy-lambdas]
-    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (needs.release-please.outputs.release_created == 'true' && needs.deploy-lambdas.result == 'success')) }}
+    needs: [release, deploy-lambdas]
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (needs.release.outputs.release_created == 'true' && needs.deploy-lambdas.result == 'success')) }}
     runs-on: macos-latest
     timeout-minutes: 60
     permissions:
@@ -277,7 +247,7 @@ jobs:
       id-token: write # AWS OIDC, to read the updater signing key
       deployments: write # record the updater publish (API, not environment: — see the record step)
     env:
-      TAG: ${{ github.event.inputs.tag || needs.release-please.outputs.tag_name }}
+      TAG: ${{ github.event.inputs.tag || needs.release.outputs.tag_name }}
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
       CARGO_INCREMENTAL: "0"
@@ -393,8 +363,8 @@ jobs:
   # don't cut a release. An infra PR therefore merges first and applies here with
   # the next release — its diff was reviewed as the terraform.yml PR plan.
   terraform-apply:
-    needs: [release-please, ci]
-    if: ${{ needs.release-please.outputs.release_created == 'true' && needs.ci.result == 'success' }}
+    needs: [release, ci]
+    if: ${{ needs.release.outputs.release_created == 'true' && needs.ci.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -409,7 +379,7 @@ jobs:
       # the release's endpoints file and binaries were built against.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release.outputs.tag_name }}
 
       - uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6
         with:
@@ -455,7 +425,7 @@ jobs:
       - name: Record infra deployment
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.release-please.outputs.tag_name }}
+          TAG: ${{ needs.release.outputs.tag_name }}
         run: |
           set -euo pipefail
           body=$(jq -nc --arg ref "$GITHUB_SHA" --arg desc "$TAG" \
@@ -474,8 +444,8 @@ jobs:
   # Each function then gets a smoke test that proves the new code actually cold
   # starts and answers before the desktop artifacts are allowed to publish.
   deploy-lambdas:
-    needs: [release-please, terraform-apply]
-    if: ${{ needs.release-please.outputs.release_created == 'true' && needs.terraform-apply.result == 'success' }}
+    needs: [release, terraform-apply]
+    if: ${{ needs.release.outputs.release_created == 'true' && needs.terraform-apply.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -483,7 +453,7 @@ jobs:
       deployments: write # record the backend deployment
       id-token: write # OIDC: assume the lambda-deploy role
     env:
-      TAG: ${{ needs.release-please.outputs.tag_name }}
+      TAG: ${{ needs.release.outputs.tag_name }}
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
       CARGO_INCREMENTAL: "0"
@@ -636,15 +606,15 @@ jobs:
   # restamped from tauri.conf.json's version (release-please bumps it), so
   # every release is a unique TestFlight build string with no injection step.
   build-ios:
-    needs: [release-please, ci]
-    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (needs.release-please.outputs.release_created == 'true' && needs.ci.result == 'success')) }}
+    needs: [release, ci]
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (needs.release.outputs.release_created == 'true' && needs.ci.result == 'success')) }}
     runs-on: macos-latest
     timeout-minutes: 45
     permissions:
       contents: read
       id-token: write # AWS OIDC, to read the Apple signing secret
     env:
-      TAG: ${{ github.event.inputs.tag || needs.release-please.outputs.tag_name }}
+      TAG: ${{ github.event.inputs.tag || needs.release.outputs.tag_name }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
@@ -734,7 +704,7 @@ jobs:
   # rebuild the same order holds, and an already-uploaded build lands in the
   # duplicate-tolerant path below.
   publish-ios:
-    needs: [release-please, build-ios, build-macos]
+    needs: [release, build-ios, build-macos]
     if: ${{ always() && needs.build-ios.result == 'success' && needs.build-macos.result == 'success' }}
     runs-on: macos-latest # xcrun altool is Apple's uploader — macOS only (the default Xcode is fine for uploads)
     timeout-minutes: 30
@@ -743,7 +713,7 @@ jobs:
       id-token: write # AWS OIDC, to read the ASC API key
       deployments: write # record the TestFlight publish (API, not environment: — see the record step)
     env:
-      TAG: ${{ github.event.inputs.tag || needs.release-please.outputs.tag_name }}
+      TAG: ${{ github.event.inputs.tag || needs.release.outputs.tag_name }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -819,15 +789,15 @@ jobs:
   # (AccessDenied). Dispatch runs skip terraform-apply and bypass it here, the
   # same shape build-macos uses for deploy-lambdas.
   build-mas:
-    needs: [release-please, ci, terraform-apply]
-    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (needs.release-please.outputs.release_created == 'true' && needs.ci.result == 'success' && needs.terraform-apply.result == 'success')) }}
+    needs: [release, ci, terraform-apply]
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (needs.release.outputs.release_created == 'true' && needs.ci.result == 'success' && needs.terraform-apply.result == 'success')) }}
     runs-on: macos-latest
     timeout-minutes: 60
     permissions:
       contents: read
       id-token: write # AWS OIDC, to read the MAS signing secret
     env:
-      TAG: ${{ github.event.inputs.tag || needs.release-please.outputs.tag_name }}
+      TAG: ${{ github.event.inputs.tag || needs.release.outputs.tag_name }}
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
       CARGO_INCREMENTAL: "0"
@@ -922,7 +892,7 @@ jobs:
   # transitively the backend deploys + smokes). Duplicate-tolerant so dispatch
   # re-runs of an already-uploaded tag succeed.
   publish-mas:
-    needs: [release-please, build-mas, build-macos]
+    needs: [release, build-mas, build-macos]
     if: ${{ always() && needs.build-mas.result == 'success' && needs.build-macos.result == 'success' }}
     runs-on: macos-latest # xcrun altool is Apple's uploader — macOS only
     timeout-minutes: 30
@@ -931,7 +901,7 @@ jobs:
       id-token: write # AWS OIDC, to read the ASC API key
       deployments: write # record the TestFlight publish (API, not environment: — see the record step)
     env:
-      TAG: ${{ github.event.inputs.tag || needs.release-please.outputs.tag_name }}
+      TAG: ${{ github.event.inputs.tag || needs.release.outputs.tag_name }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -993,14 +963,14 @@ jobs:
   # assetless-release resolver treats "release has assets" as "finished", so
   # nothing may attach assets before the macOS publish does.
   node-release:
-    needs: [release-please, build-macos]
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    needs: [release, build-macos]
+    if: ${{ needs.release.outputs.release_created == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: write # upload the release asset
     env:
-      TAG: ${{ needs.release-please.outputs.tag_name }}
+      TAG: ${{ needs.release.outputs.tag_name }}
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
       CARGO_INCREMENTAL: "0"

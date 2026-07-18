@@ -1,15 +1,14 @@
-// Draft the App Store "What's New" for the release the release-please PR is
-// about to cut, from that release's CHANGELOG section. Runs on the release PR
-// (release.yml's release-please job); the human edits the committed file in the PR,
-// and appstore.yml refuses to submit a version whose file is missing.
+// Draft the App Store "What's New" for the release just cut, from its
+// CHANGELOG section. Runs at ship time (release.yml's store-notes job, checked
+// out at the release tag); the job lands the file on main through an
+// immediately-merged PR, and appstore.yml refuses to submit a version whose
+// file is missing — edit the committed file on main any time before then.
 //
 // The draft is exactly that — a draft, written once: the file is only created
 // when it doesn't exist. Existing files are never rewritten (human edits are
-// sacred; regenerating a bot draft would produce different text and re-push —
-// see the guard below). Delete the file in the PR to force a fresh draft.
-// scripts/restore-store-notes.ts runs first and resurrects a human edit that
-// a release-please branch rebuild discarded (the workflow skips drafting
-// entirely when it restores one).
+// sacred; regenerating a draft produces different text — see the guard
+// below). To force a fresh draft, delete the file on main and re-run the
+// store-notes job for the tag.
 //
 // Usage: ANTHROPIC_API_KEY=... bun scripts/draft-store-notes.ts
 
@@ -29,13 +28,9 @@ if (!version || !/^\d+\.\d+\.\d+$/.test(version)) {
 const notesPath = join(NOTES_DIR, `${version}.md`);
 
 // Never redraft an existing file, whoever wrote it. Human edits are sacred,
-// and regenerating a bot draft through the model produces *different* text
-// (the model is nondeterministic) — which would commit, push, retrigger this
-// workflow, and loop, since draft pushes start workflow runs (App-token
-// pushes; see release.yml). A stale bot draft never survives anyway:
-// release-please rebuilds the branch from main on every change, discarding
-// the file, and the next run drafts fresh from the new CHANGELOG. Delete the
-// file in the PR to force a redraft explicitly.
+// and regenerating a draft through the model produces *different* text (the
+// model is nondeterministic), so a re-run must never replace what shipped to
+// the repo. Delete the file on main to force a redraft explicitly.
 if (existsSync(notesPath)) {
   console.log(`${notesPath} already exists; leaving it alone.`);
   process.exit(0);
