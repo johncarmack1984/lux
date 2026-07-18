@@ -68,10 +68,13 @@ jobs:
 
       - name: Load release-bot App private key
         if: ${{ vars.RELEASE_APP_CLIENT_ID != '' }}
-        # Multi-line PEM into $GITHUB_ENV via a heredoc; never echoed, so the key
-        # stays out of the logs (same posture as the macOS signing secrets).
+        # Multi-line PEM into $GITHUB_ENV via a heredoc. Runtime-fetched values
+        # are NOT auto-masked (only the `secrets.` context is) and the runner
+        # echoes accumulated env in later steps' log groups — so mask every
+        # line of the key BEFORE it touches $GITHUB_ENV.
         run: |
           key=$(aws secretsmanager get-secret-value --secret-id lux/release-app-private-key --query SecretString --output text)
+          while IFS= read -r line; do echo "::add-mask::$line"; done <<< "$key"
           {
             echo "RELEASE_APP_PRIVATE_KEY<<__EOF__"
             printf '%s\n' "$key"
@@ -333,7 +336,12 @@ jobs:
         # tauri-action reads APPLE_* from the process env (set via $GITHUB_ENV).
         run: |
           s=$(aws secretsmanager get-secret-value --secret-id lux/apple-signing --query SecretString --output text)
+          # Mask everything sensitive that rides $GITHUB_ENV — the runner echoes
+          # accumulated env in later steps' log groups (the .p12 is what leaked).
+          echo "::add-mask::$(printf '%s' "$s" | jq -r '.certificate')"
           echo "::add-mask::$(printf '%s' "$s" | jq -r '.certificate_password')"
+          echo "::add-mask::$(printf '%s' "$s" | jq -r '.api_key_id')"
+          echo "::add-mask::$(printf '%s' "$s" | jq -r '.api_issuer_id')"
           {
             echo "APPLE_CERTIFICATE=$(printf '%s' "$s" | jq -r '.certificate')"
             echo "APPLE_CERTIFICATE_PASSWORD=$(printf '%s' "$s" | jq -r '.certificate_password')"
@@ -685,6 +693,8 @@ jobs:
         # APPLE_API_KEY/APPLE_API_KEY_ID + APPLE_API_ISSUER + APPLE_API_KEY_PATH.
         run: |
           s=$(aws secretsmanager get-secret-value --secret-id lux/apple-signing --query SecretString --output text)
+          echo "::add-mask::$(printf '%s' "$s" | jq -r '.api_key_id')"
+          echo "::add-mask::$(printf '%s' "$s" | jq -r '.api_issuer_id')"
           {
             echo "APPLE_DEVELOPMENT_TEAM=$(printf '%s' "$s" | jq -r '.team_id')"
             echo "APPLE_API_ISSUER=$(printf '%s' "$s" | jq -r '.api_issuer_id')"
@@ -748,6 +758,8 @@ jobs:
       - name: Load the ASC API key (upload credential)
         run: |
           s=$(aws secretsmanager get-secret-value --secret-id lux/apple-signing --query SecretString --output text)
+          echo "::add-mask::$(printf '%s' "$s" | jq -r '.api_key_id')"
+          echo "::add-mask::$(printf '%s' "$s" | jq -r '.api_issuer_id')"
           {
             echo "APPLE_API_ISSUER=$(printf '%s' "$s" | jq -r '.api_issuer_id')"
             echo "APPLE_API_KEY=$(printf '%s' "$s" | jq -r '.api_key_id')"
@@ -934,6 +946,8 @@ jobs:
       - name: Load the ASC API key (upload credential)
         run: |
           s=$(aws secretsmanager get-secret-value --secret-id lux/apple-signing --query SecretString --output text)
+          echo "::add-mask::$(printf '%s' "$s" | jq -r '.api_key_id')"
+          echo "::add-mask::$(printf '%s' "$s" | jq -r '.api_issuer_id')"
           {
             echo "APPLE_API_ISSUER=$(printf '%s' "$s" | jq -r '.api_issuer_id')"
             echo "APPLE_API_KEY=$(printf '%s' "$s" | jq -r '.api_key_id')"
