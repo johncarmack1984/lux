@@ -269,8 +269,11 @@ pub fn restore_on_startup(app: &AppHandle) {
     let session = state.session.clone();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        match do_refresh(cfg, stored.refresh_token).await {
+        match do_refresh(cfg, stored.refresh_token.clone()).await {
             Ok(tokens) => {
+                // Re-save so items written by older builds pick up the current
+                // keychain access policy (save recreates the item).
+                save_session(&stored);
                 {
                     let mut s = session.lock_or_recover();
                     s.id_token = Some(tokens.id);
@@ -498,16 +501,39 @@ pub fn init_keychain() {
 #[cfg(not(target_os = "ios"))]
 pub fn init_keychain() {}
 
-fn keyring_entry() -> Result<keyring::Entry, keyring::Error> {
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+/// The stored-session keychain entry. Off iOS this goes through `keyring`'s
+/// v1 wrapper on purpose — its first use lazily registers the platform
+/// credential store (macOS Keychain, Windows Credential Manager, Linux Secret
+/// Service) — and hands back the underlying core entry so every caller works
+/// with one type.
+#[cfg(not(target_os = "ios"))]
+fn keyring_entry() -> keyring_core::Result<keyring_core::Entry> {
+    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map(|entry| entry.inner)
+}
+
+/// iOS: build the entry against the data-protection store registered in
+/// [`init_keychain`], relaxing the item to `after-first-unlock`. The store's
+/// default policy (`when-unlocked`) makes the refresh token unreadable
+/// whenever iOS launches the app while the phone is locked (prewarming), so
+/// the startup restore silently finds nothing and that long-lived process
+/// greets the user signed out. A launch-time credential wants exactly
+/// after-first-unlock accessibility.
+#[cfg(target_os = "ios")]
+fn keyring_entry() -> keyring_core::Result<keyring_core::Entry> {
+    let modifiers = std::collections::HashMap::from([("access-policy", "after-first-unlock")]);
+    keyring_core::Entry::new_with_modifiers(KEYRING_SERVICE, KEYRING_USER, &modifiers)
 }
 
 fn save_session(s: &StoredSession) {
     let result = (|| {
         let json = serde_json::to_string(s).map_err(|e| e.to_string())?;
-        keyring_entry()
-            .and_then(|e| e.set_password(&json))
-            .map_err(|e| e.to_string())
+        let entry = keyring_entry().map_err(|e| e.to_string())?;
+        // Recreate rather than update: updating an existing item keeps its
+        // original accessibility, and items written by older builds carry the
+        // when-unlocked default (see keyring_entry) — delete + set stamps the
+        // current policy on every save.
+        let _ = entry.delete_credential();
+        entry.set_password(&json).map_err(|e| e.to_string())
     })();
     if let Err(e) = result {
         log::warn!("could not save session to keychain: {e}");
@@ -515,8 +541,24 @@ fn save_session(s: &StoredSession) {
 }
 
 fn load_session() -> Option<StoredSession> {
-    let json = keyring_entry().ok()?.get_password().ok()?;
-    serde_json::from_str(&json).ok()
+    let entry = match keyring_entry() {
+        Ok(entry) => entry,
+        Err(e) => {
+            log::warn!("keychain unavailable ({e}); cannot restore a session");
+            return None;
+        }
+    };
+    match entry.get_password() {
+        Ok(json) => serde_json::from_str(&json)
+            .inspect_err(|e| log::warn!("stored session unreadable ({e}); ignoring it"))
+            .ok(),
+        // First run or signed out — the normal quiet path.
+        Err(keyring_core::Error::NoEntry) => None,
+        Err(e) => {
+            log::warn!("could not read the stored session ({e}); starting signed out");
+            None
+        }
+    }
 }
 
 fn clear_session() {
