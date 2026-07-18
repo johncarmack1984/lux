@@ -110,10 +110,9 @@ pub trait CmdMethods {
     /// Run the native Sign in with Apple sheet and exchange its identity token
     /// for a session. Async: the sheet is user-paced and its callbacks arrive
     /// on the main thread, which must stay unblocked — a sync procedure would
-    /// run (and block) exactly there. No injected parameters (a ttipc async
-    /// limitation); the impl reaches the app handle through `crate::app_handle`.
-    /// Rejects with "canceled" (verbatim) when the user dismisses the sheet.
-    async fn sign_in_with_apple(&self) -> Result<AuthStatus, String>;
+    /// run (and block) exactly there. Rejects with "canceled" (verbatim) when
+    /// the user dismisses the sheet.
+    async fn sign_in_with_apple(&self, app_handle: AppHandle) -> Result<AuthStatus, String>;
     fn sign_out(&self, app_handle: AppHandle) -> Result<AuthStatus, String>;
     fn delete_account(&self, app_handle: AppHandle) -> Result<AuthStatus, String>;
     // Cloud sync — current status for the indicator, and a manual pull (fired on
@@ -402,8 +401,7 @@ impl CmdMethods for CmdEndpoint {
         Ok(status)
     }
 
-    async fn sign_in_with_apple(&self) -> Result<AuthStatus, String> {
-        let app_handle = crate::app_handle()?;
+    async fn sign_in_with_apple(&self, app_handle: AppHandle) -> Result<AuthStatus, String> {
         let status = app_handle
             .state::<LuxAccount>()
             .sign_in_with_apple(&app_handle)
