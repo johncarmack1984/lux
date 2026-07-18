@@ -956,3 +956,49 @@ jobs:
             -f description="Mac App Store build uploaded to TestFlight for $TAG" >/dev/null
           echo "recorded testflight-macos deployment $id ($TAG)"
 
+  # The node binary becomes a public release asset, so installing on a Linux
+  # box is a curl of releases/latest + `sudo ./lux-node install` — no Actions
+  # login to fetch an artifact. Runs after build-macos on purpose: the
+  # assetless-release resolver treats "release has assets" as "finished", so
+  # nothing may attach assets before the macOS publish does.
+  node-release:
+    needs: [release-please, build-macos]
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # upload the release asset
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl-gcc
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: "."
+          cache-targets: "false"
+
+      - name: Build (static musl)
+        run: cargo build --release --target x86_64-unknown-linux-musl -p lux-node
+
+      - name: Upload as a release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp target/x86_64-unknown-linux-musl/release/lux-node lux-node-x86_64-linux
+          gh release upload "$TAG" lux-node-x86_64-linux --clobber
+          echo "uploaded lux-node-x86_64-linux to $TAG"
