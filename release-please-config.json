@@ -9,7 +9,22 @@
       "extra-files": [
         { "type": "json", "path": "apps/desktop/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "apps/desktop/src-tauri/tauri.conf.json", "jsonpath": "$.version" },
-        "apps/desktop/src-tauri/Cargo.toml"
+        "apps/desktop/src-tauri/Cargo.toml",
+        {
+          "type": "toml",
+          "path": "Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='lux')].version"
+        },
+        {
+          "type": "xml",
+          "path": "apps/desktop/src-tauri/gen/apple/lux_iOS/Info.plist",
+          "xpath": "//key[text()='CFBundleShortVersionString']/following-sibling::string[1]"
+        },
+        {
+          "type": "xml",
+          "path": "apps/desktop/src-tauri/gen/apple/lux_iOS/Info.plist",
+          "xpath": "//key[text()='CFBundleVersion']/following-sibling::string[1]"
+        }
       ]
     }
   }
