@@ -13,6 +13,7 @@ mod auth;
 mod config;
 mod install;
 mod node;
+mod setups;
 
 use std::net::Ipv4Addr;
 use std::path::PathBuf;

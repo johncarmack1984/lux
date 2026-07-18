@@ -13,6 +13,7 @@ use std::process::Command;
 
 use crate::auth;
 use crate::config::{self, StoredSession};
+use crate::setups;
 
 const BIN_PATH: &str = "/usr/local/bin/lux-node";
 const ETC_DIR: &str = "/etc/lux-node";
@@ -56,17 +57,53 @@ pub fn install(keep_sleep: bool) -> Result<(), String> {
     fs::create_dir_all(STATE_DIR).map_err(|e| format!("mkdir {STATE_DIR}: {e}"))?;
     run("chown", &["-R", SERVICE_USER, STATE_DIR])?;
 
-    // 3. Config (prompt only when absent — rerunning never clobbers).
+    // 3. Sign in as the service identity (reuse a stored session when one
+    //    exists) — sign-in comes before config so the setup picker below can
+    //    ask the sync API instead of making a human type a UUID.
+    let env = config::endpoints()?;
+    let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    std::env::set_var("XDG_CONFIG_HOME", STATE_DIR);
+    let session_file = format!("{STATE_DIR}/lux-node/session.json");
+    let id_token = if Path::new(&session_file).exists() {
+        let session = config::load_session()?;
+        runtime
+            .block_on(auth::refresh(&env, &session.refresh_token))?
+            .id
+    } else {
+        let email = prompt("lux account email")?;
+        let password = rpassword::prompt_password("password: ")
+            .map_err(|e| format!("password prompt: {e}"))?;
+        let tokens = runtime.block_on(auth::sign_in(&env, &email, &password))?;
+        let refresh = tokens
+            .refresh
+            .ok_or("Cognito returned no refresh token; cannot run headless")?;
+        // Write via the same path the service reads (XDG under the state
+        // dir), then hand the file to the service user.
+        config::save_session(&StoredSession {
+            email: email.clone(),
+            refresh_token: refresh,
+        })?;
+        run("chown", &["-R", SERVICE_USER, STATE_DIR])?;
+        println!("signed in as {email}");
+        tokens.id
+    };
+
+    // 4. Config: pick the setup from the account (name + universe come from
+    //    the sync record); a UUID prompt is only the unreachable-API fallback.
+    //    Prompt only when no config exists — rerunning never clobbers.
     let config_path = format!("{ETC_DIR}/config.json");
     if !Path::new(&config_path).exists() {
-        let setup_id = prompt("setup id (from the app's setups)")?;
-        let universe = prompt("sACN universe [1]")?;
-        let universe: u16 = if universe.is_empty() {
-            1
-        } else {
-            universe
-                .parse()
-                .map_err(|e| format!("bad universe {universe}: {e}"))?
+        let (setup_id, universe) = match runtime.block_on(setups::list(&env, &id_token)) {
+            Ok(setups) if !setups.is_empty() => pick_setup(&setups)?,
+            Ok(_) => {
+                println!("no setups on this account yet — create one in the app first,");
+                println!("or enter an id by hand:");
+                prompt_manual()?
+            }
+            Err(e) => {
+                println!("could not list setups ({e}); falling back to manual entry");
+                prompt_manual()?
+            }
         };
         let json = serde_json::json!({ "setupId": setup_id, "universe": universe });
         fs::write(&config_path, format!("{:#}\n", json))
@@ -74,31 +111,8 @@ pub fn install(keep_sleep: bool) -> Result<(), String> {
         println!("wrote {config_path}");
     }
 
-    // 4. Unit file (embedded in the binary, so they can't drift apart).
+    // 5. Unit file (embedded in the binary, so they can't drift apart).
     fs::write(UNIT_PATH, UNIT).map_err(|e| format!("write {UNIT_PATH}: {e}"))?;
-
-    // 5. Sign in as the service identity (skip when a session already exists).
-    let session_file = format!("{STATE_DIR}/lux-node/session.json");
-    if !Path::new(&session_file).exists() {
-        let email = prompt("lux account email")?;
-        let password = rpassword::prompt_password("password: ")
-            .map_err(|e| format!("password prompt: {e}"))?;
-        let env = config::endpoints()?;
-        let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-        let tokens = runtime.block_on(auth::sign_in(&env, &email, &password))?;
-        let refresh = tokens
-            .refresh
-            .ok_or("Cognito returned no refresh token; cannot run headless")?;
-        // Write via the same path the service reads (XDG under the state dir),
-        // then hand the file to the service user.
-        std::env::set_var("XDG_CONFIG_HOME", STATE_DIR);
-        config::save_session(&StoredSession {
-            email: email.clone(),
-            refresh_token: refresh,
-        })?;
-        run("chown", &["-R", SERVICE_USER, STATE_DIR])?;
-        println!("signed in as {email}");
-    }
 
     // 6. Enable + start.
     run("systemctl", &["daemon-reload"])?;
@@ -121,6 +135,42 @@ pub fn install(keep_sleep: bool) -> Result<(), String> {
 
     println!("lux-node is running. Watch it: journalctl -u lux-node -f");
     Ok(())
+}
+
+/// Numbered pick over the account's setups; returns (id, universe). The short
+/// id disambiguates same-named setups.
+fn pick_setup(setups: &[lux_wire::SetupRecord]) -> Result<(String, u16), String> {
+    println!("setups on this account:");
+    for (i, setup) in setups.iter().enumerate() {
+        let short: String = setup.id.chars().take(8).collect();
+        println!(
+            "  {}. {} — universe {} ({short})",
+            i + 1,
+            setup.name,
+            setup.universe
+        );
+    }
+    let choice = prompt(&format!("apply which setup [1-{}]", setups.len()))?;
+    let index: usize = choice
+        .parse()
+        .ok()
+        .filter(|n| (1..=setups.len()).contains(n))
+        .ok_or_else(|| format!("pick a number between 1 and {}", setups.len()))?;
+    let picked = &setups[index - 1];
+    Ok((picked.id.clone(), picked.universe))
+}
+
+fn prompt_manual() -> Result<(String, u16), String> {
+    let setup_id = prompt("setup id (from the app's setups)")?;
+    let universe = prompt("sACN universe [1]")?;
+    let universe: u16 = if universe.is_empty() {
+        1
+    } else {
+        universe
+            .parse()
+            .map_err(|e| format!("bad universe {universe}: {e}"))?
+    };
+    Ok((setup_id, universe))
 }
 
 fn is_root() -> bool {

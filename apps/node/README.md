@@ -12,7 +12,7 @@ chmod +x lux-node
 sudo ./lux-node install
 ```
 
-`install` does everything and is safe to re-run (it upgrades the binary and fixes whatever is missing): copies itself to `/usr/local/bin`, creates the `lux-node` system user and dirs, writes the systemd unit, prompts for the setup id + universe (only when no config exists), signs in as the service identity, enables the service, and masks sleep/suspend — pass `--keep-sleep` to skip that last part. Watch it with `journalctl -u lux-node -f`.
+`install` does everything and is safe to re-run (it upgrades the binary and fixes whatever is missing): copies itself to `/usr/local/bin`, creates the `lux-node` system user and dirs, writes the systemd unit, signs in as the service identity, then lists the account's setups so you pick by name (universe comes from the record; a UUID prompt only appears if the sync API is unreachable — and only when no config exists yet), enables the service, and masks sleep/suspend — pass `--keep-sleep` to skip that last part. Watch it with `journalctl -u lux-node -f`.
 
 The setup id is the id of the setup this node applies — visible in the app's sync record, or ask any signed-in device. Optional keys in `/etc/lux-node/config.json`: `"interface"` (IPv4 of the NIC to egress multicast from, for multi-homed hosts) and `"priority"` (default 90).
 
