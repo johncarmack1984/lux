@@ -78,6 +78,11 @@ pub async fn run() {
         .manage(DmxOutput::default())
         .manage(cloud::LuxSync::default())
         .manage(nudge::LuxNudge::default());
+    // Window positioning relative to monitors and the tray, backing the
+    // frontend's @tauri-apps/plugin-positioner API. Desktop-only: mobile has
+    // no movable windows and no tray.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_positioner::init());
     // The self-updater is desktop-only (mobile updates ship through the App
     // Store), so add its plugin only when building for desktop — and not in
     // the Mac App Store flavor (`mas` feature), where the store owns updates

@@ -90,6 +90,7 @@ gethostname = "1.1.0"
 enttecopendmx = "0.1.1"
 libftd2xx = { version = "0.33.1", features = ["static"] }
 tauri = { version = "~2.11", features = ["tray-icon"] }
+tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
 tauri-plugin-updater = "2"
 
 # keyring's Apple Keychain backend requires the data-protection Keychain API on
