@@ -28,7 +28,10 @@ on:
       - 'Cargo.lock'
       - 'package.json'
       - 'bun.lock'
-      - '.github/workflows/desktop.yml'
+      # Any workflow change runs this gate: the workflow-permissions job
+      # below is the account's guard against a permissions-less workflow
+      # inheriting the write-capable default token.
+      - '.github/workflows/**'
   push:
     branches: [main]
     paths:
@@ -41,7 +44,10 @@ on:
       - 'Cargo.lock'
       - 'package.json'
       - 'bun.lock'
-      - '.github/workflows/desktop.yml'
+      # Any workflow change runs this gate: the workflow-permissions job
+      # below is the account's guard against a permissions-less workflow
+      # inheriting the write-capable default token.
+      - '.github/workflows/**'
   # Reusable form: release.yml calls this as its gate, so nothing ships from a
   # release run unless the exact release commit passes the same checks as a PR.
   workflow_call:
@@ -70,6 +76,25 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # The repo's default workflow token is read+write (the release pipeline
+  # needs it), so a workflow file without its own permissions block silently
+  # inherits a write-capable token. Every workflow must say what it wants.
+  workflow-permissions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Every workflow declares a permissions block
+        run: |
+          fail=0
+          for f in .github/workflows/*.yml; do
+            grep -qE '^permissions:' "$f" \
+              || { echo "::error file=$f::missing a top-level permissions block — the default token is read+write"; fail=1; }
+          done
+          exit "$fail"
+
   deny:
     runs-on: ubuntu-latest
     timeout-minutes: 10
