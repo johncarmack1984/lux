@@ -89,31 +89,44 @@ jobs:
       # A GITHUB_TOKEN branch push creates the release PR's gate run in the
       # action_required state (GitHub holds workflow runs for events the token
       # caused; pull_request branch filters can't exclude a head branch, they
-      # match the base). Approve those held runs so the release PR carries a
-      # live green gate instead of an "awaiting approval" banner. Fail-soft:
-      # if the token may not approve its own event's runs, the held run is
-      # cosmetic — merging is not blocked and the authoritative gate is the
-      # ci job at the tag.
-      - name: Approve the release branch's held gate runs
+      # match the base). Approve the held run so the release PR carries a
+      # live green gate instead of an "awaiting approval" banner — but ONLY
+      # the branch tip's run: the PR's gate runs share one concurrency group,
+      # so approving a superseded head's run alongside the live one lets the
+      # loser cancel the winner. Stale held runs are deleted instead (their
+      # commit is gone from the branch; they can never matter). Fail-soft
+      # throughout: an unapproved run is cosmetic — merging is not blocked
+      # and the authoritative gate is the ci job at the tag.
+      - name: Approve the release branch's held gate run
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: release-please--branches--main--components--lux
         run: |
-          if ! git ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null 2>&1; then
+          tip=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+          if [ -z "$tip" ]; then
             echo "no open release branch; nothing to approve"
             exit 0
           fi
-          ids=""
+          approved=""
           for i in 1 2 3; do
             sleep 10
-            ids=$(gh run list --branch "$BRANCH" --status action_required --limit 10 --json databaseId --jq '.[].databaseId')
-            [ -n "$ids" ] && break
+            id=$(gh run list --branch "$BRANCH" --status action_required --limit 10 --json databaseId,headSha \
+              --jq ".[] | select(.headSha==\"$tip\") | .databaseId" | head -1)
+            if [ -n "$id" ]; then
+              gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/$id/approve" >/dev/null \
+                && { approved=1; echo "approved held run $id (tip ${tip:0:7})"; } \
+                || echo "::warning::could not approve held run $id (cosmetic; the tag gate still rules)"
+              break
+            fi
           done
-          for id in $ids; do
-            gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/$id/approve" >/dev/null \
-              && echo "approved held run $id" \
-              || echo "::warning::could not approve held run $id (cosmetic; the tag gate still rules)"
-          done
+          [ -n "$approved" ] || echo "no held run for the branch tip (nothing newly pushed, or it already ran)"
+          gh run list --branch "$BRANCH" --status action_required --limit 10 --json databaseId,headSha \
+            --jq ".[] | select(.headSha!=\"$tip\") | .databaseId" \
+            | while read -r stale; do
+                gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/runs/$stale" >/dev/null \
+                  && echo "deleted stale held run $stale" \
+                  || echo "::warning::could not delete stale held run $stale"
+              done
 
       # The pipeline keys off observable repo state, never a tool's memory of
       # what it did. The manifest names the current version; from there: no
