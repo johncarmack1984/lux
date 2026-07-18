@@ -3,23 +3,21 @@
 // (workflow: store-notes.yml); the human edits the committed file in the PR,
 // and appstore.yml refuses to submit a version whose file is missing.
 //
-// The draft is exactly that — a draft. It never overwrites a human edit: the
-// file is only (re)written while its last committed author is the workflow
-// bot (or it doesn't exist yet). Delete the file in the PR to force a fresh
-// draft. The authorship check reads git history, so the workflow checks out
-// with full depth; scripts/restore-store-notes.ts runs first and resurrects a
-// human edit that a release-please branch rebuild discarded (the workflow
-// skips drafting entirely when it restores one).
+// The draft is exactly that — a draft, written once: the file is only created
+// when it doesn't exist. Existing files are never rewritten (human edits are
+// sacred; regenerating a bot draft would produce different text and re-push —
+// see the guard below). Delete the file in the PR to force a fresh draft.
+// scripts/restore-store-notes.ts runs first and resurrects a human edit that
+// a release-please branch rebuild discarded (the workflow skips drafting
+// entirely when it restores one).
 //
 // Usage: ANTHROPIC_API_KEY=... bun scripts/draft-store-notes.ts
 
 import Anthropic from "@anthropic-ai/sdk";
-import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "fs";
 import { join } from "path";
 
 const NOTES_DIR = "apps/desktop/store-notes";
-const BOT_EMAIL = "github-actions[bot]@users.noreply.github.com";
 
 const version: string = JSON.parse(
   readFileSync(".release-please-manifest.json", "utf8")
@@ -30,17 +28,17 @@ if (!version || !/^\d+\.\d+\.\d+$/.test(version)) {
 
 const notesPath = join(NOTES_DIR, `${version}.md`);
 
-// Never clobber a human's edit.
+// Never redraft an existing file, whoever wrote it. Human edits are sacred,
+// and regenerating a bot draft through the model produces *different* text
+// (the model is nondeterministic) — which would commit, push, retrigger this
+// workflow, and loop, now that draft pushes start workflow runs (App-token
+// pushes; see store-notes.yml). A stale bot draft never survives anyway:
+// release-please rebuilds the branch from main on every change, discarding
+// the file, and the next run drafts fresh from the new CHANGELOG. Delete the
+// file in the PR to force a redraft explicitly.
 if (existsSync(notesPath)) {
-  const lastAuthor = execFileSync(
-    "git",
-    ["log", "-1", "--format=%ae", "--", notesPath],
-    { encoding: "utf8" }
-  ).trim();
-  if (lastAuthor && lastAuthor !== BOT_EMAIL) {
-    console.log(`${notesPath} was last edited by ${lastAuthor}; leaving it alone.`);
-    process.exit(0);
-  }
+  console.log(`${notesPath} already exists; leaving it alone.`);
+  process.exit(0);
 }
 
 // The version's CHANGELOG section: from its `## [x.y.z]` heading to the next
