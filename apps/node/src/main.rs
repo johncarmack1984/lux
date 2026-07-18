@@ -35,18 +35,31 @@ fn main() {
 fn dispatch() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
-        Some("install") => install::install(args.iter().any(|a| a == "--keep-sleep")),
+        Some("install") => install::install(install::Options::parse(&args[1..])?),
         Some("login") => {
-            let email = args
-                .get(1)
-                .ok_or("usage: lux-node login <email>")?
-                .to_owned();
-            login(email)
+            // `login [<email>] [--password-stdin]` — email positional or
+            // --email / $LUX_NODE_EMAIL, password interactive or non-interactive
+            // (same rules as install), so login scripts too.
+            let opts = install::Options::parse(&login_args(&args[1..]))?;
+            login(opts)
         }
         Some("run") | None => run(config_path(&args)?),
         Some(other) => Err(format!(
-            "unknown command {other}; usage: lux-node install | lux-node login <email> | lux-node run [--config <path>]"
+            "unknown command {other}; usage: lux-node install | lux-node login [<email>] | lux-node run [--config <path>]"
         )),
+    }
+}
+
+/// Let `login <email>` keep its positional-email ergonomics while reusing the
+/// installer's option parser: a bare first arg becomes `--email <it>`.
+fn login_args(args: &[String]) -> Vec<String> {
+    match args.first() {
+        Some(first) if !first.starts_with("--") => {
+            let mut rest = vec!["--email".to_owned(), first.clone()];
+            rest.extend_from_slice(&args[1..]);
+            rest
+        }
+        _ => args.to_vec(),
     }
 }
 
@@ -60,10 +73,14 @@ fn config_path(args: &[String]) -> Result<PathBuf, String> {
     config::default_config_path()
 }
 
-fn login(email: String) -> Result<(), String> {
+fn login(opts: install::Options) -> Result<(), String> {
     let env = config::endpoints()?;
-    let password =
-        rpassword::prompt_password("password: ").map_err(|e| format!("password prompt: {e}"))?;
+    let email = opts
+        .email
+        .clone()
+        .filter(|e| !e.is_empty())
+        .ok_or("usage: lux-node login <email> (or --email / $LUX_NODE_EMAIL)")?;
+    let password = install::read_password(&opts)?;
     let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     let tokens = runtime.block_on(auth::sign_in(&env, &email, &password))?;
     let refresh = tokens
