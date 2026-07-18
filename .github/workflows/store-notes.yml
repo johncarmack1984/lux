@@ -10,6 +10,14 @@ on:
   pull_request:
     types: [opened, synchronize]
 
+# Back-to-back pushes to a release branch (release-please rebuild, then the
+# version-stamp sync seconds later) start overlapping drafters whose push
+# retries rebase into each other's identical draft commit and die on the
+# conflict. Newest event wins; the superseded run is cancelled mid-flight.
+concurrency:
+  group: store-notes-${{ github.head_ref }}
+  cancel-in-progress: true
+
 permissions: {}
 
 jobs:
