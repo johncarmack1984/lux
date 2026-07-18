@@ -13,6 +13,7 @@
 		322834C88F9656BA124CDDC1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4A7C66DAE6212F7FF4BA6D0A /* Assets.xcassets */; };
 		345ADEA90A44D9418E7F8327 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 9104F339DF3B64D985D3A494 /* LaunchScreen.storyboard */; };
 		3B3C328B641849D46915F6F4 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A861B814E26B7F7E09AB602D /* UIKit.framework */; };
+		4D003A8C39CCE8B96F11AB38 /* AuthenticationServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 21939C47F477F9329AB4163A /* AuthenticationServices.framework */; };
 		74D2E6233D9E66377BBCBC0F /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6494611D9DAF8D55704BE2D4 /* MetalKit.framework */; };
 		8A332DDA7EA74C58597AA25D /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 22790B3A18EE98177B6FC9E2 /* CoreGraphics.framework */; };
 		A682B9BE970633F7485DED15 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 15CC3DB1433D23D972C8DE99 /* libapp.a */; };
@@ -31,6 +32,7 @@
 		13C72DEA1AE27665518F020F /* discovery.rs */ = {isa = PBXFileReference; path = discovery.rs; sourceTree = "<group>"; };
 		15CC3DB1433D23D972C8DE99 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		1FB84EA1206FA010A2803370 /* endpoints.rs */ = {isa = PBXFileReference; path = endpoints.rs; sourceTree = "<group>"; };
+		21939C47F477F9329AB4163A /* AuthenticationServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AuthenticationServices.framework; path = System/Library/Frameworks/AuthenticationServices.framework; sourceTree = SDKROOT; };
 		22790B3A18EE98177B6FC9E2 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		2D119CC234411C2677391DD9 /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
 		3577B415FEFCC7650ED0D82F /* fixture.rs */ = {isa = PBXFileReference; path = fixture.rs; sourceTree = "<group>"; };
@@ -63,7 +65,6 @@
 		E6628D23D43C715526F8BEDC /* lux_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = lux_iOS.entitlements; sourceTree = "<group>"; };
 		FD3A418F87082A7A1D1FBA17 /* logger.rs */ = {isa = PBXFileReference; path = logger.rs; sourceTree = "<group>"; };
 		FE41F2EEAC3FFC3CCA4FC84F /* setup.rs */ = {isa = PBXFileReference; path = setup.rs; sourceTree = "<group>"; };
-		FEC0F685E590F4B68BEF5A34 /* sacn.rs */ = {isa = PBXFileReference; path = sacn.rs; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -72,6 +73,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A682B9BE970633F7485DED15 /* libapp.a in Frameworks */,
+				4D003A8C39CCE8B96F11AB38 /* AuthenticationServices.framework in Frameworks */,
 				8A332DDA7EA74C58597AA25D /* CoreGraphics.framework in Frameworks */,
 				E3DADF37A2D87AB690E40952 /* Metal.framework in Frameworks */,
 				74D2E6233D9E66377BBCBC0F /* MetalKit.framework in Frameworks */,
@@ -132,6 +134,7 @@
 		29C57FAEDC3460AE61F0358E /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				21939C47F477F9329AB4163A /* AuthenticationServices.framework */,
 				22790B3A18EE98177B6FC9E2 /* CoreGraphics.framework */,
 				15CC3DB1433D23D972C8DE99 /* libapp.a */,
 				7E12A3D64A4681D3D1C5B38E /* Metal.framework */,
@@ -182,7 +185,6 @@
 				13C72DEA1AE27665518F020F /* discovery.rs */,
 				0652621D61E48CFB715F2BF0 /* enttec_open_dmx_usb.rs */,
 				875FDB81D677B35CCE19C8A3 /* mod.rs */,
-				FEC0F685E590F4B68BEF5A34 /* sacn.rs */,
 			);
 			path = devices;
 			sourceTree = "<group>";

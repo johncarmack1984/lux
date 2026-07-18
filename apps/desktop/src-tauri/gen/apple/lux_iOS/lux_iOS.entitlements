@@ -6,11 +6,11 @@
 	<array>
 		<string>Default</string>
 	</array>
-	<key>com.apple.developer.networking.multicast</key>
-	<true/>
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>webcredentials:lux.johncarmack.com</string>
 	</array>
+	<key>com.apple.developer.networking.multicast</key>
+	<true/>
 </dict>
 </plist>
