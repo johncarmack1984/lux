@@ -19,6 +19,7 @@ pub struct Endpoints {
     pub cognito_user_pool_id: String,
     pub cognito_app_client_id: String,
     pub nudge_endpoint: String,
+    pub sync_url: String,
 }
 
 pub fn endpoints() -> Result<Endpoints, String> {
@@ -131,6 +132,7 @@ mod tests {
         let e = endpoints().expect("endpoints parse");
         assert!(!e.cognito_region.is_empty());
         assert!(!e.nudge_endpoint.is_empty());
+        assert!(e.sync_url.starts_with("https://"));
     }
 
     #[test]
