@@ -544,18 +544,19 @@ jobs:
           retry-max-attempts: 6
 
       - name: Build (static musl)
-        run: cargo build --release --target x86_64-unknown-linux-musl -p lux-sync-api -p lux-iot-authorizer -p lux-discord-bot
+        run: cargo build --release --target x86_64-unknown-linux-musl -p lux-sync-api -p lux-iot-authorizer -p lux-discord-bot -p lux-apple-auth
 
       # provided.al2023 runs the zip's `bootstrap`; package each binary under
       # that name and wait until Lambda finishes swapping code before smoking.
       # Every deploy publishes a numbered version (rollback provenance). The
-      # sync-api and bot serve traffic from $LATEST (their Function URLs are
-      # unqualified), so the code swap is their cutover; the authorizer serves
-      # through the `live` alias, so its new version takes no traffic until the
-      # flip step below — after its smoke has passed against that exact version.
+      # sync-api, bot, and apple-auth serve traffic from $LATEST (their
+      # Function URLs are unqualified), so the code swap is their cutover; the
+      # authorizer serves through the `live` alias, so its new version takes no
+      # traffic until the flip step below — after its smoke has passed against
+      # that exact version.
       - name: Deploy
         run: |
-          for fn in lux-sync-api lux-iot-authorizer lux-discord-bot; do
+          for fn in lux-sync-api lux-iot-authorizer lux-discord-bot lux-apple-auth; do
             staging=$(mktemp -d)
             cp "target/x86_64-unknown-linux-musl/release/$fn" "$staging/bootstrap"
             (cd "$staging" && zip -q9 function.zip bootstrap)
@@ -581,6 +582,17 @@ jobs:
           code=$(curl -s -o /tmp/body -w '%{http_code}' "${url}setups")
           cat /tmp/body; echo
           test "$code" = "401" && grep -q '"error"' /tmp/body
+
+      # A garbage identity token answering the typed 401 proves the new binary
+      # cold-started (its init fetches the Cognito JWKS before serving), routes
+      # /auth/apple, and rejects unverifiable tokens.
+      - name: Smoke apple-auth
+        run: |
+          url=$(aws lambda get-function-url-config --function-name lux-apple-auth --query FunctionUrl --output text)
+          code=$(curl -s -o /tmp/apple-auth-body -w '%{http_code}' -X POST -H 'content-type: application/json' \
+            -d '{"identityToken":"smoke-test-garbage","authorizationCode":"x","rawNonce":"y"}' "${url}auth/apple")
+          cat /tmp/apple-auth-body; echo
+          test "$code" = "401" && grep -q '"error"' /tmp/apple-auth-body
 
       # Invoke the freshly published version directly (qualified) with a
       # garbage token: a well-formed deny proves it cold-started (JWKS fetch)

@@ -1,0 +1,40 @@
+[package]
+name = "lux-apple-auth"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Sign in with Apple bridge on AWS Lambda (provided.al2023). One function, two
+# invoke surfaces sharing one binary: the Function URL routes the desktop calls
+# after running the native Apple sheet (`/auth/apple[/link|/revoke]`), and the
+# Cognito custom-auth trigger events (Define/Create/VerifyAuthChallenge) the
+# user pool invokes during the CUSTOM_AUTH flow those routes drive. Verifies
+# Apple identity tokens against Apple's JWKS and mints ordinary user-pool JWTs,
+# so everything downstream of sign-in is untouched. Built and deployed with the
+# same static-musl pipeline as the other services.
+
+[lints]
+workspace = true
+
+[dependencies]
+lux-auth = { path = "../../crates/lux-auth" }
+lux-wire = { path = "../../crates/lux-wire" }
+lambda_runtime = "1"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-cognitoidentityprovider = "1"
+aws-sdk-dynamodb = "1"
+aws-sdk-secretsmanager = "1"
+# Same backend note as lux-auth: rust_crypto (rsa + sha2 + p256) covers our
+# RS256 verify and ES256 client-secret signing with no C, no musl-static risk.
+jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+reqwest = { workspace = true }
+# rustls with no baked-in crypto provider; main() installs ring as the process
+# default, sidestepping the aws-lc-rs C build that reqwest's `rustls` feature pulls.
+rustls = { workspace = true }
+sha2 = "0.11"
+base64 = "0.22"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
