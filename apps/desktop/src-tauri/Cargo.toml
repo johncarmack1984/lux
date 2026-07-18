@@ -64,6 +64,10 @@ uuid = { version = "1.23.4", features = [
 # Cloud-sync HTTP client to the lux-sync-api Function URL; shares the workspace
 # reqwest (rustls-no-provider, riding the app's process-default ring provider).
 reqwest.workspace = true
+# The native Sign in with Apple sheet (the workspace's one unsafe-FFI leaf).
+lux-apple-id = { path = "../../../crates/lux-apple-id" }
+# Nonce hashing for the Apple sheet (the token's nonce claim is SHA-256(raw)).
+sha2 = "0.11"
 # The desktop↔sync-api wire contract — the same crate the Lambda serializes
 # with, so the two sides cannot drift (see crates/lux-wire).
 lux-engine = { path = "../../../crates/lux-engine" }

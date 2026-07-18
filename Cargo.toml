@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "apps/desktop/src-tauri",
     "apps/node",
+    "crates/lux-apple-id",
     "crates/lux-auth",
     "crates/lux-engine",
     "crates/lux-wire",

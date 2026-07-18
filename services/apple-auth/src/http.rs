@@ -90,12 +90,15 @@ async fn sign_in(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
         }
     };
 
-    let (username, created) = match store::get_link(ctx, &identity.sub).await {
+    let existing = match store::get_link(ctx, &identity.sub).await {
         Err(e) => {
             tracing::error!("link lookup failed: {e}");
             return reply(500, &error("internal"));
         }
-        Ok(Some(link)) => {
+        Ok(link) => link,
+    };
+    let (mut username, mut created) = match &existing {
+        Some(link) => {
             // Known Apple user. Refresh the stored (revocable) Apple token
             // best-effort — the sign-in itself must not depend on Apple's
             // token endpoint being reachable once a link exists.
@@ -103,15 +106,31 @@ async fn sign_in(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
                 Ok(()) => {}
                 Err(e) => tracing::warn!("apple refresh-token update skipped: {e}"),
             }
-            (link.username, false)
+            (link.username.clone(), false)
         }
-        Ok(None) => match first_sign_in(ctx, &identity, &req).await {
+        None => match first_sign_in(ctx, &identity, &req).await {
             Ok(x) => x,
             Err(e) => return Ok(e),
         },
     };
 
-    let tokens = match cognito::custom_auth(ctx, &username, &req.identity_token).await {
+    let mut attempt = cognito::custom_auth(ctx, &username, &req.identity_token).await;
+    if let (Err(cognito::AuthError::UserNotFound), Some(link)) = (&attempt, &existing) {
+        // The linked user is gone — an account deletion whose Apple-side
+        // revoke never landed. Self-heal: drop the stale link and run this as
+        // a first sign-in (the same credential simply creates or relinks).
+        tracing::warn!("apple link points at a deleted user; relinking");
+        if let Err(e) = store::delete_link(ctx, &identity.sub, &link.sub).await {
+            tracing::error!("stale link cleanup failed: {e}");
+            return reply(500, &error("internal"));
+        }
+        (username, created) = match first_sign_in(ctx, &identity, &req).await {
+            Ok(x) => x,
+            Err(e) => return Ok(e),
+        };
+        attempt = cognito::custom_auth(ctx, &username, &req.identity_token).await;
+    }
+    let tokens = match attempt {
         Ok(t) => t,
         Err(e) => {
             tracing::error!("custom auth failed for linked user: {e}");

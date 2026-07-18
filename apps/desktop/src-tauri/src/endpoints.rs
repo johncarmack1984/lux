@@ -30,6 +30,11 @@ pub struct Endpoints {
     pub cognito_app_client_id: String,
     pub sync_url: String,
     pub nudge_endpoint: String,
+    /// Base URL of the lux-apple-auth Function URL (Sign in with Apple).
+    /// Absent until the first release after the service's Terraform applied —
+    /// the endpoints file only carries outputs that exist in applied state —
+    /// and empty means the feature stays dark.
+    pub apple_auth_url: String,
     /// Dev-machine remote control (device identity + mTLS material); only ever
     /// present in `endpoints.local.json` — the generated prod file never
     /// carries it, so plain installs have no remote-control surface.
@@ -108,6 +113,7 @@ fn overlay(base: &mut Endpoints, local: Endpoints) {
     take(&mut base.cognito_app_client_id, local.cognito_app_client_id);
     take(&mut base.sync_url, local.sync_url);
     take(&mut base.nudge_endpoint, local.nudge_endpoint);
+    take(&mut base.apple_auth_url, local.apple_auth_url);
     take(&mut base.sacn_interface, local.sacn_interface);
     if local.remote_control.is_some() {
         base.remote_control = local.remote_control;
@@ -130,6 +136,9 @@ mod tests {
         assert!(!endpoints.cognito_app_client_id.is_empty());
         assert!(!endpoints.sync_url.is_empty());
         assert!(!endpoints.nudge_endpoint.is_empty());
+        // `apple_auth_url` is deliberately NOT asserted populated: the key only
+        // enters the generated file once the Function URL exists in applied
+        // Terraform state, and an absent/empty value means "feature dark".
         assert!(endpoints.remote_control.is_none(), "prod never configures remote control");
     }
 

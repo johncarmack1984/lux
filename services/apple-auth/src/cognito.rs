@@ -30,6 +30,24 @@ pub struct Tokens {
     pub expires_in: i32,
 }
 
+/// Auth-flow failures the caller distinguishes: a missing user means a stale
+/// link (the account was deleted out from under it) and is self-healable;
+/// everything else is internal.
+#[derive(Debug)]
+pub enum AuthError {
+    UserNotFound,
+    Other(String),
+}
+
+impl std::fmt::Display for AuthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AuthError::UserNotFound => write!(f, "user not found"),
+            AuthError::Other(e) => write!(f, "{e}"),
+        }
+    }
+}
+
 pub async fn find_user_by_email(ctx: &Ctx, email: &str) -> Result<Option<User>, String> {
     find_one(ctx, "email", email).await
 }
@@ -135,7 +153,11 @@ fn discarded_password() -> Result<String, String> {
 /// with the Apple identity token. The VerifyAuthChallenge trigger (this same
 /// binary) re-verifies the token and its link to exactly this user, so these
 /// admin calls add reach, not trust.
-pub async fn custom_auth(ctx: &Ctx, username: &str, identity_token: &str) -> Result<Tokens, String> {
+pub async fn custom_auth(
+    ctx: &Ctx,
+    username: &str,
+    identity_token: &str,
+) -> Result<Tokens, AuthError> {
     let start = ctx
         .cognito
         .admin_initiate_auth()
@@ -145,15 +167,20 @@ pub async fn custom_auth(ctx: &Ctx, username: &str, identity_token: &str) -> Res
         .auth_parameters("USERNAME", username)
         .send()
         .await
-        .map_err(|e| format!("auth initiate failed: {e}"))?;
+        .map_err(|e| match e.as_service_error() {
+            Some(se) if se.is_user_not_found_exception() => AuthError::UserNotFound,
+            _ => AuthError::Other(format!("auth initiate failed: {e}")),
+        })?;
 
     if start.challenge_name() != Some(&ChallengeNameType::CustomChallenge) {
-        return Err(format!(
+        return Err(AuthError::Other(format!(
             "expected CUSTOM_CHALLENGE, got {:?}",
             start.challenge_name()
-        ));
+        )));
     }
-    let session = start.session().ok_or("auth initiate returned no session")?;
+    let session = start
+        .session()
+        .ok_or(AuthError::Other("auth initiate returned no session".into()))?;
 
     let done = ctx
         .cognito
@@ -166,14 +193,17 @@ pub async fn custom_auth(ctx: &Ctx, username: &str, identity_token: &str) -> Res
         .challenge_responses("ANSWER", identity_token)
         .send()
         .await
-        .map_err(|e| format!("challenge response failed: {e}"))?;
+        .map_err(|e| match e.as_service_error() {
+            Some(se) if se.is_user_not_found_exception() => AuthError::UserNotFound,
+            _ => AuthError::Other(format!("challenge response failed: {e}")),
+        })?;
 
     let result = done
         .authentication_result()
-        .ok_or("challenge did not issue tokens")?;
-    let s = |v: Option<&str>, what: &str| -> Result<String, String> {
+        .ok_or(AuthError::Other("challenge did not issue tokens".into()))?;
+    let s = |v: Option<&str>, what: &str| -> Result<String, AuthError> {
         v.map(str::to_owned)
-            .ok_or_else(|| format!("auth result missing {what}"))
+            .ok_or_else(|| AuthError::Other(format!("auth result missing {what}")))
     };
     Ok(Tokens {
         id_token: s(result.id_token(), "id token")?,
