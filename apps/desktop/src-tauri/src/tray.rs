@@ -24,6 +24,11 @@ pub fn build<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
         .icon(Image::from_bytes(include_bytes!("../icons/tray.png"))?)
         .icon_as_template(true)
         .menu(&menu)
+        .on_tray_icon_event(|tray, event| {
+            // Feed raw tray events to the positioner plugin so its Tray*
+            // positions know the icon's rect (it caches the last event).
+            tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
+        })
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "quit" => app.exit(0),
             "rescan" => devices::rescan(app),
