@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.3.0](https://github.com/johncarmack1984/lux/compare/v1.2.0...v1.3.0) (2026-07-18)
+
+
+### Features
+
+* **node:** headless lux-node for an always-on Linux box ([#173](https://github.com/johncarmack1984/lux/issues/173)) ([cb37192](https://github.com/johncarmack1984/lux/commit/cb371923bad61c6867fc8481e447531949538505))
+* **node:** pick the setup by name at install ([#175](https://github.com/johncarmack1984/lux/issues/175)) ([a28e8e0](https://github.com/johncarmack1984/lux/commit/a28e8e0c41d17e0aaf61a11b72f3c90e5a69cac6))
+* **node:** self-installing binary + release asset ([#174](https://github.com/johncarmack1984/lux/issues/174)) ([33521c5](https://github.com/johncarmack1984/lux/commit/33521c5ed3c80956e227e339cd61c8ea6eb16b1d))
+
+
+### Bug Fixes
+
+* **ci:** finish superseded runs on release branches ([#171](https://github.com/johncarmack1984/lux/issues/171)) ([bed3e2d](https://github.com/johncarmack1984/lux/commit/bed3e2d078bc6099d716dabd8e7790b096d5e3e2))
+* **store-notes:** never redraft an existing file ([#170](https://github.com/johncarmack1984/lux/issues/170)) ([5322e21](https://github.com/johncarmack1984/lux/commit/5322e215f2da3c184fbf3da756e5b442dbae3762))
+* **ui:** 44px minimum touch width on vertical faders ([#161](https://github.com/johncarmack1984/lux/issues/161)) ([b8249fc](https://github.com/johncarmack1984/lux/commit/b8249fc9205c406672ba0dd4a68f57836882b6dd))
+* **ui:** collapse the view links into a nav dropdown ([#163](https://github.com/johncarmack1984/lux/issues/163)) ([ccb7ea9](https://github.com/johncarmack1984/lux/commit/ccb7ea95c1d24b447f01d8b642a24df2246d5175))
+* **ui:** fit the universe desk to the viewport ([#167](https://github.com/johncarmack1984/lux/issues/167)) ([451da21](https://github.com/johncarmack1984/lux/commit/451da21b5d9a96843af3a75d336626371c000285))
+* **ui:** label universe channels from the active patch only ([#164](https://github.com/johncarmack1984/lux/issues/164)) ([a43dad5](https://github.com/johncarmack1984/lux/commit/a43dad580aed66595c6cde8d904387e532fd46e9))
+* **ui:** presets on both views, default preset removed ([#165](https://github.com/johncarmack1984/lux/issues/165)) ([1054331](https://github.com/johncarmack1984/lux/commit/10543317f791ad58626f29cb5d7df94de670edf8))
+
 ## [1.2.0](https://github.com/johncarmack1984/lux/compare/v1.1.0...v1.2.0) (2026-07-18)
 
 
