@@ -1,8 +1,10 @@
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import useLuxState from "@/hooks/useLuxState";
+import useFixtures from "@/hooks/useFixtures";
 import useSettings from "@/hooks/useSettings";
 import { cn } from "@/lib/utils";
+import { patchChannelMeta } from "@/lib/channel-map";
 import DeskRow from "./desk-row";
 import DeskColumn from "./desk-column";
 
@@ -14,8 +16,10 @@ type Channels = ReturnType<typeof useLuxState>;
 
 /**
  * The universe desk: every DMX512 channel as a fader, virtualized so 512 lanes
- * scroll smoothly while only the ~visible handful mount. Channels 1–6 are the
- * labelled RGBAW fixture (also driven by the color picker); 7–512 are raw.
+ * scroll smoothly while only the ~visible handful mount. Channels covered by
+ * the active setup's patch carry that fixture's role color and label; every
+ * other channel is a plain numbered fader — an empty setup is 512 plain
+ * sliders.
  *
  * The "slider orientation" user setting picks the layout: vertical faders in a
  * horizontally-scrolling desk (the default, like a lighting console), or
@@ -25,8 +29,20 @@ type Channels = ReturnType<typeof useLuxState>;
  * launch.
  */
 export default function ControlGrid() {
-  const data = useLuxState();
+  const channels = useLuxState();
+  const fixtures = useFixtures();
   const settings = useSettings();
+
+  // Patch-derived labels only: unpatched channels render blank + neutral.
+  const data = useMemo(() => {
+    const meta = patchChannelMeta(fixtures);
+    return channels.map((channel) => {
+      const patched = meta.get(channel.channelNumber);
+      return patched
+        ? { ...channel, label: patched.label, labelColor: patched.labelColor }
+        : { ...channel, label: "", labelColor: "Generic" as const };
+    });
+  }, [channels, fixtures]);
 
   if (!data.length || settings === null) {
     return (
