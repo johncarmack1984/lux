@@ -1,0 +1,45 @@
+# Builds the lux-node static musl binary and stages it as an artifact —
+# dispatch it, download lux-node-x86_64-linux, and follow apps/node/README.md.
+# Same toolchain the Lambda deploys use; nothing here touches AWS or signs
+# anything, so it is safe to run from any ref.
+name: node-build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl-gcc
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: "."
+          cache-targets: "false"
+
+      - name: Build (static musl)
+        run: cargo build --release --target x86_64-unknown-linux-musl -p lux-node
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lux-node-x86_64-linux
+          path: target/x86_64-unknown-linux-musl/release/lux-node
+          if-no-files-found: error

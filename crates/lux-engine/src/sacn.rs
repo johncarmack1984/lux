@@ -10,17 +10,26 @@
 //! Multicast means we never need the node's IP address — the eDMX1 Pro (which
 //! defaults to DHCP) subscribes to the multicast group for its configured
 //! universe, so this is genuinely zero-config beyond matching the universe.
+//!
+//! Senders identify themselves with a per-process CID, a human-readable
+//! source name, and a priority (E1.31: higher priority wins outright at the
+//! receiver; equal priorities fall to the receiver's merge policy). Live
+//! surfaces transmit at the default 100; the headless node transmits slightly
+//! lower so a human hand on a fader anywhere on the LAN overrides it.
 
 use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use super::DmxSink;
+use crate::DmxSink;
 
 /// E1.31 listens on UDP 5568 (ACN-defined).
 const SACN_PORT: u16 = 5568;
 /// Total packet length for a full 512-slot universe:
 /// root layer (38) + framing layer (77) + DMP layer (523).
 const PACKET_LEN: usize = 638;
+
+/// The E1.31 default per-packet priority; live control surfaces send this.
+pub const DEFAULT_PRIORITY: u8 = 100;
 
 /// An sACN/E1.31 multicast sender bound to a single DMX universe.
 pub struct SacnSink {
@@ -29,6 +38,10 @@ pub struct SacnSink {
     universe: u16,
     /// Sender component identifier — stable for the life of the process.
     cid: [u8; 16],
+    /// E1.31 per-packet priority (0..=200; see the module docs).
+    priority: u8,
+    /// Source name, shown by receiver tooling (64 bytes on the wire).
+    source_name: String,
     /// Per-packet sequence number; receivers use it to spot lost/old packets.
     /// Wraps 255 -> 0 naturally via `AtomicU8`.
     sequence: AtomicU8,
@@ -39,9 +52,17 @@ impl SacnSink {
     /// local NIC's IPv4), bind to it so multicast egresses that interface —
     /// needed on multi-homed machines (e.g. Wi-Fi + Ethernet) where the node
     /// hangs off a specific NIC. Otherwise bind `0.0.0.0` and let the OS route.
-    pub fn new(universe: u16, interface: Option<Ipv4Addr>) -> Result<Self, String> {
+    pub fn new(
+        universe: u16,
+        interface: Option<Ipv4Addr>,
+        priority: u8,
+        source_name: &str,
+    ) -> Result<Self, String> {
         if universe == 0 || universe > 63999 {
             return Err(format!("sACN universe {universe} out of range (1..=63999)"));
+        }
+        if priority > 200 {
+            return Err(format!("sACN priority {priority} out of range (0..=200)"));
         }
         let bind_ip = interface.unwrap_or(Ipv4Addr::UNSPECIFIED);
         let socket = UdpSocket::bind((bind_ip, 0))
@@ -53,6 +74,8 @@ impl SacnSink {
             dest: SocketAddrV4::new(group, SACN_PORT),
             universe,
             cid: *uuid::Uuid::new_v4().as_bytes(),
+            priority,
+            source_name: source_name.to_owned(),
             sequence: AtomicU8::new(0),
         })
     }
@@ -61,7 +84,14 @@ impl SacnSink {
 impl DmxSink for SacnSink {
     fn render(&self, channels: &[u8]) -> Result<(), String> {
         let seq = self.sequence.fetch_add(1, Ordering::Relaxed);
-        let packet = build_packet(&self.cid, self.universe, channels, seq);
+        let packet = build_packet(
+            &self.cid,
+            self.universe,
+            self.priority,
+            &self.source_name,
+            channels,
+            seq,
+        );
         self.socket
             .send_to(&packet, self.dest)
             .map(|_| ())
@@ -72,7 +102,14 @@ impl DmxSink for SacnSink {
 /// Build one E1.31 data packet carrying `channels` at DMX slots 1.. of
 /// `universe`. Free function (not a method) so the byte layout is testable
 /// without binding a socket. Layout follows ANSI E1.31-2018 §4.1.
-fn build_packet(cid: &[u8; 16], universe: u16, channels: &[u8], sequence: u8) -> [u8; PACKET_LEN] {
+fn build_packet(
+    cid: &[u8; 16],
+    universe: u16,
+    priority: u8,
+    source_name: &str,
+    channels: &[u8],
+    sequence: u8,
+) -> [u8; PACKET_LEN] {
     let mut p = [0u8; PACKET_LEN];
 
     // ---- Root layer (ACN root, 38 bytes) ----
@@ -86,9 +123,11 @@ fn build_packet(cid: &[u8; 16], universe: u16, channels: &[u8], sequence: u8) ->
     // ---- Framing layer (77 bytes) ----
     p[38..40].copy_from_slice(&(0x7000u16 | (PACKET_LEN as u16 - 38)).to_be_bytes()); // flags+length
     p[40..44].copy_from_slice(&2u32.to_be_bytes()); // VECTOR_E131_DATA_PACKET
-    p[44..47].copy_from_slice(b"lux"); // source name (64 bytes, null-padded)
-    p[108] = 100; // priority (0..=200, 100 = default)
-                  // [109..111] synchronization address = 0 (unused)
+    let name = source_name.as_bytes();
+    let n = name.len().min(63); // 64-byte field, null-terminated
+    p[44..44 + n].copy_from_slice(&name[..n]);
+    p[108] = priority; // 0..=200, 100 = default
+                       // [109..111] synchronization address = 0 (unused)
     p[111] = sequence;
     // [112] options = 0 (not preview, not terminated)
     p[113..115].copy_from_slice(&universe.to_be_bytes());
@@ -115,7 +154,7 @@ mod tests {
     fn packet_layout_is_e131_conformant() {
         let cid = [0xABu8; 16];
         let channels = [10u8, 20, 30, 40, 50, 60];
-        let p = build_packet(&cid, 1, &channels, 7);
+        let p = build_packet(&cid, 1, 100, "lux", &channels, 7);
 
         assert_eq!(p.len(), 638);
         // Root layer
@@ -129,10 +168,11 @@ mod tests {
         assert_eq!(p[38..40], [0x72, 0x58]); // flags(0x7) + length 600
         assert_eq!(p[40..44], [0, 0, 0, 2]); // VECTOR_E131_DATA_PACKET
         assert_eq!(p[44..47], *b"lux"); // source name
+        assert_eq!(p[47], 0); // null padding after the name
         assert_eq!(p[108], 100); // priority
         assert_eq!(p[111], 7); // sequence
         assert_eq!(p[113..115], [0, 1]); // universe 1
-        // DMP layer
+                                         // DMP layer
         assert_eq!(p[115..117], [0x72, 0x0b]); // flags(0x7) + length 523
         assert_eq!(p[117], 0x02); // VECTOR_DMP_SET_PROPERTY
         assert_eq!(p[118], 0xa1); // address & data type
@@ -144,23 +184,40 @@ mod tests {
     }
 
     #[test]
+    fn priority_and_name_are_stamped() {
+        let p = build_packet(&[0u8; 16], 1, 90, "lux-node on mini", &[], 0);
+        assert_eq!(p[108], 90);
+        assert_eq!(&p[44..60], b"lux-node on mini");
+
+        // Over-long names truncate to the 63 bytes the null-terminated field holds.
+        let long = "x".repeat(100);
+        let p = build_packet(&[0u8; 16], 1, 90, &long, &[], 0);
+        assert_eq!(p[44..107], [b'x'; 63]);
+        assert_eq!(p[107], 0);
+    }
+
+    #[test]
     fn universe_maps_to_multicast_group() {
-        let sink = SacnSink::new(1, None).unwrap();
-        assert_eq!(sink.dest, SocketAddrV4::new(Ipv4Addr::new(239, 255, 0, 1), 5568));
+        let sink = SacnSink::new(1, None, DEFAULT_PRIORITY, "lux").unwrap();
+        assert_eq!(
+            sink.dest,
+            SocketAddrV4::new(Ipv4Addr::new(239, 255, 0, 1), 5568)
+        );
         // 300 = 0x012C -> 239.255.1.44
-        let sink = SacnSink::new(300, None).unwrap();
+        let sink = SacnSink::new(300, None, DEFAULT_PRIORITY, "lux").unwrap();
         assert_eq!(sink.dest.ip(), &Ipv4Addr::new(239, 255, 1, 44));
     }
 
     #[test]
-    fn rejects_out_of_range_universe() {
-        assert!(SacnSink::new(0, None).is_err());
-        assert!(SacnSink::new(64000, None).is_err());
+    fn rejects_out_of_range_universe_and_priority() {
+        assert!(SacnSink::new(0, None, DEFAULT_PRIORITY, "lux").is_err());
+        assert!(SacnSink::new(64000, None, DEFAULT_PRIORITY, "lux").is_err());
+        assert!(SacnSink::new(1, None, 201, "lux").is_err());
     }
 
     #[test]
     fn sequence_increments_and_wraps() {
-        let sink = SacnSink::new(1, None).unwrap();
+        let sink = SacnSink::new(1, None, DEFAULT_PRIORITY, "lux").unwrap();
         // fetch_add returns the prior value; first render uses 0, then 1, 2...
         assert_eq!(sink.sequence.fetch_add(1, Ordering::Relaxed), 0);
         assert_eq!(sink.sequence.fetch_add(1, Ordering::Relaxed), 1);

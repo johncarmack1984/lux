@@ -1,0 +1,25 @@
+# lux-node — headless lux DMX renderer.
+# Install: apps/node/README.md. Config: /etc/lux-node/config.json; the stored
+# session lives in the service's state dir (/var/lib/lux-node).
+
+[Unit]
+Description=lux-node — headless lux DMX renderer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lux-node
+ExecStart=/usr/local/bin/lux-node run --config /etc/lux-node/config.json
+Restart=always
+RestartSec=5
+Environment=RUST_LOG=info
+# The refresh-token session file lives under the state dir, not a home dir.
+StateDirectory=lux-node
+Environment=XDG_CONFIG_HOME=/var/lib/lux-node
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

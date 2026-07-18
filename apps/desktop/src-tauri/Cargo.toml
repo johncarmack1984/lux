@@ -34,8 +34,6 @@ aws-cognito-srp = "0.2.5"
 # of the platform native store, which is unreadable on iOS. Crypto on ring to
 # match the app's process-default provider (no aws-lc-sys C build).
 aws-smithy-http-client = { version = "1", features = ["rustls-ring"] }
-webpki-root-certs = "1"
-pem = "3"
 keyring = "4"
 # keyring's backing crate, named directly on every platform: session entries are
 # built through keyring-core types (on iOS with an access-policy modifier, see
@@ -68,6 +66,7 @@ uuid = { version = "1.23.4", features = [
 reqwest.workspace = true
 # The desktop↔sync-api wire contract — the same crate the Lambda serializes
 # with, so the two sides cannot drift (see crates/lux-wire).
+lux-engine = { path = "../../../crates/lux-engine" }
 lux-wire = { path = "../../../crates/lux-wire" }
 # base64url payload decode of our own Cognito ID token (topic addressing only —
 # verification stays server-side in the IoT authorizer / sync-api).
