@@ -260,20 +260,41 @@ pub mod ctl {
     /// each other with stale full snapshots: a fader drag touches one slot, a
     /// color-pick overlays the leading slots, and cross-device races resolve
     /// per-slot last-write-wins at the applier.
+    ///
+    /// `src` is the publishing connection's session id. Every peer subscribes
+    /// its whole ctl space, so a publisher receives its own frames back —
+    /// appliers drop frames whose `src` matches their own session instead of
+    /// re-applying them. Optional on the wire so hand-published frames (CLI
+    /// testing) stay valid; absent means "not mine, apply it".
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(untagged)]
     pub enum Frame {
         /// `{"v":1,"buffer":[…]}` — overlay onto the leading slots, exactly
         /// `LuxBuffer::set` semantics (higher slots untouched).
-        Buffer { v: u32, buffer: Vec<u8> },
+        Buffer {
+            v: u32,
+            buffer: Vec<u8>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            src: Option<String>,
+        },
         /// `{"v":1,"ch":10,"val":200}` — one slot; `ch` is the 1-based DMX
         /// slot number, matching `set_channel`.
-        Channel { v: u32, ch: u16, val: u8 },
+        Channel {
+            v: u32,
+            ch: u16,
+            val: u8,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            src: Option<String>,
+        },
     }
 
     impl Frame {
         pub fn buffer(buffer: Vec<u8>) -> Self {
-            Frame::Buffer { v: VERSION, buffer }
+            Frame::Buffer {
+                v: VERSION,
+                buffer,
+                src: None,
+            }
         }
 
         pub fn channel(ch: u16, val: u8) -> Self {
@@ -281,13 +302,31 @@ pub mod ctl {
                 v: VERSION,
                 ch,
                 val,
+                src: None,
             }
+        }
+
+        /// Stamp the publishing connection's session id (see the enum docs).
+        pub fn with_src(mut self, session: &str) -> Self {
+            match &mut self {
+                Frame::Buffer { src, .. } | Frame::Channel { src, .. } => {
+                    *src = Some(session.to_owned());
+                }
+            }
+            self
         }
 
         /// The payload's wire version — gate on this before applying.
         pub fn version(&self) -> u32 {
             match self {
                 Frame::Buffer { v, .. } | Frame::Channel { v, .. } => *v,
+            }
+        }
+
+        /// The publishing connection's session id, if stamped.
+        pub fn src(&self) -> Option<&str> {
+            match self {
+                Frame::Buffer { src, .. } | Frame::Channel { src, .. } => src.as_deref(),
             }
         }
     }
@@ -540,6 +579,22 @@ mod tests {
         let parsed: ctl::Frame = serde_json::from_str(r#"{"v":1,"ch":512,"val":0}"#).unwrap();
         assert_eq!(parsed, ctl::Frame::channel(512, 0));
         assert_eq!(parsed.version(), 1);
+
+        // `src` (the publisher's session id) rides both kinds and is omitted
+        // when absent — the unstamped pins above are also the CLI-publish shape.
+        assert_eq!(
+            serde_json::to_string(&ctl::Frame::channel(10, 200).with_src("0a1b2c3d")).unwrap(),
+            r#"{"v":1,"ch":10,"val":200,"src":"0a1b2c3d"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&ctl::Frame::buffer(vec![1]).with_src("0a1b2c3d")).unwrap(),
+            r#"{"v":1,"buffer":[1],"src":"0a1b2c3d"}"#
+        );
+        let stamped: ctl::Frame =
+            serde_json::from_str(r#"{"v":1,"ch":1,"val":9,"src":"0a1b2c3d"}"#).unwrap();
+        assert_eq!(stamped.src(), Some("0a1b2c3d"));
+        let unstamped: ctl::Frame = serde_json::from_str(r#"{"v":1,"ch":1,"val":9}"#).unwrap();
+        assert_eq!(unstamped.src(), None);
 
         // A future shape that matches neither kind fails to parse — readers
         // treat that exactly like an unknown version: log + drop.

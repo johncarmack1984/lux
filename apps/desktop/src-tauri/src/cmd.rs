@@ -536,6 +536,8 @@ fn activate(app: &AppHandle, setups: &LuxSetups) -> Result<(), String> {
     }
     .emit(app)
     .map_err(|e| format!("Failed to emit patch_set event: {e}"))?;
+    // Remote surfaces learn the new binding through the presence card.
+    crate::nudge::presence_changed(app);
     Ok(())
 }
 
