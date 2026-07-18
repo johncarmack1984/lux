@@ -26,6 +26,13 @@ data "aws_secretsmanager_secret" "mas_signing" {
   name = "lux/mas-signing"
 }
 
+# The release-please job drafts the App Store notes onto the release branch
+# (one consolidated push with the version stamps), so this main-pinned role
+# reads the Anthropic key.
+data "aws_secretsmanager_secret" "anthropic_api_key" {
+  name = "lux/anthropic-api-key"
+}
+
 resource "aws_iam_role" "release_signing" {
   name = "lux-release-signing"
   assume_role_policy = jsonencode({
@@ -61,6 +68,7 @@ resource "aws_iam_role_policy" "read_updater_signing_key" {
         data.aws_secretsmanager_secret.apple_signing.arn,
         data.aws_secretsmanager_secret.release_app_private_key.arn,
         data.aws_secretsmanager_secret.mas_signing.arn,
+        data.aws_secretsmanager_secret.anthropic_api_key.arn,
       ]
     }]
   })

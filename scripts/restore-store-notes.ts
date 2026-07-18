@@ -30,7 +30,8 @@
 // A failure here must never block drafting: any error degrades to
 // restored=false with a warning, which is exactly the no-restore status quo.
 //
-// Usage (from store-notes.yml, before the draft step; needs actions: read):
+// Usage (from release.yml's release-please job, before the draft step;
+// needs actions: read and GITHUB_HEAD_REF set to the release branch):
 //   GITHUB_TOKEN=... bun scripts/restore-store-notes.ts
 // Outputs (GITHUB_OUTPUT): restored=true|false, author="Name <email>".
 

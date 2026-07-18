@@ -1,6 +1,6 @@
 // Draft the App Store "What's New" for the release the release-please PR is
 // about to cut, from that release's CHANGELOG section. Runs on the release PR
-// (workflow: store-notes.yml); the human edits the committed file in the PR,
+// (release.yml's release-please job); the human edits the committed file in the PR,
 // and appstore.yml refuses to submit a version whose file is missing.
 //
 // The draft is exactly that — a draft, written once: the file is only created
@@ -31,8 +31,8 @@ const notesPath = join(NOTES_DIR, `${version}.md`);
 // Never redraft an existing file, whoever wrote it. Human edits are sacred,
 // and regenerating a bot draft through the model produces *different* text
 // (the model is nondeterministic) — which would commit, push, retrigger this
-// workflow, and loop, now that draft pushes start workflow runs (App-token
-// pushes; see store-notes.yml). A stale bot draft never survives anyway:
+// workflow, and loop, since draft pushes start workflow runs (App-token
+// pushes; see release.yml). A stale bot draft never survives anyway:
 // release-please rebuilds the branch from main on every change, discarding
 // the file, and the next run drafts fresh from the new CHANGELOG. Delete the
 // file in the PR to force a redraft explicitly.

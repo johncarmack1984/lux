@@ -61,12 +61,10 @@ permissions:
 # own parent (GitHub kills the job at startup; broke the v0.12.2 run).
 concurrency:
   group: ${{ github.workflow }}-gate-${{ github.ref }}
-  # Cancel superseded runs on ordinary PRs (fast feedback), but let them
-  # finish on release-please branches: the bot lands stamp + draft pushes
-  # seconds apart there, and a cancelled run paints a permanent red ✗ on the
-  # superseded commit in the release PR's history. Finishing costs only
-  # duplicate public-runner minutes and keeps the history green.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release-please--') }}
+  # (Release branches receive exactly one run-starting push per rebuild — the
+  # consolidated stamps+notes push in release.yml — so PR-cancel never fires
+  # on a release PR's history.)
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   deny:
