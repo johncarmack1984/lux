@@ -99,6 +99,15 @@ targets:
       # URZMNY2RN8) and required to send sACN/Art-Net on-device.
       properties:
         com.apple.developer.networking.multicast: true
+        # Sign in with Apple (the native sheet; capability enabled on the App
+        # ID 2026-07-17). Must live HERE, not only in the .entitlements file,
+        # or the next xcodegen run wipes it (see the comment above).
+        com.apple.developer.applesignin:
+          - Default
+        # Password/credential AutoFill against lux.johncarmack.com (AASA served
+        # from apps/site). Was file-only before this line — same wipe trap.
+        com.apple.developer.associated-domains:
+          - webcredentials:lux.johncarmack.com
     scheme:
       environmentVariables:
         RUST_BACKTRACE: full
@@ -135,6 +144,10 @@ targets:
         embed: false{{/each}}{{#if ios-vendor-frameworks}}{{~#each ios-vendor-frameworks}}
       - framework: {{this}}{{/each}}{{/if}}{{#if ios-vendor-sdks}}{{~#each ios-vendor-sdks}}
       - sdk: {{prefix-path this}}{{/each}}{{/if}}
+      # The Sign in with Apple sheet (crates/lux-apple-id): rust staticlibs do
+      # not carry framework auto-link flags through to Xcode's link line, so
+      # the project must name it.
+      - sdk: AuthenticationServices.framework
       - sdk: CoreGraphics.framework
       - sdk: Metal.framework
       - sdk: MetalKit.framework
