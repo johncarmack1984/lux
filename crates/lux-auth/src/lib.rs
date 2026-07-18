@@ -17,11 +17,14 @@ use serde::Deserialize;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
-/// Verifies Cognito ID tokens against a fixed user pool + app client.
+/// Verifies Cognito ID tokens against a fixed user pool and a set of app
+/// clients. Most deployments verify against one client; services that must
+/// also accept device-paired sessions (the IoT authorizer, the sync API) list
+/// the device client too.
 pub struct Verifier {
     keys: HashMap<String, DecodingKey>,
     issuer: String,
-    client_id: String,
+    client_ids: Vec<String>,
 }
 
 /// The ID-token claims we read. The library validates `iss`/`aud`/`exp` from the
@@ -48,7 +51,10 @@ struct Jwk {
 impl Verifier {
     /// Fetch the pool's JWKS and build a verifier. Done once per cold start;
     /// Cognito rotates signing keys rarely, and a recycled Lambda re-fetches.
-    pub async fn new(region: &str, pool_id: &str, client_id: &str) -> Result<Self, BoxError> {
+    ///
+    /// `client_ids` is one app client id, or several comma-separated — a token
+    /// is accepted when its `aud` matches any of them.
+    pub async fn new(region: &str, pool_id: &str, client_ids: &str) -> Result<Self, BoxError> {
         let issuer = format!("https://cognito-idp.{region}.amazonaws.com/{pool_id}");
         let jwks: Jwks = reqwest::get(format!("{issuer}/.well-known/jwks.json"))
             .await?
@@ -63,10 +69,19 @@ impl Verifier {
                     .map(|dk| (k.kid, dk))
             })
             .collect();
+        let client_ids: Vec<String> = client_ids
+            .split(',')
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned)
+            .collect();
+        if client_ids.is_empty() {
+            return Err("no app client id given".into());
+        }
         Ok(Self {
             keys,
             issuer,
-            client_id: client_id.to_owned(),
+            client_ids,
         })
     }
 
@@ -81,7 +96,7 @@ impl Verifier {
 
         let mut validation = Validation::new(Algorithm::RS256);
         validation.set_issuer(&[&self.issuer]);
-        validation.set_audience(&[&self.client_id]);
+        validation.set_audience(&self.client_ids);
 
         let data =
             decode::<Claims>(token, key, &validation).map_err(|e| format!("invalid token: {e}"))?;
@@ -155,15 +170,19 @@ LMiAU7FjLN24jRnbdq2+qgzWtx6LjwKbrjDy6TZu1tX78WexoIa5dnoSvUmMNT6C
         exp: usize,
     }
 
-    fn verifier() -> Verifier {
+    fn verifier_for(client_ids: &[&str]) -> Verifier {
         Verifier {
             keys: HashMap::from([(
                 KID.to_string(),
                 DecodingKey::from_rsa_pem(PUBLIC_PEM).unwrap(),
             )]),
             issuer: ISSUER.to_string(),
-            client_id: CLIENT_ID.to_string(),
+            client_ids: client_ids.iter().map(|id| id.to_string()).collect(),
         }
+    }
+
+    fn verifier() -> Verifier {
+        verifier_for(&[CLIENT_ID])
     }
 
     fn sign(token_use: &str) -> String {
@@ -199,5 +218,23 @@ LMiAU7FjLN24jRnbdq2+qgzWtx6LjwKbrjDy6TZu1tX78WexoIa5dnoSvUmMNT6C
     #[test]
     fn rejects_a_non_id_token() {
         assert!(verifier().verify(&sign("access")).is_err());
+    }
+
+    // A verifier listing several app clients accepts a token minted for any
+    // one of them — how the IoT authorizer and sync API admit device-paired
+    // sessions alongside interactive ones.
+    #[test]
+    fn accepts_any_listed_client_id() {
+        let claims = verifier_for(&["some-other-client", CLIENT_ID])
+            .verify(&sign("id"))
+            .expect("a token for the second listed client verifies");
+        assert_eq!(claims.sub, "user-123");
+    }
+
+    #[test]
+    fn rejects_an_unlisted_client_id() {
+        assert!(verifier_for(&["some-other-client"])
+            .verify(&sign("id"))
+            .is_err());
     }
 }
