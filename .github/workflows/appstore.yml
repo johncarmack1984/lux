@@ -2,7 +2,7 @@
 # click. Waits for the release's TestFlight builds to finish Apple-side
 # processing, creates both platforms' store versions, attaches the builds,
 # sets the human-approved What's New from apps/desktop/store-notes/<v>.md
-# (drafted on the release PR by store-notes.yml; the submit fails loudly if
+# (drafted on the release PR by the release workflow; the submit fails loudly if
 # the file is missing), and files review submissions with release-on-approval.
 #
 # Deliberately NOT wired to run on every release: TestFlight already ships

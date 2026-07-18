@@ -34,7 +34,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      id-token: write # AWS OIDC, to read the release-bot App key from Secrets Manager
+      actions: read # the store-notes restore reads prior branch tips from run history
+      id-token: write # AWS OIDC, to read the release-bot App key + Anthropic key
     outputs:
       release_created: ${{ steps.effective.outputs.release_created }}
       tag_name: ${{ steps.effective.outputs.tag_name }}
@@ -79,12 +80,18 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token || github.token }}
 
+      # release-please gets the DEFAULT token on purpose: its branch rebuild
+      # (force-push) and PR bookkeeping then start no workflow runs. The
+      # consolidated stamps+notes push below — made with the App token via the
+      # checkout — is the branch's single run-starting push, so each rebuild
+      # produces exactly one gate run, on the final tip: no superseded runs to
+      # cancel (red ✗ litter) and no duplicate jobs to pay for.
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-          token: ${{ steps.app-token.outputs.token || github.token }}
+          token: ${{ github.token }}
 
       # The pipeline keys off observable repo state, never off the action's
       # memory of what it did (release-please publishes the release FIRST, so
@@ -121,7 +128,8 @@ jobs:
       # is open, sync both onto its branch so main never lands stale stamps.
       # Runs in this job by necessity: a push authored by GITHUB_TOKEN can't trigger
       # a separate workflow, so the release branch wouldn't get picked up elsewhere.
-      - name: Sync version stamps to the release version
+      - name: Check out the release branch + sync version stamps
+        id: branch
         if: ${{ steps.release.outputs.pr }}
         env:
           PR_JSON: ${{ steps.release.outputs.pr }}
@@ -129,8 +137,10 @@ jobs:
           set -euo pipefail
           PR_BRANCH=$(printf '%s' "$PR_JSON" | jq -r '.headBranchName')
           echo "Release PR branch: $PR_BRANCH"
+          echo "name=$PR_BRANCH" >> "$GITHUB_OUTPUT"
           git fetch --depth=1 origin "$PR_BRANCH"
           git checkout "$PR_BRANCH"
+          echo "tip=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           version=$(jq -r '."."' .release-please-manifest.json)
           # The `lux` workspace member has no checksum in the lock, so its version
           # is a pure text field — sync it without invoking cargo (no dep churn).
@@ -141,16 +151,78 @@ jobs:
           PLIST=apps/desktop/src-tauri/gen/apple/lux_iOS/Info.plist
           VER="$version" perl -0pi -e 's/(<key>CFBundleShortVersionString<\/key>\s*<string>)[^<]*/$1$ENV{VER}/; s/(<key>CFBundleVersion<\/key>\s*<string>)[^<]*/$1$ENV{VER}/' "$PLIST"
           perl -0pi -e 's/\n\z//' "$PLIST"
-          if git diff --quiet -- Cargo.lock "$PLIST"; then
-            echo "version stamps already in sync at $version"
-            exit 0
+
+      # The store-notes draft rides the same push as the stamps (below): the
+      # rebuild discarded the branch's copy, so restore a human edit from run
+      # history, else draft once (the draft script is write-once).
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: ${{ steps.release.outputs.pr }}
+        with:
+          bun-version-file: apps/desktop/package.json
+
+      - name: Install script dependencies
+        if: ${{ steps.release.outputs.pr }}
+        run: bun install --frozen-lockfile
+
+      - name: Restore a human-edited store-notes draft
+        id: restore
+        if: ${{ steps.release.outputs.pr }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # The script was born under pull_request events; running from the
+          # push context, the branch is handed to it explicitly.
+          GITHUB_HEAD_REF: ${{ steps.branch.outputs.name }}
+        run: bun scripts/restore-store-notes.ts
+
+      - name: Draft store notes (if new)
+        if: ${{ steps.release.outputs.pr && steps.restore.outputs.restored != 'true' }}
+        run: |
+          set -euo pipefail
+          # Fail-soft: the Anthropic-key grant on the release-signing role
+          # ships via terraform apply; until it lands, skip drafting rather
+          # than fail the job (appstore.yml still refuses to submit a version
+          # whose notes file is missing, so nothing ships noteless).
+          if key=$(aws secretsmanager get-secret-value --secret-id lux/anthropic-api-key --query SecretString --output text 2>/dev/null); then
+            echo "::add-mask::$key"
+            ANTHROPIC_API_KEY="$key" bun scripts/draft-store-notes.ts
+          else
+            echo "::warning::anthropic key unreadable (role grant not applied yet?); skipping the draft"
           fi
+
+      # The branch's single run-starting push: stamps + notes together, with
+      # the App token from the checkout. One push = one gate run on the final
+      # tip — nothing superseded, nothing cancelled, nothing run twice.
+      - name: Push the branch updates (one push)
+        if: ${{ steps.release.outputs.pr }}
+        env:
+          PR_BRANCH: ${{ steps.branch.outputs.name }}
+          START_TIP: ${{ steps.branch.outputs.tip }}
+          RESTORED: ${{ steps.restore.outputs.restored }}
+          RESTORE_AUTHOR: ${{ steps.restore.outputs.author }}
+        run: |
+          set -euo pipefail
+          version=$(jq -r '."."' .release-please-manifest.json)
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.lock "$PLIST"
-          git commit -m "chore: sync version stamps to $version"
-          git push origin "HEAD:$PR_BRANCH"
-          echo "Synced version stamps to $version on $PR_BRANCH"
+          if ! git diff --quiet -- Cargo.lock apps/desktop/src-tauri/gen/apple/lux_iOS/Info.plist; then
+            git add Cargo.lock apps/desktop/src-tauri/gen/apple/lux_iOS/Info.plist
+            git commit -m "chore: sync version stamps to $version"
+          fi
+          if [ -n "$(git status --porcelain apps/desktop/store-notes)" ]; then
+            git add apps/desktop/store-notes
+            if [ "$RESTORED" = "true" ]; then
+              # Keep the human author so the draft script's guard holds.
+              git commit --author "$RESTORE_AUTHOR" -m "chore: restore edited App Store notes"
+            else
+              git commit -m "chore: draft App Store notes"
+            fi
+          fi
+          if [ "$(git rev-parse HEAD)" != "$START_TIP" ]; then
+            git push origin "HEAD:$PR_BRANCH"
+            echo "pushed branch updates for $version"
+          else
+            echo "branch already up to date"
+          fi
 
   # The release gate: the same checks as the PR/main `desktop` workflow
   # (tauri-versions, frontend build/typecheck/lint, cargo test --workspace),
