@@ -310,6 +310,7 @@ locals {
     "arn:aws:lambda:*:${local.aws_account_id}:function:lux-sync-api",
     "arn:aws:lambda:*:${local.aws_account_id}:function:lux-iot-authorizer",
     "arn:aws:lambda:*:${local.aws_account_id}:function:lux-discord-bot",
+    "arn:aws:lambda:*:${local.aws_account_id}:function:lux-apple-auth",
   ]
 }
 

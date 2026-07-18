@@ -1,0 +1,391 @@
+//! The Function URL surface: parse the Lambda URL (payload v2) event, route,
+//! and reply in `lux-wire` shapes. Identity on `/link` and `/revoke` comes only
+//! from the verified Cognito bearer token; identity on `/auth/apple` comes only
+//! from the verified Apple identity token — a request body never names a user.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use lambda_runtime::Error;
+use lux_wire::apple::{
+    LinkResponse, RevokeResponse, SignInRequest, SignInResponse, APPLE_SEGMENT, AUTH_SEGMENT,
+    LINK_SEGMENT, REVOKE_SEGMENT,
+};
+use lux_wire::ErrorResponse;
+use serde::Deserialize;
+use serde_json::{json, Value};
+
+use crate::{apple, cognito, store, Ctx};
+
+/// The slice of a Function URL (payload format 2.0) event we route on.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct UrlEvent {
+    raw_path: String,
+    headers: HashMap<String, String>,
+    body: Option<String>,
+    is_base64_encoded: bool,
+    request_context: RequestContext,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct RequestContext {
+    http: HttpContext,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct HttpContext {
+    method: String,
+}
+
+pub async fn handle(ctx: &Arc<Ctx>, payload: Value) -> Result<Value, Error> {
+    let event: UrlEvent = match serde_json::from_value(payload) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::error!("unroutable invoke payload: {e}");
+            return reply(400, &error("unroutable request"));
+        }
+    };
+
+    let method = event.request_context.http.method.as_str();
+    let path = event.raw_path.clone();
+    let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
+
+    match (method, segments.as_slice()) {
+        ("POST", [a, b]) if *a == AUTH_SEGMENT && *b == APPLE_SEGMENT => {
+            sign_in(ctx, &event).await
+        }
+        ("POST", [a, b, c]) if *a == AUTH_SEGMENT && *b == APPLE_SEGMENT && *c == LINK_SEGMENT => {
+            link(ctx, &event).await
+        }
+        ("POST", [a, b, c])
+            if *a == AUTH_SEGMENT && *b == APPLE_SEGMENT && *c == REVOKE_SEGMENT =>
+        {
+            revoke(ctx, &event).await
+        }
+        _ => reply(404, &error("not found")),
+    }
+}
+
+/// `POST /auth/apple` — sign in with a verified Apple identity token, creating
+/// or auto-linking a Cognito user on first use.
+async fn sign_in(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
+    let req: SignInRequest = match parse_body(event) {
+        Ok(b) => b,
+        Err(e) => return reply(400, &error(&e)),
+    };
+
+    let identity = match ctx
+        .apple
+        .verify_identity(&req.identity_token, &req.raw_nonce)
+        .await
+    {
+        Ok(i) => i,
+        Err(e) => {
+            tracing::warn!("apple identity token rejected: {e}");
+            return reply(401, &error("invalid apple identity token"));
+        }
+    };
+
+    let (username, created) = match store::get_link(ctx, &identity.sub).await {
+        Err(e) => {
+            tracing::error!("link lookup failed: {e}");
+            return reply(500, &error("internal"));
+        }
+        Ok(Some(link)) => {
+            // Known Apple user. Refresh the stored (revocable) Apple token
+            // best-effort — the sign-in itself must not depend on Apple's
+            // token endpoint being reachable once a link exists.
+            match refresh_apple_token(ctx, &identity.sub, &req.authorization_code).await {
+                Ok(()) => {}
+                Err(e) => tracing::warn!("apple refresh-token update skipped: {e}"),
+            }
+            (link.username, false)
+        }
+        Ok(None) => match first_sign_in(ctx, &identity, &req).await {
+            Ok(x) => x,
+            Err(e) => return Ok(e),
+        },
+    };
+
+    let tokens = match cognito::custom_auth(ctx, &username, &req.identity_token).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("custom auth failed for linked user: {e}");
+            return reply(500, &error("internal"));
+        }
+    };
+
+    reply(
+        200,
+        &SignInResponse {
+            id_token: tokens.id_token,
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
+            expires_in: tokens.expires_in,
+            created,
+        },
+    )
+}
+
+/// First use of this Apple credential: attach it to the account whose verified
+/// email matches, or create a fresh account (relay emails land here by
+/// construction). Returns the Function URL error reply on failure.
+async fn first_sign_in(
+    ctx: &Arc<Ctx>,
+    identity: &apple::AppleIdentity,
+    req: &SignInRequest,
+) -> Result<(String, bool), Value> {
+    let Some(email) = identity.email.as_deref() else {
+        // No verified email in the token and no existing link: the only path
+        // here is a stale prior grant. The user resets it in Settings → Sign
+        // in with Apple; the client surfaces this text.
+        return Err(fail(
+            400,
+            "apple grant has no email; remove lux under Settings > Sign in with Apple and retry",
+        ));
+    };
+
+    let (user, created) = match cognito::find_user_by_email(ctx, email).await {
+        Err(e) => {
+            tracing::error!("user lookup failed: {e}");
+            return Err(fail(500, "internal"));
+        }
+        Ok(Some(user)) => {
+            // A self-signup that never entered its confirmation code: Apple
+            // just verified the same address, so confirm and proceed.
+            if user.unconfirmed {
+                if let Err(e) = cognito::confirm_user(ctx, &user.username).await {
+                    tracing::error!("user confirm failed: {e}");
+                    return Err(fail(500, "internal"));
+                }
+            }
+            (user, false)
+        }
+        Ok(None) => match cognito::create_user(ctx, email).await {
+            Ok(u) => (u, true),
+            Err(e) => {
+                tracing::error!("user create failed: {e}");
+                return Err(fail(500, "internal"));
+            }
+        },
+    };
+
+    // The code exchange is required on first link: a mapping without a
+    // revocable Apple token could never honor account deletion's revocation
+    // duty, so fail loud instead (the sheet mints a fresh code on retry).
+    let apple_refresh = match exchange_code(ctx, &req.authorization_code).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("apple code exchange failed: {e}");
+            return Err(fail(502, "apple token exchange failed"));
+        }
+    };
+
+    if let Err(e) = store::put_link(
+        ctx,
+        &identity.sub,
+        &user.username,
+        &user.sub,
+        &apple_refresh,
+        req.email.as_deref().or(Some(email)),
+        req.full_name.as_deref(),
+    )
+    .await
+    {
+        tracing::error!("link write failed: {e}");
+        return Err(fail(500, "internal"));
+    }
+
+    Ok((user.username, created))
+}
+
+/// `POST /auth/apple/link` — bearer-authed: bind the caller's account to the
+/// presented Apple credential regardless of email (the Hide My Email path).
+/// Links are 1:1 — an Apple id links one account, an account links one Apple id.
+async fn link(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
+    let Some(caller_sub) = caller(ctx, event) else {
+        return reply(401, &error("invalid or missing token"));
+    };
+    let req: SignInRequest = match parse_body(event) {
+        Ok(b) => b,
+        Err(e) => return reply(400, &error(&e)),
+    };
+    let identity = match ctx
+        .apple
+        .verify_identity(&req.identity_token, &req.raw_nonce)
+        .await
+    {
+        Ok(i) => i,
+        Err(e) => {
+            tracing::warn!("apple identity token rejected: {e}");
+            return reply(401, &error("invalid apple identity token"));
+        }
+    };
+
+    match store::get_link(ctx, &identity.sub).await {
+        Err(e) => {
+            tracing::error!("link lookup failed: {e}");
+            return reply(500, &error("internal"));
+        }
+        Ok(Some(link)) if link.sub == caller_sub => {
+            return reply(200, &LinkResponse { linked: true })
+        }
+        Ok(Some(_)) => return reply(409, &error("apple id already linked to another account")),
+        Ok(None) => {}
+    }
+    match store::get_reverse(ctx, &caller_sub).await {
+        Err(e) => {
+            tracing::error!("reverse link lookup failed: {e}");
+            return reply(500, &error("internal"));
+        }
+        Ok(Some(_)) => return reply(409, &error("account already linked to an apple id")),
+        Ok(None) => {}
+    }
+
+    let user = match cognito::find_user_by_sub(ctx, &caller_sub).await {
+        Ok(Some(u)) => u,
+        Ok(None) => return reply(404, &error("account not found")),
+        Err(e) => {
+            tracing::error!("user lookup failed: {e}");
+            return reply(500, &error("internal"));
+        }
+    };
+
+    let apple_refresh = match exchange_code(ctx, &req.authorization_code).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("apple code exchange failed: {e}");
+            return reply(502, &error("apple token exchange failed"));
+        }
+    };
+
+    if let Err(e) = store::put_link(
+        ctx,
+        &identity.sub,
+        &user.username,
+        &user.sub,
+        &apple_refresh,
+        identity.email.as_deref(),
+        req.full_name.as_deref(),
+    )
+    .await
+    {
+        tracing::error!("link write failed: {e}");
+        return reply(500, &error("internal"));
+    }
+
+    reply(200, &LinkResponse { linked: true })
+}
+
+/// `POST /auth/apple/revoke` — bearer-authed: revoke the stored Apple refresh
+/// token and drop the link. Account deletion calls this first; on Apple-side
+/// failure the link is kept and the call is retryable.
+async fn revoke(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
+    let Some(caller_sub) = caller(ctx, event) else {
+        return reply(401, &error("invalid or missing token"));
+    };
+
+    let apple_sub = match store::get_reverse(ctx, &caller_sub).await {
+        Err(e) => {
+            tracing::error!("reverse link lookup failed: {e}");
+            return reply(500, &error("internal"));
+        }
+        Ok(None) => return reply(200, &RevokeResponse { revoked: false }),
+        Ok(Some(s)) => s,
+    };
+    let link = match store::get_link(ctx, &apple_sub).await {
+        Ok(Some(l)) => l,
+        Ok(None) => return reply(200, &RevokeResponse { revoked: false }),
+        Err(e) => {
+            tracing::error!("link lookup failed: {e}");
+            return reply(500, &error("internal"));
+        }
+    };
+
+    let key = match ctx.siwa_key().await {
+        Ok(k) => k,
+        Err(e) => {
+            tracing::error!("{e}");
+            return reply(500, &error("apple signing key unavailable"));
+        }
+    };
+    if let Err(e) = ctx.apple.revoke(key, &link.apple_refresh_token).await {
+        tracing::error!("apple revoke failed: {e}");
+        return reply(502, &error("apple revoke failed"));
+    }
+
+    if let Err(e) = store::delete_link(ctx, &apple_sub, &caller_sub).await {
+        // The Apple-side revoke succeeded; a dangling mapping row is only
+        // local noise, but surface it — deletion flows should be silent-clean.
+        tracing::error!("link delete failed after revoke: {e}");
+        return reply(500, &error("internal"));
+    }
+
+    reply(200, &RevokeResponse { revoked: true })
+}
+
+// --- shared steps -------------------------------------------------------------
+
+/// Exchange the sheet's single-use authorization code for Apple's revocable
+/// refresh token (needs the Apple-side signing key).
+async fn exchange_code(ctx: &Arc<Ctx>, code: &str) -> Result<String, String> {
+    let key = ctx.siwa_key().await?;
+    ctx.apple.exchange_code(key, code).await
+}
+
+/// Best-effort on re-auth: keep the stored revocable token fresh.
+async fn refresh_apple_token(ctx: &Arc<Ctx>, apple_sub: &str, code: &str) -> Result<(), String> {
+    let token = exchange_code(ctx, code).await?;
+    store::set_refresh_token(ctx, apple_sub, &token).await
+}
+
+// --- request/response helpers -------------------------------------------------
+
+/// The verified caller (`sub`) from the bearer token, if any.
+fn caller(ctx: &Ctx, event: &UrlEvent) -> Option<String> {
+    let token = event
+        .headers
+        .get("authorization")?
+        .strip_prefix("Bearer ")?;
+    ctx.verifier.verify(token).ok().map(|c| c.sub)
+}
+
+fn parse_body<T: for<'de> Deserialize<'de>>(event: &UrlEvent) -> Result<T, String> {
+    let raw = event.body.as_deref().unwrap_or_default();
+    let bytes = if event.is_base64_encoded {
+        BASE64
+            .decode(raw)
+            .map_err(|e| format!("bad body encoding: {e}"))?
+    } else {
+        raw.as_bytes().to_vec()
+    };
+    serde_json::from_slice(&bytes).map_err(|e| format!("bad body: {e}"))
+}
+
+fn error(message: &str) -> ErrorResponse {
+    ErrorResponse {
+        error: message.to_owned(),
+    }
+}
+
+/// A Function URL (payload v2) response.
+fn reply<T: serde::Serialize>(status: u16, body: &T) -> Result<Value, Error> {
+    Ok(json!({
+        "statusCode": status,
+        "headers": { "content-type": "application/json" },
+        "body": serde_json::to_string(body)?,
+    }))
+}
+
+/// Same as [`reply`] but usable where a `Value` (not a `Result`) is needed.
+fn fail(status: u16, message: &str) -> Value {
+    json!({
+        "statusCode": status,
+        "headers": { "content-type": "application/json" },
+        "body": serde_json::to_string(&error(message)).unwrap_or_else(|_| "{}".into()),
+    })
+}

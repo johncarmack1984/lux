@@ -186,7 +186,7 @@ jobs:
           cache-targets: "false"
 
       - name: Build (static musl, release profile)
-        run: cargo build --release --target x86_64-unknown-linux-musl -p lux-sync-api -p lux-iot-authorizer -p lux-discord-bot
+        run: cargo build --release --target x86_64-unknown-linux-musl -p lux-sync-api -p lux-iot-authorizer -p lux-discord-bot -p lux-apple-auth
 
       - name: sccache stats
         if: ${{ always() }}

@@ -32,6 +32,19 @@ resource "aws_cognito_user_pool" "lux" {
   email_configuration {
     email_sending_account = "COGNITO_DEFAULT"
   }
+
+  # Sign in with Apple rides the CUSTOM_AUTH flow; all three triggers are the
+  # lux-apple-auth function (apple-auth.tf). The ARN is constructed, not a
+  # resource reference, deliberately: the function's env references this pool,
+  # so a reference here would be a dependency cycle. The trade is ordering —
+  # on a fresh stack (or the first apply adding this block) the pool update can
+  # land before the function exists; the release pipeline's auto-retry (and the
+  # documented two-apply bootstrap) converges it.
+  lambda_config {
+    define_auth_challenge          = "arn:aws:lambda:${data.aws_region.current.region}:${local.aws_account_id}:function:lux-apple-auth"
+    create_auth_challenge          = "arn:aws:lambda:${data.aws_region.current.region}:${local.aws_account_id}:function:lux-apple-auth"
+    verify_auth_challenge_response = "arn:aws:lambda:${data.aws_region.current.region}:${local.aws_account_id}:function:lux-apple-auth"
+  }
 }
 
 # Public/native app client — a desktop app can't keep a secret. SRP (the
@@ -45,6 +58,12 @@ resource "aws_cognito_user_pool_client" "lux_app" {
     "ALLOW_USER_SRP_AUTH",            # the app's flow — password never crosses the wire
     "ALLOW_REFRESH_TOKEN_AUTH",       # silent re-auth from the stored refresh token
     "ALLOW_ADMIN_USER_PASSWORD_AUTH", # admin-only (needs AWS creds), for minting test tokens via the CLI
+    # Sign in with Apple (lux-apple-auth drives it via AdminInitiateAuth). This
+    # also opens the flow to direct public-client calls — safe by design: the
+    # Verify trigger only accepts a valid Apple identity token linked to
+    # exactly the authenticating user, so there is no way through without the
+    # credential itself.
+    "ALLOW_CUSTOM_AUTH",
   ]
 
   access_token_validity  = 1

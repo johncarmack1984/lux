@@ -141,6 +141,88 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+pub mod apple {
+    //! Sign in with Apple: desktop ↔ `lux-apple-auth` wire.
+    //!
+    //! The desktop runs the native `ASAuthorizationController` sheet, then
+    //! posts the resulting Apple identity token here. The service verifies it
+    //! against Apple's JWKS (audience = the app's bundle id, nonce bound to
+    //! [`SignInRequest::raw_nonce`]), maps Apple's stable `sub` to a Cognito
+    //! user, and mints normal user-pool tokens through the pool's custom-auth
+    //! triggers — so everything downstream of sign-in sees the same JWTs the
+    //! SRP path produces.
+    //!
+    //! Routes (all `POST`, on the service's own Function URL):
+    //! - `/auth/apple`        — sign in (creating or linking a user on first use)
+    //! - `/auth/apple/link`   — bearer-authed: link the CALLER's account to the
+    //!   presented Apple credential, regardless of email (the Hide-My-Email path)
+    //! - `/auth/apple/revoke` — bearer-authed: revoke the stored Apple token and
+    //!   drop the link (account deletion runs this before wiping data)
+
+    use serde::{Deserialize, Serialize};
+
+    /// Path segments the service routes on: `/auth/apple[/link|/revoke]`.
+    pub const AUTH_SEGMENT: &str = "auth";
+    pub const APPLE_SEGMENT: &str = "apple";
+    pub const LINK_SEGMENT: &str = "link";
+    pub const REVOKE_SEGMENT: &str = "revoke";
+
+    /// Body for `POST /auth/apple` and `POST /auth/apple/link`.
+    ///
+    /// `email` and `full_name` ride along because **Apple surfaces them only on
+    /// the first authorization** — the service persists them then or they are
+    /// gone (the user can reset the grant in Settings). They are display/record
+    /// data only; the email that drives account linking always comes from the
+    /// verified token, never the body.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SignInRequest {
+        /// Apple's identity token (a JWT) from the authorization sheet.
+        pub identity_token: String,
+        /// The single-use, short-lived authorization code from the same sheet;
+        /// the service exchanges it for the revocable Apple refresh token that
+        /// account deletion is required to revoke.
+        pub authorization_code: String,
+        /// The raw nonce whose SHA-256 the client set on the sheet request; the
+        /// service re-hashes it and requires the token's `nonce` claim to match.
+        pub raw_nonce: String,
+        #[serde(default)]
+        pub email: Option<String>,
+        #[serde(default)]
+        pub full_name: Option<String>,
+    }
+
+    /// Response to a successful `POST /auth/apple` — Cognito user-pool tokens,
+    /// stored by the desktop exactly like an SRP sign-in's.
+    #[derive(Debug, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SignInResponse {
+        pub id_token: String,
+        pub access_token: String,
+        pub refresh_token: String,
+        /// Access/id token lifetime in seconds, from Cognito.
+        pub expires_in: i32,
+        /// True when this sign-in created a brand-new account (vs. signing into
+        /// or auto-linking an existing one) — the UI's "welcome" cue.
+        #[serde(default)]
+        pub created: bool,
+    }
+
+    /// Response to a successful `POST /auth/apple/link`.
+    #[derive(Debug, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct LinkResponse {
+        pub linked: bool,
+    }
+
+    /// Response to a successful `POST /auth/apple/revoke`.
+    #[derive(Debug, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct RevokeResponse {
+        pub revoked: bool,
+    }
+}
+
 pub mod nudge {
     //! The change-nudge channel: tiny events, opaque to clients.
     //!
@@ -525,6 +607,90 @@ mod tests {
             serde_json::to_string(&body).unwrap(),
             r#"{"error":"conflict"}"#
         );
+    }
+
+    #[test]
+    fn apple_sign_in_request_shape() {
+        // First-authorization shape: email + name present.
+        let first = apple::SignInRequest {
+            identity_token: "eyJ0.a.b".into(),
+            authorization_code: "c0de".into(),
+            raw_nonce: "f3a1".into(),
+            email: Some("user@example.com".into()),
+            full_name: Some("Ada Lovelace".into()),
+        };
+        assert_eq!(
+            serde_json::to_string(&first).unwrap(),
+            r#"{"identityToken":"eyJ0.a.b","authorizationCode":"c0de","rawNonce":"f3a1","email":"user@example.com","fullName":"Ada Lovelace"}"#
+        );
+
+        // Every later authorization: Apple omits them; `null` on the wire.
+        let later = apple::SignInRequest {
+            identity_token: "eyJ0.a.b".into(),
+            authorization_code: "c0de".into(),
+            raw_nonce: "f3a1".into(),
+            email: None,
+            full_name: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&later).unwrap(),
+            r#"{"identityToken":"eyJ0.a.b","authorizationCode":"c0de","rawNonce":"f3a1","email":null,"fullName":null}"#
+        );
+
+        // A body without the optional fields at all still parses.
+        let bare: apple::SignInRequest = serde_json::from_str(
+            r#"{"identityToken":"t","authorizationCode":"c","rawNonce":"n"}"#,
+        )
+        .unwrap();
+        assert!(bare.email.is_none() && bare.full_name.is_none());
+    }
+
+    #[test]
+    fn apple_sign_in_response_shape() {
+        let body = apple::SignInResponse {
+            id_token: "id".into(),
+            access_token: "ac".into(),
+            refresh_token: "re".into(),
+            expires_in: 3600,
+            created: true,
+        };
+        assert_eq!(
+            serde_json::to_string(&body).unwrap(),
+            r#"{"idToken":"id","accessToken":"ac","refreshToken":"re","expiresIn":3600,"created":true}"#
+        );
+
+        // A reply without `created` (defaulted) still parses.
+        let old: apple::SignInResponse = serde_json::from_str(
+            r#"{"idToken":"id","accessToken":"ac","refreshToken":"re","expiresIn":3600}"#,
+        )
+        .unwrap();
+        assert!(!old.created);
+    }
+
+    #[test]
+    fn apple_link_and_revoke_shapes() {
+        assert_eq!(
+            serde_json::to_string(&apple::LinkResponse { linked: true }).unwrap(),
+            r#"{"linked":true}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&apple::RevokeResponse { revoked: true }).unwrap(),
+            r#"{"revoked":true}"#
+        );
+    }
+
+    #[test]
+    fn apple_segments() {
+        assert_eq!(
+            format!(
+                "/{}/{}",
+                apple::AUTH_SEGMENT,
+                apple::APPLE_SEGMENT
+            ),
+            "/auth/apple"
+        );
+        assert_eq!(apple::LINK_SEGMENT, "link");
+        assert_eq!(apple::REVOKE_SEGMENT, "revoke");
     }
 
     #[test]

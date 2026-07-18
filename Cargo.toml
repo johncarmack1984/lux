@@ -6,6 +6,7 @@ members = [
     "crates/lux-auth",
     "crates/lux-engine",
     "crates/lux-wire",
+    "services/apple-auth",
     "services/bot",
     "services/iot-authorizer",
     "services/sync-api",
