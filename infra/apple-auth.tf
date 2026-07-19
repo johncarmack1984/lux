@@ -50,7 +50,10 @@ resource "aws_iam_role_policy" "lux_apple_auth_ddb" {
       Resource = aws_dynamodb_table.lux_sync.arn
       Condition = {
         "ForAllValues:StringLike" = {
-          "dynamodb:LeadingKeys" = ["APPLE#*", "APPLELINK#*"]
+          # APPLE#/APPLELINK# = Sign in with Apple links; PAIR#/PAIRIP#/DEVICE#
+          # = device-pairing records (docs/claim-code-pairing.md — this service
+          # grows the /auth/device/* routes).
+          "dynamodb:LeadingKeys" = ["APPLE#*", "APPLELINK#*", "PAIR#*", "PAIRIP#*", "DEVICE#*"]
         }
       }
     }]

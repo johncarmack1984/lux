@@ -60,8 +60,10 @@ resource "aws_lambda_function" "lux_iot_authorizer" {
 
   environment {
     variables = {
-      COGNITO_USER_POOL_ID  = aws_cognito_user_pool.lux.id
-      COGNITO_APP_CLIENT_ID = aws_cognito_user_pool_client.lux_app.id
+      COGNITO_USER_POOL_ID = aws_cognito_user_pool.lux.id
+      # Comma-separated: interactive sessions (lux-app) and paired devices
+      # (lux-node-device) both connect to the realtime channel.
+      COGNITO_APP_CLIENT_ID = "${aws_cognito_user_pool_client.lux_app.id},${aws_cognito_user_pool_client.lux_node_device.id}"
       COGNITO_REGION        = data.aws_region.current.region
     }
   }

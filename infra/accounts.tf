@@ -78,6 +78,33 @@ resource "aws_cognito_user_pool_client" "lux_app" {
   prevent_user_existence_errors = "ENABLED"
 }
 
+# Public client for paired headless devices (lux-node appliances) — see
+# docs/claim-code-pairing.md. Sessions here are appliance-grade (10-year
+# refresh) and revocable without touching interactive logins on lux-app.
+# Deliberately refresh-only for now: ALLOW_CUSTOM_AUTH joins in the pairing
+# PR together with the Verify-trigger discrimination — until then a client
+# that can only refresh tokens nobody has minted is inert.
+resource "aws_cognito_user_pool_client" "lux_node_device" {
+  name         = "lux-node-device"
+  user_pool_id = aws_cognito_user_pool.lux.id
+
+  generate_secret = false
+  explicit_auth_flows = [
+    "ALLOW_REFRESH_TOKEN_AUTH", # the paired node's only day-to-day flow
+  ]
+
+  access_token_validity  = 1
+  id_token_validity      = 1
+  refresh_token_validity = 3650
+  token_validity_units {
+    access_token  = "hours"
+    id_token      = "hours"
+    refresh_token = "days"
+  }
+
+  prevent_user_existence_errors = "ENABLED"
+}
+
 # --- State: DynamoDB single table (one item per setup) ---
 
 resource "aws_dynamodb_table" "lux_sync" {
@@ -100,6 +127,14 @@ resource "aws_dynamodb_table" "lux_sync" {
   # window (it can be enabled live, no table rebuild).
   point_in_time_recovery {
     enabled = false
+  }
+
+  # Item expiry for the short-lived pairing records (PAIR#/PAIRIP# partitions,
+  # docs/claim-code-pairing.md). Items without a `ttl` attribute — everything
+  # else in the table — are untouched.
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
   }
 }
 
@@ -180,8 +215,10 @@ resource "aws_lambda_function" "lux_sync_api" {
 
   environment {
     variables = {
-      COGNITO_USER_POOL_ID  = aws_cognito_user_pool.lux.id
-      COGNITO_APP_CLIENT_ID = aws_cognito_user_pool_client.lux_app.id
+      COGNITO_USER_POOL_ID = aws_cognito_user_pool.lux.id
+      # Comma-separated: interactive sessions (lux-app) and paired devices
+      # (lux-node-device) both call this API with their own ID tokens.
+      COGNITO_APP_CLIENT_ID = "${aws_cognito_user_pool_client.lux_app.id},${aws_cognito_user_pool_client.lux_node_device.id}"
       COGNITO_REGION        = data.aws_region.current.region
       DYNAMODB_TABLE        = aws_dynamodb_table.lux_sync.name
       # Change nudges (nudge.tf): where to publish after a committed write.
@@ -215,6 +252,11 @@ output "cognito_user_pool_id" {
 output "cognito_app_client_id" {
   description = "COGNITO_APP_CLIENT_ID for the app (public client, no secret)."
   value       = aws_cognito_user_pool_client.lux_app.id
+}
+
+output "cognito_device_client_id" {
+  description = "App client id paired lux-node devices refresh against (endpoints.prod.json gains this when pairing ships)."
+  value       = aws_cognito_user_pool_client.lux_node_device.id
 }
 
 output "cognito_region" {
