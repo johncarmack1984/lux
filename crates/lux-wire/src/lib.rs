@@ -248,6 +248,7 @@ pub mod device {
     pub const TOKEN_SEGMENT: &str = "token";
     pub const PENDING_SEGMENT: &str = "pending";
     pub const APPROVE_SEGMENT: &str = "approve";
+    pub const LIST_SEGMENT: &str = "list";
 
     /// Body for `POST /auth/device/authorize`. Everything here is display
     /// metadata for the approve screen — identity is established by approval,
@@ -295,11 +296,16 @@ pub mod device {
     #[serde(rename_all = "camelCase")]
     pub struct TokenResponse {
         pub status: String,
-        /// On `granted`: what the node writes into session.json …
+        /// On `granted`: what the node writes into session.json (the account's
+        /// email attribute — usernames are UUIDs for Apple-created users) …
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub email: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub refresh_token: Option<String>,
+        /// The app client that minted the refresh token — the node refreshes
+        /// against this, never the interactive client.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub client_id: Option<String>,
         /// … and the setup binding the approver chose.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub setup_id: Option<String>,
@@ -352,6 +358,27 @@ pub mod device {
     #[serde(rename_all = "camelCase")]
     pub struct ApproveResponse {
         pub approved: bool,
+    }
+
+    /// One paired device in the owner's registry (`GET /auth/device/list`) —
+    /// the app's device list, and the account-deletion confirm's tally.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct DeviceRecord {
+        pub device_id: String,
+        pub name: String,
+        pub hostname: String,
+        pub setup_id: String,
+        pub universe: u16,
+        /// Epoch millis (server clock).
+        pub paired_at: i64,
+    }
+
+    /// Response to `GET /auth/device/list`.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ListResponse {
+        pub devices: Vec<DeviceRecord>,
     }
 }
 
@@ -857,6 +884,7 @@ mod tests {
             status: "authorization_pending".into(),
             email: None,
             refresh_token: None,
+            client_id: None,
             setup_id: None,
             universe: None,
         };
@@ -868,12 +896,13 @@ mod tests {
             status: "granted".into(),
             email: Some("a@b.c".into()),
             refresh_token: Some("re".into()),
+            client_id: Some("dev-client".into()),
             setup_id: Some("s-1".into()),
             universe: Some(1),
         };
         assert_eq!(
             serde_json::to_string(&granted).unwrap(),
-            r#"{"status":"granted","email":"a@b.c","refreshToken":"re","setupId":"s-1","universe":1}"#
+            r#"{"status":"granted","email":"a@b.c","refreshToken":"re","clientId":"dev-client","setupId":"s-1","universe":1}"#
         );
     }
 

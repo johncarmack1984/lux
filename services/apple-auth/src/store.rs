@@ -386,6 +386,23 @@ pub async fn list_pending(
         .collect())
 }
 
+/// The owner's paired-device registry rows (`DEVICE#<sub>`), as stored.
+pub async fn list_devices(
+    ctx: &Ctx,
+    sub: &str,
+) -> Result<Vec<HashMap<String, AttributeValue>>, String> {
+    let out = ctx
+        .ddb
+        .query()
+        .table_name(&ctx.table)
+        .key_condition_expression("pk = :pk")
+        .expression_attribute_values(":pk", AttributeValue::S(device_pk(sub)))
+        .send()
+        .await
+        .map_err(|e| format!("device query failed: {e}"))?;
+    Ok(out.items.unwrap_or_default())
+}
+
 /// Approve a pending grant: bind it to the approver and the chosen setup,
 /// retire its pending-list row, and record the device in the owner's registry
 /// — one transaction. Fails (condition) if the grant isn't pending anymore.

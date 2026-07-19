@@ -121,6 +121,26 @@ pub async fn create_user(ctx: &Ctx, email: &str) -> Result<User, String> {
     })
 }
 
+/// The account's email attribute. Usernames are UUIDs for Apple-created
+/// users, so anything user-facing (or session-bound) wants this, not the
+/// username.
+pub async fn email_of(ctx: &Ctx, username: &str) -> Result<Option<String>, String> {
+    let out = ctx
+        .cognito
+        .admin_get_user()
+        .user_pool_id(&ctx.pool_id)
+        .username(username)
+        .send()
+        .await
+        .map_err(|e| format!("user get failed: {e}"))?;
+    Ok(out
+        .user_attributes()
+        .iter()
+        .find(|a| a.name() == "email")
+        .and_then(|a| a.value())
+        .map(str::to_owned))
+}
+
 /// Confirm a stalled self-signup (see [`User::unconfirmed`]).
 pub async fn confirm_user(ctx: &Ctx, username: &str) -> Result<(), String> {
     ctx.cognito
