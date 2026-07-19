@@ -19,7 +19,8 @@ use std::sync::Arc;
 use lambda_runtime::Error;
 use lux_wire::device::{
     ApproveRequest, ApproveResponse, AuthorizeRequest, AuthorizeResponse, DeviceRecord,
-    ListResponse, PendingDevice, PendingResponse, TokenRequest, TokenResponse,
+    ListResponse, PendingDevice, PendingResponse, RevokeRequest, RevokeResponse, TokenRequest,
+    TokenResponse,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -196,6 +197,7 @@ pub async fn list(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
     };
     let devices: Vec<DeviceRecord> = rows
         .iter()
+        .filter(|item| item.get("revoked").and_then(|v| v.as_bool().ok()) != Some(&true))
         .filter_map(|item| {
             let s = |k: &str| item.get(k)?.as_s().ok().cloned();
             let n = |k: &str| {
@@ -214,6 +216,28 @@ pub async fn list(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
         })
         .collect();
     reply(200, &ListResponse { devices })
+}
+
+/// `POST /auth/device/revoke` — bearer-authed: the owner removes one of their
+/// paired devices. Data-plane only in v1: the device drops out of `/list` at
+/// once (a revoked registry row), but cutting the box's live IoT access is
+/// authorizer-level enforcement, deferred by design. Removing a device the
+/// caller doesn't own is an idempotent no-op (`revoked: false`), never an error.
+pub async fn revoke(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
+    let Some(caller_sub) = caller(ctx, event) else {
+        return reply(401, &error("invalid or missing token"));
+    };
+    let req: RevokeRequest = match parse_body(event) {
+        Ok(b) => b,
+        Err(e) => return reply(400, &error(&e)),
+    };
+    match store::revoke_device(ctx, &caller_sub, &req.device_id).await {
+        Ok(revoked) => reply(200, &RevokeResponse { revoked }),
+        Err(e) => {
+            tracing::error!("device revoke failed: {e}");
+            reply(500, &error("internal"))
+        }
+    }
 }
 
 /// `GET /auth/device/pending` — bearer-authed: unexpired registrations that

@@ -475,6 +475,39 @@ pub async fn approve_pair(
     Ok(())
 }
 
+/// Mark one of the owner's paired devices revoked (soft delete: the row stays
+/// for audit, carrying `revoked`/`revokedAt`, and drops out of `/list`). Returns
+/// `false` when the caller owns no such device — an idempotent no-op, not an
+/// error. Data-plane only; the box's live access is cut at the authorizer in a
+/// later phase (docs/claim-code-pairing.md §Revocation).
+pub async fn revoke_device(ctx: &Ctx, sub: &str, device_id: &str) -> Result<bool, String> {
+    let result = ctx
+        .ddb
+        .update_item()
+        .table_name(&ctx.table)
+        .key("pk", AttributeValue::S(device_pk(sub)))
+        .key("sk", AttributeValue::S(device_id.to_owned()))
+        .update_expression("SET #rv = :true, revokedAt = :now")
+        .condition_expression("attribute_exists(pk)")
+        .expression_attribute_names("#rv", "revoked")
+        .expression_attribute_values(":true", AttributeValue::Bool(true))
+        .expression_attribute_values(":now", AttributeValue::N(now_millis().to_string()))
+        .send()
+        .await;
+    match result {
+        Ok(_) => Ok(true),
+        Err(e) => {
+            if e.as_service_error()
+                .is_some_and(|se| se.is_conditional_check_failed_exception())
+            {
+                Ok(false)
+            } else {
+                Err(format!("device revoke failed: {e}"))
+            }
+        }
+    }
+}
+
 /// Claim an approved grant for redemption — the single-use gate. Exactly one
 /// caller wins the `approved → redeemed` flip; everyone else hits the
 /// condition. (If the mint after this fails, the code is burned and the node
