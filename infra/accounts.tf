@@ -81,9 +81,6 @@ resource "aws_cognito_user_pool_client" "lux_app" {
 # Public client for paired headless devices (lux-node appliances) — see
 # docs/claim-code-pairing.md. Sessions here are appliance-grade (10-year
 # refresh) and revocable without touching interactive logins on lux-app.
-# Deliberately refresh-only for now: ALLOW_CUSTOM_AUTH joins in the pairing
-# PR together with the Verify-trigger discrimination — until then a client
-# that can only refresh tokens nobody has minted is inert.
 resource "aws_cognito_user_pool_client" "lux_node_device" {
   name         = "lux-node-device"
   user_pool_id = aws_cognito_user_pool.lux.id
@@ -91,6 +88,12 @@ resource "aws_cognito_user_pool_client" "lux_node_device" {
   generate_secret = false
   explicit_auth_flows = [
     "ALLOW_REFRESH_TOKEN_AUTH", # the paired node's only day-to-day flow
+    # The pairing grant (lux-apple-auth drives it via AdminInitiateAuth). Safe
+    # against direct public-client calls for the same reason as lux-app's: the
+    # Verify trigger pins this client to the device-code answer kind, and only
+    # a live, approved, just-redeemed code bound to exactly the authenticating
+    # user passes.
+    "ALLOW_CUSTOM_AUTH",
   ]
 
   access_token_validity  = 1
