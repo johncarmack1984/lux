@@ -391,6 +391,7 @@ fn status(code: u16, s: &str) -> Result<Value, Error> {
             status: s.into(),
             email: None,
             refresh_token: None,
+            client_id: None,
             setup_id: None,
             universe: None,
         },
