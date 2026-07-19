@@ -160,6 +160,21 @@ export const cmd = {
   },
 
   /** @throws {string} */
+  list_pending_devices(): Promise<PendingDevice[]> {
+    return invoke("cmd.list_pending_devices");
+  },
+
+  /** @throws {string} */
+  approve_device(pairRef: string, setupId: string, universe: number | null, name: string | null): Promise<null> {
+    return invoke("cmd.approve_device", { pair_ref: pairRef, setup_id: setupId, universe, name });
+  },
+
+  /** @throws {string} */
+  remove_device(deviceId: string): Promise<null> {
+    return invoke("cmd.remove_device", { device_id: deviceId });
+  },
+
+  /** @throws {string} */
   list_dmx_devices(): Promise<DmxDeviceInfo[]> {
     return invoke("cmd.list_dmx_devices");
   },
@@ -298,12 +313,33 @@ export type LuxLabelColor = "Red" | "Green" | "Blue" | "Amber" | "White" | "Brig
 "Generic";
 
 /**
- *  One paired headless device (a lux-node box) on the account, thinned from
- *  [`lux_wire::device::DeviceRecord`] to what the confirm dialog shows.
+ *  One paired headless device (a lux-node box) on the account, mirrored from
+ *  [`lux_wire::device::DeviceRecord`] for the Devices list and the
+ *  delete-account confirm's tally. `paired_at` is epoch millis (an `f64` so it
+ *  crosses to the webview as a plain `number`).
  */
 export type PairedDevice = {
+	deviceId: string,
 	name: string,
 	hostname: string,
+	setupId: string,
+	universe: number,
+	pairedAt: number | null,
+};
+
+/**
+ *  One pending (unclaimed, same-egress) device on the Add-device screen,
+ *  mirrored from [`lux_wire::device::PendingDevice`]. `pair_ref` is the opaque
+ *  handle the approve call takes; `first_seen` is epoch millis as an `f64`.
+ */
+export type PendingDevice = {
+	pairRef: string,
+	userCode: string,
+	hostname: string,
+	macTail: string,
+	version: string,
+	arch: string,
+	firstSeen: number | null,
 };
 
 /**

@@ -124,8 +124,21 @@ pub trait CmdMethods {
     // don't reliably reach the webview on iOS).
     fn list_remote_peers(&self, app_handle: AppHandle) -> Result<Vec<RemotePeer>, String>;
     // Paired headless devices (lux-node boxes) from the account's registry —
-    // the delete-account confirm shows them so the blast radius is visible.
+    // the Devices list, and the delete-account confirm (blast radius).
     fn list_paired_devices(&self, app_handle: AppHandle) -> Result<Vec<PairedDevice>, String>;
+    // Add-device pairing: the same-egress pending list, then approve one onto a
+    // setup, then remove a paired device. Sync (blocking HTTP off-thread, like
+    // list_paired_devices) — the UI polls the pending list while its dialog is open.
+    fn list_pending_devices(&self, app_handle: AppHandle) -> Result<Vec<PendingDevice>, String>;
+    fn approve_device(
+        &self,
+        app_handle: AppHandle,
+        pair_ref: String,
+        setup_id: String,
+        universe: Option<u16>,
+        name: Option<String>,
+    ) -> Result<(), String>;
+    fn remove_device(&self, app_handle: AppHandle, device_id: String) -> Result<(), String>;
     // DMX output — the in-app device picker (the only output selector on mobile,
     // where there's no tray). Mirrors the desktop tray's device menu.
     fn list_dmx_devices(&self, app_handle: AppHandle) -> Result<Vec<DmxDeviceInfo>, String>;
@@ -136,13 +149,34 @@ pub trait CmdMethods {
     ) -> Result<Vec<DmxDeviceInfo>, String>;
     fn rescan_dmx_devices(&self, app_handle: AppHandle) -> Result<(), String>;
 }
-/// One paired headless device (a lux-node box) on the account, thinned from
-/// [`lux_wire::device::DeviceRecord`] to what the confirm dialog shows.
+/// One paired headless device (a lux-node box) on the account, mirrored from
+/// [`lux_wire::device::DeviceRecord`] for the Devices list and the
+/// delete-account confirm's tally. `paired_at` is epoch millis (an `f64` so it
+/// crosses to the webview as a plain `number`).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PairedDevice {
+    pub device_id: String,
     pub name: String,
     pub hostname: String,
+    pub setup_id: String,
+    pub universe: u16,
+    pub paired_at: f64,
+}
+
+/// One pending (unclaimed, same-egress) device on the Add-device screen,
+/// mirrored from [`lux_wire::device::PendingDevice`]. `pair_ref` is the opaque
+/// handle the approve call takes; `first_seen` is epoch millis as an `f64`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingDevice {
+    pub pair_ref: String,
+    pub user_code: String,
+    pub hostname: String,
+    pub mac_tail: String,
+    pub version: String,
+    pub arch: String,
+    pub first_seen: f64,
 }
 
 #[derive(ttipc::Event)]
@@ -471,10 +505,48 @@ impl CmdMethods for CmdEndpoint {
             .list_paired_devices()?
             .into_iter()
             .map(|d| PairedDevice {
+                device_id: d.device_id,
                 name: d.name,
                 hostname: d.hostname,
+                setup_id: d.setup_id,
+                universe: d.universe,
+                paired_at: d.paired_at as f64,
             })
             .collect())
+    }
+
+    fn list_pending_devices(&self, app_handle: AppHandle) -> Result<Vec<PendingDevice>, String> {
+        Ok(app_handle
+            .state::<LuxAccount>()
+            .list_pending_devices()?
+            .into_iter()
+            .map(|d| PendingDevice {
+                pair_ref: d.pair_ref,
+                user_code: d.user_code,
+                hostname: d.hostname,
+                mac_tail: d.mac_tail,
+                version: d.version,
+                arch: d.arch,
+                first_seen: d.first_seen as f64,
+            })
+            .collect())
+    }
+
+    fn approve_device(
+        &self,
+        app_handle: AppHandle,
+        pair_ref: String,
+        setup_id: String,
+        universe: Option<u16>,
+        name: Option<String>,
+    ) -> Result<(), String> {
+        app_handle
+            .state::<LuxAccount>()
+            .approve_device(pair_ref, setup_id, universe, name)
+    }
+
+    fn remove_device(&self, app_handle: AppHandle, device_id: String) -> Result<(), String> {
+        app_handle.state::<LuxAccount>().revoke_device(device_id)
     }
 
     fn list_dmx_devices(&self, app_handle: AppHandle) -> Result<Vec<DmxDeviceInfo>, String> {

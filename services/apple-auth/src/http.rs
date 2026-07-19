@@ -65,7 +65,7 @@ pub async fn handle(ctx: &Arc<Ctx>, payload: Value) -> Result<Value, Error> {
 
     use lux_wire::device::{
         APPROVE_SEGMENT, AUTHORIZE_SEGMENT, DEVICE_SEGMENT, LIST_SEGMENT, PENDING_SEGMENT,
-        TOKEN_SEGMENT,
+        REVOKE_SEGMENT as DEVICE_REVOKE_SEGMENT, TOKEN_SEGMENT,
     };
 
     match (method, segments.as_slice()) {
@@ -102,6 +102,11 @@ pub async fn handle(ctx: &Arc<Ctx>, payload: Value) -> Result<Value, Error> {
             if *a == AUTH_SEGMENT && *b == DEVICE_SEGMENT && *c == APPROVE_SEGMENT =>
         {
             crate::device::approve(ctx, &event).await
+        }
+        ("POST", [a, b, c])
+            if *a == AUTH_SEGMENT && *b == DEVICE_SEGMENT && *c == DEVICE_REVOKE_SEGMENT =>
+        {
+            crate::device::revoke(ctx, &event).await
         }
         _ => reply(404, &error("not found")),
     }

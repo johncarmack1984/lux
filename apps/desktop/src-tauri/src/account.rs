@@ -396,6 +396,113 @@ impl LuxAccount {
         })
     }
 
+    /// Pending (unclaimed) devices the auth service saw from the *caller's own*
+    /// public egress — the Add-device screen's list. The backend filters to
+    /// same-NAT, so a phone on cellular gets an empty list (not the venue's
+    /// boxes). No auth service configured means nothing to pair: an empty list.
+    pub fn list_pending_devices(&self) -> Result<Vec<lux_wire::device::PendingDevice>, String> {
+        let Some(base) = self.apple_auth_url.clone() else {
+            return Ok(Vec::new());
+        };
+        let Some(token) = self.current_id_token() else {
+            return Err("not signed in".into());
+        };
+        block_on(async move {
+            let response = reqwest::Client::new()
+                .get(format!(
+                    "{base}/{}/{}/{}",
+                    lux_wire::apple::AUTH_SEGMENT,
+                    lux_wire::device::DEVICE_SEGMENT,
+                    lux_wire::device::PENDING_SEGMENT
+                ))
+                .bearer_auth(token)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+            if !response.status().is_success() {
+                return Err(format!("device pending answered {}", response.status()));
+            }
+            response
+                .json::<lux_wire::device::PendingResponse>()
+                .await
+                .map(|r| r.devices)
+                .map_err(|e| e.to_string())
+        })
+    }
+
+    /// Approve a pending device: bind it to this account and the chosen setup
+    /// (the picker replaces `lux-node install`'s interactive list). The box's
+    /// next `/token` poll returns the grant and it comes online.
+    pub fn approve_device(
+        &self,
+        pair_ref: String,
+        setup_id: String,
+        universe: Option<u16>,
+        name: Option<String>,
+    ) -> Result<(), String> {
+        let Some(base) = self.apple_auth_url.clone() else {
+            return Err("device pairing is not available on this build".into());
+        };
+        let Some(token) = self.current_id_token() else {
+            return Err("not signed in".into());
+        };
+        block_on(async move {
+            let response = reqwest::Client::new()
+                .post(format!(
+                    "{base}/{}/{}/{}",
+                    lux_wire::apple::AUTH_SEGMENT,
+                    lux_wire::device::DEVICE_SEGMENT,
+                    lux_wire::device::APPROVE_SEGMENT
+                ))
+                .bearer_auth(token)
+                .json(&lux_wire::device::ApproveRequest {
+                    pair_ref,
+                    setup_id,
+                    universe,
+                    name,
+                })
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+            if response.status().is_success() {
+                Ok(())
+            } else {
+                Err(format!("device approve answered {}", response.status()))
+            }
+        })
+    }
+
+    /// Remove a paired device from the account registry ("Remove device"). The
+    /// box drops out of the device list immediately; cutting its live IoT
+    /// access is a later (authorizer-level) phase.
+    pub fn revoke_device(&self, device_id: String) -> Result<(), String> {
+        let Some(base) = self.apple_auth_url.clone() else {
+            return Err("device pairing is not available on this build".into());
+        };
+        let Some(token) = self.current_id_token() else {
+            return Err("not signed in".into());
+        };
+        block_on(async move {
+            let response = reqwest::Client::new()
+                .post(format!(
+                    "{base}/{}/{}/{}",
+                    lux_wire::apple::AUTH_SEGMENT,
+                    lux_wire::device::DEVICE_SEGMENT,
+                    lux_wire::device::REVOKE_SEGMENT
+                ))
+                .bearer_auth(token)
+                .json(&lux_wire::device::RevokeRequest { device_id })
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+            if response.status().is_success() {
+                Ok(())
+            } else {
+                Err(format!("device revoke answered {}", response.status()))
+            }
+        })
+    }
+
     pub fn sign_out(&self) -> AuthStatus {
         clear_session();
         self.session.lock_or_recover().clear();

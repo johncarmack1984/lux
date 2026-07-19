@@ -238,17 +238,20 @@ pub mod device {
     //! - `POST /auth/device/token`     — device: poll for the grant
     //! - `GET  /auth/device/pending`   — bearer-authed: same-egress pending list
     //! - `POST /auth/device/approve`   — bearer-authed: approve one device
+    //! - `GET  /auth/device/list`      — bearer-authed: the owner's paired devices
+    //! - `POST /auth/device/revoke`    — bearer-authed: remove a paired device
 
     use serde::{Deserialize, Serialize};
 
     /// Path segments under [`super::apple::AUTH_SEGMENT`]:
-    /// `/auth/device/{authorize|token|pending|approve}`.
+    /// `/auth/device/{authorize|token|pending|approve|list|revoke}`.
     pub const DEVICE_SEGMENT: &str = "device";
     pub const AUTHORIZE_SEGMENT: &str = "authorize";
     pub const TOKEN_SEGMENT: &str = "token";
     pub const PENDING_SEGMENT: &str = "pending";
     pub const APPROVE_SEGMENT: &str = "approve";
     pub const LIST_SEGMENT: &str = "list";
+    pub const REVOKE_SEGMENT: &str = "revoke";
 
     /// Body for `POST /auth/device/authorize`. Everything here is display
     /// metadata for the approve screen — identity is established by approval,
@@ -379,6 +382,26 @@ pub mod device {
     #[serde(rename_all = "camelCase")]
     pub struct ListResponse {
         pub devices: Vec<DeviceRecord>,
+    }
+
+    /// Body for `POST /auth/device/revoke` — bearer-authed: the owner removes
+    /// one of their paired devices. v1 is data-plane only — the device drops
+    /// out of [`ListResponse`] at once; cutting the box's live IoT access is
+    /// authorizer-level enforcement, a deliberately deferred design
+    /// open-question (docs/claim-code-pairing.md §Revocation).
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct RevokeRequest {
+        /// [`DeviceRecord::device_id`] of the device to remove.
+        pub device_id: String,
+    }
+
+    /// Response to a `POST /auth/device/revoke`. `revoked` is `false` only when
+    /// the caller owns no such device (an idempotent no-op, not an error).
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct RevokeResponse {
+        pub revoked: bool,
     }
 }
 
@@ -929,6 +952,43 @@ mod tests {
         assert_eq!(device::TOKEN_SEGMENT, "token");
         assert_eq!(device::PENDING_SEGMENT, "pending");
         assert_eq!(device::APPROVE_SEGMENT, "approve");
+        assert_eq!(device::LIST_SEGMENT, "list");
+        assert_eq!(device::REVOKE_SEGMENT, "revoke");
+    }
+
+    #[test]
+    fn device_list_and_revoke_shapes() {
+        let record = device::DeviceRecord {
+            device_id: "d-1".into(),
+            name: "Stage node".into(),
+            hostname: "venue-node".into(),
+            setup_id: "s-1".into(),
+            universe: 1,
+            paired_at: 1_700_000_000_000,
+        };
+        assert_eq!(
+            serde_json::to_string(&record).unwrap(),
+            r#"{"deviceId":"d-1","name":"Stage node","hostname":"venue-node","setupId":"s-1","universe":1,"pairedAt":1700000000000}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&device::ListResponse {
+                devices: vec![record],
+            })
+            .unwrap(),
+            r#"{"devices":[{"deviceId":"d-1","name":"Stage node","hostname":"venue-node","setupId":"s-1","universe":1,"pairedAt":1700000000000}]}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&device::ApproveResponse { approved: true }).unwrap(),
+            r#"{"approved":true}"#
+        );
+
+        // Revoke: request parses the app's body, response is a bare flag.
+        let req: device::RevokeRequest = serde_json::from_str(r#"{"deviceId":"d-1"}"#).unwrap();
+        assert_eq!(req.device_id, "d-1");
+        assert_eq!(
+            serde_json::to_string(&device::RevokeResponse { revoked: true }).unwrap(),
+            r#"{"revoked":true}"#
+        );
     }
 
     #[test]
