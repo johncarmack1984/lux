@@ -139,6 +139,10 @@ pub trait CmdMethods {
         name: Option<String>,
     ) -> Result<(), String>;
     fn remove_device(&self, app_handle: AppHandle, device_id: String) -> Result<(), String>;
+    // Shared control in both directions, for the same confirm: deleting an
+    // account ends every share it is part of, including ones other people
+    // depend on.
+    fn list_shares(&self, app_handle: AppHandle) -> Result<ShareTally, String>;
     // DMX output — the in-app device picker (the only output selector on mobile,
     // where there's no tray). Mirrors the desktop tray's device menu.
     fn list_dmx_devices(&self, app_handle: AppHandle) -> Result<Vec<DmxDeviceInfo>, String>;
@@ -177,6 +181,19 @@ pub struct PendingDevice {
     pub version: String,
     pub arch: String,
     pub first_seen: f64,
+}
+
+/// Who the account's shared-control grants involve, thinned from
+/// [`lux_wire::shares::SharesResponse`] to the names a confirm dialog reads
+/// out. One person holding two of the caller's setups is one name here — the
+/// dialog counts *people*, because that is what the user is about to affect.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareTally {
+    /// People who can currently control one of the caller's setups.
+    pub granted_to: Vec<String>,
+    /// People whose setups the caller can currently control.
+    pub received_from: Vec<String>,
 }
 
 #[derive(ttipc::Event)]
@@ -547,6 +564,46 @@ impl CmdMethods for CmdEndpoint {
 
     fn remove_device(&self, app_handle: AppHandle, device_id: String) -> Result<(), String> {
         app_handle.state::<LuxAccount>().revoke_device(device_id)
+    }
+
+    fn list_shares(&self, app_handle: AppHandle) -> Result<ShareTally, String> {
+        let shares = crate::cloud::list_shares(&app_handle)?;
+        // One person can hold several of the caller's setups; the dialog is
+        // counting people, so fold by account and keep first-seen order.
+        let names = |mut seen: Vec<(String, String)>| -> Vec<String> {
+            seen.dedup_by(|a, b| a.0 == b.0);
+            seen.into_iter().map(|(_, label)| label).collect()
+        };
+        let label = |sub: &str, label: &str| {
+            // Every pool user has an email, but a token without the claim is
+            // still a valid token — name the account rather than show a blank.
+            if label.is_empty() {
+                format!("account {}", sub.chars().take(8).collect::<String>())
+            } else {
+                label.to_owned()
+            }
+        };
+        let mut granted: Vec<(String, String)> = shares
+            .granted
+            .iter()
+            .map(|g| {
+                (
+                    g.contact_sub.clone(),
+                    label(&g.contact_sub, &g.contact_label),
+                )
+            })
+            .collect();
+        granted.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut received: Vec<(String, String)> = shares
+            .received
+            .iter()
+            .map(|g| (g.owner_sub.clone(), label(&g.owner_sub, &g.owner_label)))
+            .collect();
+        received.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(ShareTally {
+            granted_to: names(granted),
+            received_from: names(received),
+        })
     }
 
     fn list_dmx_devices(&self, app_handle: AppHandle) -> Result<Vec<DmxDeviceInfo>, String> {

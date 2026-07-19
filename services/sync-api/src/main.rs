@@ -17,12 +17,19 @@
 //! - `DELETE /setups/{id}?baseUpdatedAt=N` — soft-delete (tombstone)
 //! - `PUT    /settings`      — create/update the settings record, optimistic-concurrency on `baseUpdatedAt`
 //! - `DELETE /user`          — hard-delete the caller's whole partition (account deletion)
+//! - `/shares/…`             — shared control: invite, claim, list, revoke (`shares`)
+//!
+//! Shared control is the one feature here that reaches outside the caller's own
+//! partition, and it does so only through grants the two accounts both agreed
+//! to — see [`shares`] for the item families and how the key derivation itself
+//! carries the authorization.
 //!
 //! After each committed write the handler publishes a tiny opaque nudge frame
 //! to the caller's own IoT topic (`lux_wire::nudge`) so their other devices
 //! pull promptly. Publishing is best-effort and never fails the request; with
 //! `IOT_ENDPOINT` unset (tests, minimal dev stacks) it is skipped entirely.
 
+mod shares;
 mod store;
 
 use std::sync::Arc;
@@ -38,11 +45,11 @@ use serde::{Deserialize, Serialize};
 use store::StoreError;
 
 struct Ctx {
-    ddb: aws_sdk_dynamodb::Client,
-    table: String,
-    verifier: lux_auth::Verifier,
+    pub(crate) ddb: aws_sdk_dynamodb::Client,
+    pub(crate) table: String,
+    pub(crate) verifier: lux_auth::Verifier,
     /// IoT data-plane client for change nudges; `None` when `IOT_ENDPOINT` is unset.
-    iot: Option<aws_sdk_iotdataplane::Client>,
+    pub(crate) iot: Option<aws_sdk_iotdataplane::Client>,
 }
 
 #[tokio::main]
@@ -109,10 +116,12 @@ fn env(key: &str) -> Result<String, Error> {
 
 async fn handle(ctx: Arc<Ctx>, req: Request) -> Result<Response<Body>, Error> {
     // Identity comes only from the verified token; the request never names a user.
-    let sub = match bearer(&req).and_then(|t| ctx.verifier.verify(&t).ok()) {
-        Some(claims) => claims.sub,
-        None => return reply(401, error("invalid or missing token")),
+    // Identity and the display label both come from the one verification: the
+    // `sub` authorizes, the `email` only ever labels (see shares::label_for).
+    let Some(claims) = bearer(&req).and_then(|t| ctx.verifier.verify(&t).ok()) else {
+        return reply(401, error("invalid or missing token"));
     };
+    let (sub, email) = (claims.sub, claims.email);
 
     let method = req.method().clone();
     let path = req.uri().path().to_owned();
@@ -130,6 +139,42 @@ async fn handle(ctx: Arc<Ctx>, req: Request) -> Result<Response<Body>, Error> {
             upsert_settings(&ctx, &sub, &req).await
         }
         ("DELETE", [seg]) if *seg == lux_wire::USER_SEGMENT => delete_user_data(&ctx, &sub).await,
+
+        // Shared control. The path names the *other* party; the caller's own
+        // side always comes from the verified token, so no route here can be
+        // pointed at a grant the caller isn't part of.
+        ("POST", [seg, action])
+            if *seg == lux_wire::shares::SHARES_SEGMENT
+                && *action == lux_wire::shares::INVITE_SEGMENT =>
+        {
+            shares::invite(&ctx, &sub, email.as_deref(), &req).await
+        }
+        ("POST", [seg, action])
+            if *seg == lux_wire::shares::SHARES_SEGMENT
+                && *action == lux_wire::shares::CLAIM_SEGMENT =>
+        {
+            shares::claim(&ctx, &sub, email.as_deref(), &req).await
+        }
+        ("GET", [seg]) if *seg == lux_wire::shares::SHARES_SEGMENT => shares::list(&ctx, &sub).await,
+        ("DELETE", [seg, kind, contact_sub, setup_id])
+            if *seg == lux_wire::shares::SHARES_SEGMENT
+                && *kind == lux_wire::shares::GRANTED_SEGMENT =>
+        {
+            shares::revoke(&ctx, &sub, contact_sub, setup_id, true).await
+        }
+        ("DELETE", [seg, kind, owner_sub, setup_id])
+            if *seg == lux_wire::shares::SHARES_SEGMENT
+                && *kind == lux_wire::shares::RECEIVED_SEGMENT =>
+        {
+            shares::revoke(&ctx, owner_sub, &sub, setup_id, false).await
+        }
+        ("DELETE", [seg, kind, code_ref])
+            if *seg == lux_wire::shares::SHARES_SEGMENT
+                && *kind == lux_wire::shares::INVITE_SEGMENT =>
+        {
+            shares::withdraw(&ctx, &sub, code_ref).await
+        }
+
         _ => reply(404, error("not found")),
     }
 }
@@ -224,9 +269,17 @@ async fn tombstone(ctx: &Ctx, sub: &str, id: &str, req: &Request) -> Result<Resp
 
 /// Account deletion, step 1 of 2: hard-delete everything the caller owns. The
 /// app calls this while the tokens still authenticate, then removes the Cognito
-/// user itself (self-service `DeleteUser`). No nudge: the other devices' next
-/// refresh fails and they simply sign out.
+/// user itself (self-service `DeleteUser`). No nudge for the caller's own
+/// devices: their next refresh fails and they simply sign out.
+///
+/// Shares are cleaned up **first**, and the order is load-bearing. Grants live
+/// half in the caller's partition and half in the other party's; once the
+/// caller's half is gone there is nothing left to find the other half from, and
+/// every contact would keep a row pointing at a deleted account (and, until the
+/// authorizer's cache expired, publish rights into a dead topic space). Same
+/// discipline as revoking the Apple grant before the wipe.
 async fn delete_user_data(ctx: &Ctx, sub: &str) -> Result<Response<Body>, Error> {
+    shares::cleanup_for_deleted_user(ctx, sub).await;
     match store::delete_all(&ctx.ddb, &ctx.table, sub).await {
         Ok(deleted_items) => reply(200, DeleteUserDataResponse { deleted_items }),
         Err(e) => {
@@ -242,7 +295,7 @@ async fn delete_user_data(ctx: &Ctx, sub: &str) -> Result<Response<Body>, Error>
 /// connected devices get the frame, including the writer; its re-pull is
 /// coalesced client-side and harmless. The frame's label only aids logs —
 /// clients treat every frame identically.)
-async fn nudge(ctx: &Ctx, sub: &str, frame: String) {
+pub(crate) async fn nudge(ctx: &Ctx, sub: &str, frame: String) {
     let Some(iot) = &ctx.iot else { return };
     let topic = lux_wire::nudge::user_topic(sub);
     if let Err(e) = iot
@@ -262,7 +315,7 @@ async fn nudge(ctx: &Ctx, sub: &str, frame: String) {
 // --- request/response helpers -----------------------------------------------
 
 /// The bearer token from the `Authorization` header, if present and well-formed.
-fn bearer(req: &Request) -> Option<String> {
+pub(crate) fn bearer(req: &Request) -> Option<String> {
     req.headers()
         .get("authorization")?
         .to_str()
@@ -280,11 +333,11 @@ fn body_bytes(req: &Request) -> Vec<u8> {
     }
 }
 
-fn parse_body<T: for<'de> Deserialize<'de>>(req: &Request) -> Result<T, String> {
+pub(crate) fn parse_body<T: for<'de> Deserialize<'de>>(req: &Request) -> Result<T, String> {
     serde_json::from_slice(&body_bytes(req)).map_err(|e| format!("bad body: {e}"))
 }
 
-fn now_millis() -> i64 {
+pub(crate) fn now_millis() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -292,13 +345,13 @@ fn now_millis() -> i64 {
         .unwrap_or(0)
 }
 
-fn error(message: &str) -> ErrorResponse {
+pub(crate) fn error(message: &str) -> ErrorResponse {
     ErrorResponse {
         error: message.to_owned(),
     }
 }
 
-fn reply<T: Serialize>(status: u16, body: T) -> Result<Response<Body>, Error> {
+pub(crate) fn reply<T: Serialize>(status: u16, body: T) -> Result<Response<Body>, Error> {
     Ok(Response::builder()
         .status(status)
         .header("content-type", "application/json")

@@ -39,6 +39,12 @@ type Mode = "signIn" | "signUp" | "confirm";
  * updates reactively from the `authChanged` event, so a successful sign-in or
  * deletion just closes its dialog.
  */
+/** Names for a confirm sentence: all of them up to three, then a tail count. */
+function peopleList(names: string[]) {
+  if (names.length <= 3) return names.join(", ");
+  return `${names.slice(0, 3).join(", ")} and ${names.length - 3} more`;
+}
+
 export default function AccountMenu() {
   const status = useAuth();
   const queryClient = useQueryClient();
@@ -61,6 +67,11 @@ export default function AccountMenu() {
     queryKey: ["pairedDevices"],
     queryFn: () => cmd().list_paired_devices(),
     // Only worth a network round-trip while the confirm is actually open.
+    enabled: !!status?.signedIn && confirmDelete,
+  });
+  const { data: shares } = useQuery({
+    queryKey: ["shares"],
+    queryFn: () => cmd().list_shares(),
     enabled: !!status?.signedIn && confirmDelete,
   });
 
@@ -148,8 +159,23 @@ export default function AccountMenu() {
                       pairedDevices.length === 1 ? "" : "s"
                     } (${pairedDevices.map((d) => d.name).join(", ")})`
                   : ""}
-                . Setups on this device stay on this device. This can't be
-                undone.
+                .
+                {/* The half of the blast radius that lands on other people —
+                    its own sentence, because it's the part a user is least
+                    likely to have in mind. */}
+                {shares?.grantedTo.length
+                  ? ` It ends control access for ${
+                      shares.grantedTo.length === 1
+                        ? "1 person"
+                        : `${shares.grantedTo.length} people`
+                    } you've shared with (${peopleList(shares.grantedTo)}).`
+                  : ""}
+                {shares?.receivedFrom.length
+                  ? ` You also lose access to setups shared with you by ${peopleList(
+                      shares.receivedFrom,
+                    )}.`
+                  : ""}{" "}
+                Setups on this device stay on this device. This can't be undone.
               </DialogDescription>
             </DialogHeader>
             <div className="flex justify-end gap-2">

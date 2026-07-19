@@ -267,6 +267,52 @@ async fn delete_user_data(
     read_json(resp).await
 }
 
+async fn list_shares_req(
+    client: &Client,
+    base: &str,
+    token: String,
+) -> Result<lux_wire::shares::SharesResponse, SyncError> {
+    let resp = client
+        .get(format!("{base}/{}", lux_wire::shares::SHARES_SEGMENT))
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| SyncError::Other(e.to_string()))?;
+    read_json(resp).await
+}
+
+/// The caller's shared-control grants, both directions — what the
+/// delete-account confirm counts so the blast radius is visible before it
+/// happens (deleting an account revokes every share it is part of, in either
+/// direction, and the other people involved find out by their lists changing).
+///
+/// An account with cloud sync never configured has no shares at all, which is
+/// an empty answer rather than an error.
+pub fn list_shares(app: &AppHandle) -> Result<lux_wire::shares::SharesResponse, String> {
+    let (base, token) = {
+        let account = app.state::<LuxAccount>();
+        let Some(base) = account.sync_url() else {
+            return Ok(lux_wire::shares::SharesResponse {
+                granted: Vec::new(),
+                received: Vec::new(),
+                pending: Vec::new(),
+            });
+        };
+        let token = account.current_id_token().ok_or("not signed in")?;
+        (base, token)
+    };
+    let app = app.clone();
+    crate::account::block_on(async move {
+        let client = Client::new();
+        let mut result = list_shares_req(&client, &base, token).await;
+        if matches!(result, Err(SyncError::Unauthorized)) {
+            let fresh = refresh(&app).await.map_err(|e| e.to_string())?;
+            result = list_shares_req(&client, &base, fresh).await;
+        }
+        result.map_err(|e| format!("could not list shares: {e}"))
+    })
+}
+
 async fn read_json<T: DeserializeOwned>(resp: reqwest::Response) -> Result<T, SyncError> {
     match resp.status() {
         StatusCode::UNAUTHORIZED => Err(SyncError::Unauthorized),

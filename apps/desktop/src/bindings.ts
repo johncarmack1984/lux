@@ -175,6 +175,11 @@ export const cmd = {
   },
 
   /** @throws {string} */
+  list_shares(): Promise<ShareTally> {
+    return invoke("cmd.list_shares");
+  },
+
+  /** @throws {string} */
   list_dmx_devices(): Promise<DmxDeviceInfo[]> {
     return invoke("cmd.list_dmx_devices");
   },
@@ -370,6 +375,19 @@ export type SetupSummary = {
 	universe: number,
 	fixtureCount: number,
 	active: boolean,
+};
+
+/**
+ *  Who the account's shared-control grants involve, thinned from
+ *  [`lux_wire::shares::SharesResponse`] to the names a confirm dialog reads
+ *  out. One person holding two of the caller's setups is one name here — the
+ *  dialog counts *people*, because that is what the user is about to affect.
+ */
+export type ShareTally = {
+	/**  People who can currently control one of the caller's setups. */
+	grantedTo: string[],
+	/**  People whose setups the caller can currently control. */
+	receivedFrom: string[],
 };
 
 /**

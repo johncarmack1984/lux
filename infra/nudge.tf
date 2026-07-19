@@ -65,6 +65,10 @@ resource "aws_lambda_function" "lux_iot_authorizer" {
       # (lux-node-device) both connect to the realtime channel.
       COGNITO_APP_CLIENT_ID = "${aws_cognito_user_pool_client.lux_app.id},${aws_cognito_user_pool_client.lux_node_device.id}"
       COGNITO_REGION        = data.aws_region.current.region
+      # Shared-control grants, read at connect time (shares.tf grants the
+      # LeadingKeys-pinned Query). Unset would simply mean no connection is
+      # ever widened past its own owner's space.
+      DYNAMODB_TABLE = aws_dynamodb_table.lux_sync.name
     }
   }
 }

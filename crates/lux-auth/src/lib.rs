@@ -34,6 +34,13 @@ pub struct Verifier {
 pub struct Claims {
     pub sub: String,
     pub token_use: String,
+    /// The account's email, when the pool put one in the token. Display only —
+    /// it labels the other party in a shared-control grant, so a human can tell
+    /// who they shared with. Never an identity: `sub` alone authorizes, and a
+    /// token without this claim is perfectly valid (an appliance session's, for
+    /// one), so every reader needs a fallback.
+    #[serde(default)]
+    pub email: Option<String>,
 }
 
 #[derive(Deserialize)]

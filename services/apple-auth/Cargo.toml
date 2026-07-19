@@ -34,7 +34,7 @@ reqwest = { workspace = true }
 # rustls with no baked-in crypto provider; main() installs ring as the process
 # default, sidestepping the aws-lc-rs C build that reqwest's `rustls` feature pulls.
 rustls = { workspace = true }
-sha2 = "0.11"
+sha2.workspace = true
 base64 = "0.22"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

@@ -14,12 +14,54 @@
 //! The authorizer is registered with signing disabled: the desktop is a public
 //! client and can't hold a signing key, so the JWT check here is the gate —
 //! the same posture as the sync-api's public Function URL with in-handler JWT.
+//!
+//! **Shared control** (docs/shared-control.md) is the one thing that widens a
+//! connection past its own owner's space. After the token verifies, we read the
+//! caller's `SHARED#<sub>` partition — the grants *other* accounts have given
+//! them — and append one narrow policy document per grant. A grant never
+//! confers the owner's own rights: a guest may publish live frames and its own
+//! presence card, and read the applier's state and config. It cannot retain
+//! anything but its own presence, cannot publish state or config (the owner's
+//! applier stays the sole authority on both), and cannot touch a setup it was
+//! not granted.
+//!
+//! Two properties are worth stating because the rest of the file depends on
+//! them. First, policy construction is pure: [`allow`] takes the grants it was
+//! handed and does no I/O, so every statement it can emit is unit-testable, and
+//! the DynamoDB read that finds those grants is separate and fallible.
+//! Second, revocation is bounded but not instant — a policy lives for the
+//! connection's refresh window (`refreshAfterInSeconds`, one hour), so a
+//! revoked guest keeps the access they already hold until their next re-auth.
+//! That window is the documented cost of connect-time authorization.
 
 use std::collections::HashMap;
 
+use aws_sdk_dynamodb::types::AttributeValue;
 use lambda_runtime::{run, service_fn, Error, LambdaEvent};
 use serde::Deserialize;
 use serde_json::{json, Value};
+
+/// AWS IoT accepts at most this many policy documents from a custom authorizer,
+/// each at most [`MAX_POLICY_DOCUMENT_CHARS`]. The caller's own space takes the
+/// first, so the rest are the grant budget — which is where
+/// [`lux_wire::shares::MAX_GRANTS_PER_CONTACT`] comes from.
+const MAX_POLICY_DOCUMENTS: usize = 10;
+const MAX_POLICY_DOCUMENT_CHARS: usize = 2048;
+
+/// One live grant, reduced to what a policy needs: whose space, which setup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GrantScope {
+    owner_sub: String,
+    setup_id: String,
+}
+
+/// Where grants are read from. `None` when `DYNAMODB_TABLE` is unset, which
+/// simply means no connection is ever widened — the pre-shared-control
+/// behaviour, and a safe state to deploy into.
+struct GrantStore {
+    ddb: aws_sdk_dynamodb::Client,
+    table: String,
+}
 
 /// The slice of IoT's custom-authorizer request we read. Everything is
 /// optional-with-default: IoT varies the shape by protocol, and a missing
@@ -71,8 +113,27 @@ async fn main() -> Result<(), Error> {
         .expect("failed to fetch Cognito JWKS");
     let verifier = &verifier;
 
+    // Shared-control grants. Absent table => nobody's connection is widened.
+    let store = match std::env::var("DYNAMODB_TABLE")
+        .ok()
+        .filter(|t| !t.is_empty())
+    {
+        Some(table) => {
+            let conf = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+            Some(GrantStore {
+                ddb: aws_sdk_dynamodb::Client::new(&conf),
+                table,
+            })
+        }
+        None => {
+            tracing::info!("DYNAMODB_TABLE unset; shared-control grants disabled");
+            None
+        }
+    };
+    let store = store.as_ref();
+
     run(service_fn(move |event: LambdaEvent<Value>| async move {
-        Ok::<Value, Error>(authorize(verifier, event))
+        Ok::<Value, Error>(authorize(verifier, store, event).await)
     }))
     .await
 }
@@ -81,7 +142,11 @@ fn env(key: &str) -> Result<String, Error> {
     std::env::var(key).map_err(|_| format!("missing required env var {key}").into())
 }
 
-fn authorize(verifier: &lux_auth::Verifier, event: LambdaEvent<Value>) -> Value {
+async fn authorize(
+    verifier: &lux_auth::Verifier,
+    store: Option<&GrantStore>,
+    event: LambdaEvent<Value>,
+) -> Value {
     // Region + account for the policy ARNs, from our own function ARN
     // (arn:aws:lambda:<region>:<account>:function:<name>).
     let arn: Vec<&str> = event.context.invoked_function_arn.split(':').collect();
@@ -111,7 +176,50 @@ fn authorize(verifier: &lux_auth::Verifier, event: LambdaEvent<Value>) -> Value 
         }
     };
 
-    allow(region, account, &sub)
+    // A grant read that fails grants nothing. It deliberately does not deny the
+    // connection outright: this user's own sync and control are not a
+    // shared-control feature, and a DynamoDB blip must not sign everyone out.
+    // Closed with respect to *shares* — no lookup, no widening, ever — while
+    // the caller's own space is unaffected.
+    let grants = match store {
+        Some(store) => live_grants(store, &sub).await.unwrap_or_else(|e| {
+            tracing::error!("grant lookup failed for {sub} ({e}); authorizing own space only");
+            Vec::new()
+        }),
+        None => Vec::new(),
+    };
+
+    allow(region, account, &sub, &grants)
+}
+
+/// The grants this user holds *as a contact* — one query on their own
+/// `SHARED#<sub>` partition, which exists in this shape precisely so that the
+/// connect path is a single key lookup and never a scan or a filter over
+/// someone else's data.
+async fn live_grants(store: &GrantStore, sub: &str) -> Result<Vec<GrantScope>, String> {
+    let out = store
+        .ddb
+        .query()
+        .table_name(&store.table)
+        .key_condition_expression("pk = :pk")
+        .expression_attribute_values(":pk", AttributeValue::S(format!("SHARED#{sub}")))
+        .send()
+        .await
+        .map_err(|e| format!("query failed: {e}"))?;
+
+    let s = |item: &HashMap<String, AttributeValue>, key: &str| {
+        item.get(key)?.as_s().ok().cloned()
+    };
+    Ok(out
+        .items()
+        .iter()
+        .filter_map(|item| {
+            Some(GrantScope {
+                owner_sub: s(item, "ownerSub")?,
+                setup_id: s(item, "setupId")?,
+            })
+        })
+        .collect())
 }
 
 /// The allow response for a verified user: connect under their own client-id
@@ -122,54 +230,145 @@ fn authorize(verifier: &lux_auth::Verifier, event: LambdaEvent<Value>) -> Value 
 /// grant matches the client's `…/#` filter; Subscribe takes `topicfilter`
 /// ARNs, Publish/Receive take `topic` ARNs. The Publish grant also covers the
 /// connection's Last Will on the presence topic.)
-fn allow(region: &str, account: &str, sub: &str) -> Value {
+fn allow(region: &str, account: &str, sub: &str, grants: &[GrantScope]) -> Value {
     let prefix = format!("arn:aws:iot:{region}:{account}");
     let nudge_topic = lux_wire::nudge::user_topic(sub);
     let client_prefix = lux_wire::nudge::client_id_prefix(sub);
     let ctl_prefix = lux_wire::ctl::user_prefix(sub);
+
+    // One document per grant, after the caller's own. Packing two grants into a
+    // document would risk the 2048-character ceiling (a grant runs ~1 KB), and
+    // an oversized document is rejected wholesale — so the cheap, checkable
+    // arrangement is one each. `documents` therefore holds at most
+    // MAX_POLICY_DOCUMENTS entries and the claim route refuses past the same
+    // number, which is what keeps this truncation unreachable in practice.
+    let mut documents = vec![json!({
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": "iot:Connect",
+                "Resource": format!("{prefix}:client/{client_prefix}*"),
+            },
+            {
+                "Effect": "Allow",
+                "Action": "iot:Subscribe",
+                "Resource": [
+                    format!("{prefix}:topicfilter/{nudge_topic}"),
+                    format!("{prefix}:topicfilter/{ctl_prefix}/*"),
+                ],
+            },
+            {
+                "Effect": "Allow",
+                "Action": "iot:Receive",
+                "Resource": [
+                    format!("{prefix}:topic/{nudge_topic}"),
+                    format!("{prefix}:topic/{ctl_prefix}/*"),
+                ],
+            },
+            {
+                "Effect": "Allow",
+                // RetainPublish too: presence cards, state echoes, and the
+                // connection's Last Will are all retained — and IoT refuses
+                // the CONNECT itself when the retained will isn't covered.
+                "Action": ["iot:Publish", "iot:RetainPublish"],
+                "Resource": format!("{prefix}:topic/{ctl_prefix}/*"),
+            },
+        ],
+    })];
+
+    for grant in grants {
+        if documents.len() >= MAX_POLICY_DOCUMENTS {
+            tracing::error!(
+                "{sub} holds more than {} grants; the rest are unauthorized until some are \
+                 revoked (the claim route should have refused past {})",
+                MAX_POLICY_DOCUMENTS - 1,
+                lux_wire::shares::MAX_GRANTS_PER_CONTACT
+            );
+            break;
+        }
+        let document = grant_policy(&prefix, sub, grant);
+        // A document over the ceiling is rejected by IoT as a whole, which
+        // would take the caller's own access down with it. Dropping the one
+        // grant keeps the connection working and says so loudly.
+        let size = document.to_string().len();
+        if size > MAX_POLICY_DOCUMENT_CHARS {
+            tracing::error!(
+                "grant on {}/{} builds a {size}-character policy document, over the {} ceiling; \
+                 skipping it",
+                grant.owner_sub,
+                grant.setup_id,
+                MAX_POLICY_DOCUMENT_CHARS
+            );
+            continue;
+        }
+        documents.push(document);
+    }
 
     json!({
         "isAuthenticated": true,
         // principalId must be alphanumeric; Cognito subs are UUIDs with hyphens.
         "principalId": sub.chars().filter(char::is_ascii_alphanumeric).collect::<String>(),
         // Hourly forced re-auth: matches the ID token's validity, and the
-        // client's reconnect brings a fresh token + an on-connect pull.
+        // client's reconnect brings a fresh token + an on-connect pull. It is
+        // also the upper bound on how long a revoked grant keeps working.
         "disconnectAfterInSeconds": 3600,
         "refreshAfterInSeconds": 3600,
-        "policyDocuments": [{
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Effect": "Allow",
-                    "Action": "iot:Connect",
-                    "Resource": format!("{prefix}:client/{client_prefix}*"),
-                },
-                {
-                    "Effect": "Allow",
-                    "Action": "iot:Subscribe",
-                    "Resource": [
-                        format!("{prefix}:topicfilter/{nudge_topic}"),
-                        format!("{prefix}:topicfilter/{ctl_prefix}/*"),
-                    ],
-                },
-                {
-                    "Effect": "Allow",
-                    "Action": "iot:Receive",
-                    "Resource": [
-                        format!("{prefix}:topic/{nudge_topic}"),
-                        format!("{prefix}:topic/{ctl_prefix}/*"),
-                    ],
-                },
-                {
-                    "Effect": "Allow",
-                    // RetainPublish too: presence cards, state echoes, and the
-                    // connection's Last Will are all retained — and IoT refuses
-                    // the CONNECT itself when the retained will isn't covered.
-                    "Action": ["iot:Publish", "iot:RetainPublish"],
-                    "Resource": format!("{prefix}:topic/{ctl_prefix}/*"),
-                },
-            ],
-        }],
+        "policyDocuments": documents,
+    })
+}
+
+/// One grant's policy document: what a guest may do in an owner's space, and
+/// nothing else.
+///
+/// The asymmetry is the design. A guest **publishes** live frames (never
+/// retained — the retain grant below is only for their own presence card) and
+/// **reads** the applier's `state` and `config`. It cannot publish `state` or
+/// `config`: the owner's applier is the sole authority on what the fixtures are
+/// doing and what the setup looks like, and a guest that could retain either
+/// would be able to lie to every other surface, including after it left.
+fn grant_policy(prefix: &str, contact_sub: &str, grant: &GrantScope) -> Value {
+    let frame = lux_wire::ctl::frame_topic(&grant.owner_sub, &grant.setup_id);
+    let state = lux_wire::ctl::state_topic(&grant.owner_sub, &grant.setup_id);
+    let config = lux_wire::ctl::config_topic(&grant.owner_sub, &grant.setup_id);
+    let presence = lux_wire::ctl::guest_presence_filter(&grant.owner_sub, contact_sub);
+
+    json!({
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": "iot:Publish",
+                "Resource": [
+                    format!("{prefix}:topic/{frame}"),
+                    format!("{prefix}:topic/{presence}"),
+                ],
+            },
+            {
+                "Effect": "Allow",
+                // Only the guest's own presence card may be retained, and the
+                // resource is wildcarded to their sub — never the owner's card
+                // or another guest's.
+                "Action": "iot:RetainPublish",
+                "Resource": format!("{prefix}:topic/{presence}"),
+            },
+            {
+                "Effect": "Allow",
+                "Action": "iot:Subscribe",
+                "Resource": [
+                    format!("{prefix}:topicfilter/{state}"),
+                    format!("{prefix}:topicfilter/{config}"),
+                ],
+            },
+            {
+                "Effect": "Allow",
+                "Action": "iot:Receive",
+                "Resource": [
+                    format!("{prefix}:topic/{state}"),
+                    format!("{prefix}:topic/{config}"),
+                ],
+            },
+        ],
     })
 }
 
@@ -249,11 +448,27 @@ mod tests {
         assert_eq!(extract_token(&event(json!({}))), None);
     }
 
+    fn grant(owner: &str, setup: &str) -> GrantScope {
+        GrantScope {
+            owner_sub: owner.to_owned(),
+            setup_id: setup.to_owned(),
+        }
+    }
+
+    /// A realistically-sized identity pair: Cognito subs and setup ids are both
+    /// UUIDs, and the policy budget is measured in characters.
+    const UUID_A: &str = "7f0175a6-3b64-4a2a-9e1c-000000000001";
+    const UUID_B: &str = "7f0175a6-3b64-4a2a-9e1c-000000000002";
+
     #[test]
     fn allow_policy_grants_nudge_and_ctl_scoped_to_the_sub() {
-        let response = allow("us-west-1", "735853783919", "abc-123");
+        let response = allow("us-west-1", "735853783919", "abc-123", &[]);
         assert_eq!(response["isAuthenticated"], true);
         assert_eq!(response["principalId"], "abc123"); // non-alphanumerics dropped
+
+        // No grants, no extra documents: an ordinary user's policy is exactly
+        // what it was before shared control existed.
+        assert_eq!(response["policyDocuments"][1], Value::Null);
 
         let statements = &response["policyDocuments"][0]["Statement"];
         let arn = |suffix: &str| format!("arn:aws:iot:us-west-1:735853783919:{suffix}");
@@ -296,5 +511,129 @@ mod tests {
         // json indexing past the end yields Null — asserts there is no fifth
         // statement without unwrapping.
         assert_eq!(statements[4], Value::Null);
+    }
+
+    #[test]
+    fn a_grant_adds_one_document_and_nothing_to_the_callers_own() {
+        let base = allow("us-west-1", "735853783919", "contact-1", &[]);
+        let shared = allow(
+            "us-west-1",
+            "735853783919",
+            "contact-1",
+            &[grant("owner-9", "s-1")],
+        );
+
+        // The caller's own document is untouched by holding a grant.
+        assert_eq!(base["policyDocuments"][0], shared["policyDocuments"][0]);
+        assert_eq!(shared["policyDocuments"].as_array().map(Vec::len), Some(2));
+
+        let arn = |suffix: &str| format!("arn:aws:iot:us-west-1:735853783919:{suffix}");
+        let statements = &shared["policyDocuments"][1]["Statement"];
+
+        // Publish: live frames and the guest's own presence card. Note what is
+        // absent — no state, no config, no other setup.
+        assert_eq!(statements[0]["Action"], "iot:Publish");
+        assert_eq!(
+            statements[0]["Resource"],
+            json!([
+                arn("topic/lux/ctl/user/owner-9/setup/s-1/frame"),
+                arn("topic/lux/ctl/user/owner-9/presence/contact-1-*"),
+            ])
+        );
+
+        // Retain: presence only. A guest may not leave a retained frame.
+        assert_eq!(statements[1]["Action"], "iot:RetainPublish");
+        assert_eq!(
+            statements[1]["Resource"],
+            arn("topic/lux/ctl/user/owner-9/presence/contact-1-*").as_str()
+        );
+
+        assert_eq!(statements[2]["Action"], "iot:Subscribe");
+        assert_eq!(
+            statements[2]["Resource"],
+            json!([
+                arn("topicfilter/lux/ctl/user/owner-9/setup/s-1/state"),
+                arn("topicfilter/lux/ctl/user/owner-9/setup/s-1/config"),
+            ])
+        );
+
+        assert_eq!(statements[3]["Action"], "iot:Receive");
+        assert_eq!(
+            statements[3]["Resource"],
+            json!([
+                arn("topic/lux/ctl/user/owner-9/setup/s-1/state"),
+                arn("topic/lux/ctl/user/owner-9/setup/s-1/config"),
+            ])
+        );
+        assert_eq!(statements[4], Value::Null);
+    }
+
+    #[test]
+    fn a_grant_confers_nothing_over_the_owners_wider_space() {
+        let shared = allow(
+            "us-west-1",
+            "735853783919",
+            "contact-1",
+            &[grant("owner-9", "s-1")],
+        );
+        let policy = shared["policyDocuments"].to_string();
+
+        // Every resource naming the owner is pinned to the granted setup or to
+        // this guest's own presence prefix. A wildcard over the owner's ctl
+        // space, their nudge topic, their client ids, or a second setup would
+        // all show up here.
+        assert!(!policy.contains("lux/ctl/user/owner-9/*"));
+        assert!(!policy.contains("lux/ctl/user/owner-9/#"));
+        assert!(!policy.contains("lux/sync/user/owner-9"));
+        assert!(!policy.contains("client/lux-sync-owner-9"));
+        assert!(!policy.contains("presence/*"));
+        assert!(!policy.contains("setup/s-2"));
+        // …and the guest cannot write the two topics the owner's applier owns.
+        for forbidden in ["setup/s-1/state", "setup/s-1/config"] {
+            let publishable = shared["policyDocuments"][1]["Statement"][0]["Resource"].to_string()
+                + &shared["policyDocuments"][1]["Statement"][1]["Resource"].to_string();
+            assert!(!publishable.contains(forbidden), "{forbidden} is publishable");
+        }
+    }
+
+    #[test]
+    fn grants_stay_inside_the_iot_policy_budget() {
+        // The real shapes: UUID subs, UUID setup ids, a full grant load. If a
+        // topic ever grows and this trips, the cap in lux-wire is what moves —
+        // silently emitting documents IoT rejects is the failure this prevents.
+        let grants: Vec<GrantScope> = (0..lux_wire::shares::MAX_GRANTS_PER_CONTACT)
+            .map(|i| grant(UUID_A, &format!("{UUID_B}{i}")))
+            .collect();
+        let response = allow("us-west-1", "735853783919", UUID_A, &grants);
+        let documents = response["policyDocuments"]
+            .as_array()
+            .expect("policyDocuments is an array");
+
+        // Every grant made it in, and the whole set fits the 10-document limit.
+        assert_eq!(documents.len(), lux_wire::shares::MAX_GRANTS_PER_CONTACT + 1);
+        assert!(documents.len() <= MAX_POLICY_DOCUMENTS);
+        for document in documents {
+            let size = document.to_string().len();
+            assert!(size <= MAX_POLICY_DOCUMENT_CHARS, "document is {size} chars");
+        }
+    }
+
+    #[test]
+    fn grants_past_the_document_budget_are_dropped_not_smuggled() {
+        // The claim route refuses past the cap, so reaching this means the
+        // table disagrees with the API — the connection must still work, minus
+        // the grants that don't fit.
+        let grants: Vec<GrantScope> = (0..MAX_POLICY_DOCUMENTS + 5)
+            .map(|i| grant(UUID_A, &format!("setup-{i}")))
+            .collect();
+        let response = allow("us-west-1", "735853783919", UUID_B, &grants);
+        let documents = response["policyDocuments"]
+            .as_array()
+            .expect("policyDocuments is an array");
+
+        assert_eq!(documents.len(), MAX_POLICY_DOCUMENTS);
+        // Truncation never costs the caller their own space, which is first.
+        assert_eq!(response["isAuthenticated"], true);
+        assert!(documents[0].to_string().contains("iot:Connect"));
     }
 }

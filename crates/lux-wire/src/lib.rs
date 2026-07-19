@@ -405,6 +405,179 @@ pub mod device {
     }
 }
 
+pub mod shares {
+    //! Shared control: granting one contact the desk for one setup
+    //! (docs/shared-control.md).
+    //!
+    //! A grant is a triple — (owner, contact, setup). Nothing here shares an
+    //! *account*: the contact signs in as themselves, and the grant only widens
+    //! what their own identity may do on the owner's ctl space (publish frames
+    //! and a presence card; subscribe the applier's state and config). The
+    //! owner's applier stays the sole DMX authority, and guests never sync:
+    //! their surface renders from the retained [`super::ctl::Config`] alone.
+    //!
+    //! Invites are claim codes, not emails — the owner mints a short-lived
+    //! single-use code and sends it over their own channel (iMessage), so there
+    //! is no mail infrastructure and no deliverability surface, and contacts
+    //! using Hide My Email work by construction.
+    //!
+    //! Routes (on the sync API's Function URL, all bearer-authed):
+    //! - `POST   /shares/invite`                        — owner: mint a code
+    //! - `POST   /shares/claim`                         — contact: redeem one
+    //! - `GET    /shares`                               — both directions at once
+    //! - `DELETE /shares/granted/{contactSub}/{setupId}` — owner: revoke
+    //! - `DELETE /shares/received/{ownerSub}/{setupId}`  — contact: leave
+    //! - `DELETE /shares/invite/{codeRef}`               — owner: withdraw a code
+
+    use serde::{Deserialize, Serialize};
+
+    /// Path segments the sync API routes on (see the module docs).
+    pub const SHARES_SEGMENT: &str = "shares";
+    pub const INVITE_SEGMENT: &str = "invite";
+    pub const CLAIM_SEGMENT: &str = "claim";
+    pub const GRANTED_SEGMENT: &str = "granted";
+    pub const RECEIVED_SEGMENT: &str = "received";
+
+    /// Hard ceiling on the live grants **one contact** may hold, across all
+    /// owners. This is not a product limit dressed up as a safety limit: an IoT
+    /// custom authorizer may return at most 10 policy documents, the contact's
+    /// own space takes one, and each grant needs its own (a grant's six ARNs
+    /// run ~1 KB against the 2048-character per-document ceiling, so two grants
+    /// will not reliably share a document). Past this the authorizer would have
+    /// to silently drop grants; instead the claim route refuses loudly and the
+    /// authorizer truncates with an error log if it ever sees more.
+    pub const MAX_GRANTS_PER_CONTACT: usize = 9;
+
+    /// Outstanding (unclaimed, unexpired) invites one owner may hold at once.
+    /// Codes are bearer credentials, so a bounded number of them is a smaller
+    /// standing liability — and it keeps the pending list an honest UI.
+    pub const MAX_PENDING_INVITES: usize = 10;
+
+    /// Invite lifetime. Long enough to survive "I'll set this up tonight",
+    /// short enough that a screenshotted code in a chat log goes stale.
+    pub const INVITE_TTL_SECS: i64 = 48 * 60 * 60;
+
+    /// Body for `POST /shares/invite`.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct InviteRequest {
+        /// The setup this code will grant. Must be one of the caller's own.
+        pub setup_id: String,
+        /// The owner's private note for their manage list ("Chelsea"). Never
+        /// shown to the contact — it is a label *for* them, not *by* them.
+        #[serde(default)]
+        pub label: Option<String>,
+    }
+
+    /// Response to `POST /shares/invite`.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct InviteResponse {
+        /// The claim code, formatted for a human to send in a message. This is
+        /// the only time the server can produce it — only its hash is stored.
+        pub code: String,
+        /// Opaque handle for `DELETE /shares/invite/{codeRef}`, so the minting
+        /// app can withdraw the code without waiting for a list refresh.
+        pub code_ref: String,
+        /// Epoch millis (server clock).
+        pub expires_at: i64,
+    }
+
+    /// Body for `POST /shares/claim`.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ClaimRequest {
+        /// As typed or pasted; the server normalizes case and separators.
+        pub code: String,
+    }
+
+    /// Response to a successful `POST /shares/claim` — everything the guest
+    /// surface needs to start rendering, without a second round trip.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ClaimResponse {
+        /// The owner's Cognito sub: the ctl topic space this grant addresses.
+        pub owner_sub: String,
+        /// How the owner appears in the guest's "Shared with you" list (their
+        /// account email, recorded when the code was minted).
+        pub owner_label: String,
+        pub setup_id: String,
+        #[serde(default)]
+        pub setup_name: Option<String>,
+    }
+
+    /// One grant as the **owner** sees it (`granted` in [`SharesResponse`]).
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct Grant {
+        /// The contact's Cognito sub — the revoke route's key, and what a
+        /// guest's presence card and frames are attributed to.
+        pub contact_sub: String,
+        /// The contact's account email, recorded when they claimed.
+        pub contact_label: String,
+        pub setup_id: String,
+        #[serde(default)]
+        pub setup_name: Option<String>,
+        /// The owner's own note from [`InviteRequest::label`], if they set one.
+        #[serde(default)]
+        pub label: Option<String>,
+        /// Epoch millis (server clock).
+        pub created_at: i64,
+    }
+
+    /// One grant as the **contact** sees it (`received` in [`SharesResponse`]).
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ReceivedGrant {
+        /// The owner's Cognito sub — the ctl topic space to address.
+        pub owner_sub: String,
+        pub owner_label: String,
+        pub setup_id: String,
+        #[serde(default)]
+        pub setup_name: Option<String>,
+        /// Epoch millis (server clock).
+        pub created_at: i64,
+    }
+
+    /// An outstanding invite on the owner's list. The code itself is not here
+    /// and cannot be: only its hash is stored, so a lost code is withdrawn and
+    /// re-minted rather than recovered.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PendingInvite {
+        /// Handle for `DELETE /shares/invite/{codeRef}`.
+        pub code_ref: String,
+        pub setup_id: String,
+        #[serde(default)]
+        pub setup_name: Option<String>,
+        #[serde(default)]
+        pub label: Option<String>,
+        /// Epoch millis (server clock).
+        pub created_at: i64,
+        pub expires_at: i64,
+    }
+
+    /// Response to `GET /shares` — both directions plus outstanding invites in
+    /// one call, because every surface that shows one shows the others.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct SharesResponse {
+        /// Grants the caller has given away (they are the owner).
+        pub granted: Vec<Grant>,
+        /// Grants the caller has received (they are the contact).
+        pub received: Vec<ReceivedGrant>,
+        /// The caller's unclaimed, unexpired invites.
+        #[serde(default)]
+        pub pending: Vec<PendingInvite>,
+    }
+
+    /// Response to any successful `DELETE /shares/…` — revoke, leave, and
+    /// withdraw all answer the same shape.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct RevokeResponse {
+        pub revoked: bool,
+    }
+}
+
 pub mod nudge {
     //! The change-nudge channel: tiny events, opaque to clients.
     //!
@@ -427,6 +600,15 @@ pub mod nudge {
     /// only aids log readability; clients treat every frame identically.
     pub fn settings_changed_frame() -> String {
         serde_json::json!({ "changed": "settings" }).to_string()
+    }
+
+    /// `{"changed":"shares"}` — published to **both** parties after a grant
+    /// changes (claim, revoke, leave, account deletion). Same contract as its
+    /// siblings: opaque, any frame means pull. It reaches a party who is not
+    /// the writer, which is new for this channel and entirely within the
+    /// existing policy — the frame goes to each affected user's own topic.
+    pub fn shares_changed_frame() -> String {
+        serde_json::json!({ "changed": "shares" }).to_string()
     }
 
     /// The per-user nudge topic. The IoT custom authorizer scopes each
@@ -470,7 +652,9 @@ pub mod ctl {
     //!   session-scoped, not setup-scoped, because a connection has exactly one
     //!   will and the active setup changes without reconnecting — the card's
     //!   `setupId` carries the binding.
-    //! - `…/setup/<setupId>/config` — reserved for render-node compiled setups.
+    //! - `…/setup/<setupId>/config` — retained compiled setup ([`Config`]) for
+    //!   surfaces that hold no synced copy of it: shared-control guests today,
+    //!   render nodes later. An empty retained payload clears it.
     //!
     //! Unlike nudge frames (opaque by contract), ctl payloads are parsed —
     //! listeners route by topic. Every payload carries `v` from day one: the
@@ -507,8 +691,8 @@ pub mod ctl {
         format!("{}/setup/{setup_id}/state", user_prefix(sub))
     }
 
-    /// Reserved: retained compiled setup for render nodes. No publisher yet;
-    /// named now so the scheme is carved once.
+    /// Retained compiled setup ([`Config`]) for surfaces that never sync —
+    /// shared-control guests today, render nodes later.
     pub fn config_topic(sub: &str, setup_id: &str) -> String {
         format!("{}/setup/{setup_id}/config", user_prefix(sub))
     }
@@ -517,6 +701,26 @@ pub mod ctl {
     /// client-id suffix the connection already mints).
     pub fn presence_topic(sub: &str, session: &str) -> String {
         format!("{}/presence/{session}", user_prefix(sub))
+    }
+
+    /// A shared-control guest's presence card in the **owner's** space, so the
+    /// owner's desk can show who else is live on it.
+    ///
+    /// The session segment is prefixed with the guest's own sub, which is what
+    /// lets the IoT authorizer grant them `presence/<contactSub>-*` instead of
+    /// the whole `presence/*`: a guest can leave a card, and can never overwrite
+    /// or clear the owner's card or another guest's. (Sub-prefixing is the same
+    /// trick the connection's own client-id prefix uses — the authorizer runs
+    /// before the session id exists, so a wildcard is unavoidable; the question
+    /// is only how narrow it can be made.)
+    pub fn guest_presence_topic(owner_sub: &str, contact_sub: &str, session: &str) -> String {
+        format!("{}/presence/{contact_sub}-{session}", user_prefix(owner_sub))
+    }
+
+    /// The wildcard covering exactly one guest's presence cards in an owner's
+    /// space — the authorizer's resource for [`guest_presence_topic`].
+    pub fn guest_presence_filter(owner_sub: &str, contact_sub: &str) -> String {
+        format!("{}/presence/{contact_sub}-*", user_prefix(owner_sub))
     }
 
     /// One live control write. The two kinds mirror the command layer's two
@@ -619,6 +823,79 @@ pub mod ctl {
                 session,
                 setup_id,
                 name,
+            }
+        }
+    }
+
+    /// A setup compiled down to what it takes to *render a surface for it* —
+    /// published retained by the owner's applier so a consumer that never syncs
+    /// can draw the desk: shared-control guests today, render nodes later.
+    ///
+    /// This is deliberately not a [`super::SetupRecord`]. That shape is the
+    /// authoring model (opaque fixture JSON, revisions, tombstones) and it
+    /// belongs to accounts that own it. This one is the *rendering* model:
+    /// flat, small, and parseable by an embedded node with no JSON DOM — one
+    /// object, two arrays of fixed-shape objects, no nesting beyond that, no
+    /// maps, no optional-object soup.
+    ///
+    /// `role` is a plain string rather than an enum on purpose. A consumer
+    /// matches the roles it knows and treats the rest as a plain fader, so
+    /// adding a role never strands an older reader — the same
+    /// reader-drops-what-it-doesn't-know discipline as [`Frame`]'s `v`.
+    ///
+    /// `channels` lists only *patched* slots. An empty list is not an error and
+    /// not an empty desk: it means the setup has no patch, and a surface should
+    /// render the plain universe (matching what the app already does locally).
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct Config {
+        pub v: u32,
+        pub setup_id: String,
+        /// The setup's display name, as the owner named it.
+        pub name: String,
+        pub universe: u16,
+        pub channels: Vec<ConfigChannel>,
+        pub fixtures: Vec<ConfigFixture>,
+    }
+
+    /// One patched DMX slot in a [`Config`].
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ConfigChannel {
+        /// 1-based DMX slot number, matching [`Frame::Channel`]'s `ch`.
+        pub n: u16,
+        /// The channel's label from the patch.
+        pub name: String,
+        /// Semantic role driving the control affordance and colour ("Red",
+        /// "Brightness", "Generic", …). See the type docs on why it's a string.
+        pub role: String,
+    }
+
+    /// One patched fixture in a [`Config`] — enough to group the channels above
+    /// under a heading, not the fixture's authoring definition.
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ConfigFixture {
+        pub name: String,
+        /// 1-based address of the fixture's first slot.
+        pub address: u16,
+        /// How many consecutive slots it occupies.
+        pub count: u16,
+    }
+
+    impl Config {
+        pub fn new(
+            setup_id: String,
+            name: String,
+            universe: u16,
+            channels: Vec<ConfigChannel>,
+            fixtures: Vec<ConfigFixture>,
+        ) -> Self {
+            Self {
+                v: VERSION,
+                setup_id,
+                name,
+                universe,
+                channels,
+                fixtures,
             }
         }
     }
@@ -995,8 +1272,184 @@ mod tests {
     fn nudge_frame_and_topics() {
         assert_eq!(nudge::setups_changed_frame(), r#"{"changed":"setups"}"#);
         assert_eq!(nudge::settings_changed_frame(), r#"{"changed":"settings"}"#);
+        assert_eq!(nudge::shares_changed_frame(), r#"{"changed":"shares"}"#);
         assert_eq!(nudge::user_topic("abc-123"), "lux/sync/user/abc-123");
         assert_eq!(nudge::client_id_prefix("abc-123"), "lux-sync-abc-123-");
+    }
+
+    #[test]
+    fn shares_invite_shapes() {
+        let req = shares::InviteRequest {
+            setup_id: "s-1".into(),
+            label: Some("Chelsea".into()),
+        };
+        assert_eq!(
+            serde_json::to_string(&req).unwrap(),
+            r#"{"setupId":"s-1","label":"Chelsea"}"#
+        );
+
+        // The label is optional — an invite minted without one still parses.
+        let bare: shares::InviteRequest = serde_json::from_str(r#"{"setupId":"s-1"}"#).unwrap();
+        assert!(bare.label.is_none());
+
+        let resp = shares::InviteResponse {
+            code: "LUX-4KPT9-XQ2WM".into(),
+            code_ref: "9f86d081".into(),
+            expires_at: 1719000000000,
+        };
+        assert_eq!(
+            serde_json::to_string(&resp).unwrap(),
+            r#"{"code":"LUX-4KPT9-XQ2WM","codeRef":"9f86d081","expiresAt":1719000000000}"#
+        );
+    }
+
+    #[test]
+    fn shares_claim_shapes() {
+        assert_eq!(
+            serde_json::to_string(&shares::ClaimRequest {
+                code: "LUX-4KPT9-XQ2WM".into()
+            })
+            .unwrap(),
+            r#"{"code":"LUX-4KPT9-XQ2WM"}"#
+        );
+
+        let resp = shares::ClaimResponse {
+            owner_sub: "owner-1".into(),
+            owner_label: "owner@example.com".into(),
+            setup_id: "s-1".into(),
+            setup_name: Some("Living room".into()),
+        };
+        assert_eq!(
+            serde_json::to_string(&resp).unwrap(),
+            r#"{"ownerSub":"owner-1","ownerLabel":"owner@example.com","setupId":"s-1","setupName":"Living room"}"#
+        );
+
+        // A setup whose name the server couldn't resolve still claims.
+        let nameless: shares::ClaimResponse = serde_json::from_str(
+            r#"{"ownerSub":"o","ownerLabel":"l","setupId":"s","setupName":null}"#,
+        )
+        .unwrap();
+        assert!(nameless.setup_name.is_none());
+    }
+
+    #[test]
+    fn shares_list_shape() {
+        let body = shares::SharesResponse {
+            granted: vec![shares::Grant {
+                contact_sub: "contact-1".into(),
+                contact_label: "contact@example.com".into(),
+                setup_id: "s-1".into(),
+                setup_name: Some("Living room".into()),
+                label: Some("Chelsea".into()),
+                created_at: 1719000000000,
+            }],
+            received: vec![shares::ReceivedGrant {
+                owner_sub: "owner-2".into(),
+                owner_label: "owner@example.com".into(),
+                setup_id: "s-9".into(),
+                setup_name: None,
+                created_at: 1719000000001,
+            }],
+            pending: vec![shares::PendingInvite {
+                code_ref: "9f86d081".into(),
+                setup_id: "s-1".into(),
+                setup_name: Some("Living room".into()),
+                label: None,
+                created_at: 1719000000002,
+                expires_at: 1719172800002,
+            }],
+        };
+        assert_eq!(
+            serde_json::to_string(&body).unwrap(),
+            r#"{"granted":[{"contactSub":"contact-1","contactLabel":"contact@example.com","setupId":"s-1","setupName":"Living room","label":"Chelsea","createdAt":1719000000000}],"received":[{"ownerSub":"owner-2","ownerLabel":"owner@example.com","setupId":"s-9","setupName":null,"createdAt":1719000000001}],"pending":[{"codeRef":"9f86d081","setupId":"s-1","setupName":"Living room","label":null,"createdAt":1719000000002,"expiresAt":1719172800002}]}"#
+        );
+
+        // A reply from a server that predates the pending list still parses —
+        // shared control ships across an App Review lag, so an older client
+        // and a newer server (and the reverse) must both hold.
+        let old: shares::SharesResponse =
+            serde_json::from_str(r#"{"granted":[],"received":[]}"#).unwrap();
+        assert!(old.pending.is_empty());
+
+        assert_eq!(
+            serde_json::to_string(&shares::RevokeResponse { revoked: true }).unwrap(),
+            r#"{"revoked":true}"#
+        );
+    }
+
+    #[test]
+    fn shares_segments_and_caps() {
+        assert_eq!(
+            format!("/{}/{}", shares::SHARES_SEGMENT, shares::INVITE_SEGMENT),
+            "/shares/invite"
+        );
+        assert_eq!(shares::CLAIM_SEGMENT, "claim");
+        assert_eq!(
+            format!(
+                "/{}/{}/{}/{}",
+                shares::SHARES_SEGMENT,
+                shares::GRANTED_SEGMENT,
+                "contact-1",
+                "s-1"
+            ),
+            "/shares/granted/contact-1/s-1"
+        );
+        assert_eq!(shares::RECEIVED_SEGMENT, "received");
+
+        // The grant cap is a protocol constant, not a local policy: the sync
+        // API refuses past it and the authorizer truncates at it, so the two
+        // must read the same number from here. It is bounded by the IoT
+        // authorizer's 10-policy-document limit, one of which is the contact's
+        // own space.
+        assert_eq!(shares::MAX_GRANTS_PER_CONTACT, 9);
+        assert_eq!(shares::INVITE_TTL_SECS, 172_800);
+    }
+
+    #[test]
+    fn ctl_config_shape() {
+        let config = ctl::Config::new(
+            "s-1".into(),
+            "Living room".into(),
+            1,
+            vec![ctl::ConfigChannel {
+                n: 1,
+                name: "Red".into(),
+                role: "Red".into(),
+            }],
+            vec![ctl::ConfigFixture {
+                name: "Par 1".into(),
+                address: 1,
+                count: 5,
+            }],
+        );
+        assert_eq!(
+            serde_json::to_string(&config).unwrap(),
+            r#"{"v":1,"setupId":"s-1","name":"Living room","universe":1,"channels":[{"n":1,"name":"Red","role":"Red"}],"fixtures":[{"name":"Par 1","address":1,"count":5}]}"#
+        );
+
+        // An unpatched setup publishes empty lists, not a missing key: a fixed
+        // parser reads the same field set every time.
+        let bare = ctl::Config::new("s-2".into(), "Blank".into(), 3, vec![], vec![]);
+        assert_eq!(
+            serde_json::to_string(&bare).unwrap(),
+            r#"{"v":1,"setupId":"s-2","name":"Blank","universe":3,"channels":[],"fixtures":[]}"#
+        );
+
+        // A role this reader has never heard of is a string it can ignore, not
+        // a parse failure — the whole reason `role` isn't an enum.
+        let future: ctl::Config = serde_json::from_str(
+            r#"{"v":1,"setupId":"s","name":"n","universe":1,"channels":[{"n":7,"name":"UV","role":"Ultraviolet"}],"fixtures":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(future.channels[0].role, "Ultraviolet");
+
+        // The version gate is the reader's job, so a newer payload of a known
+        // shape must survive deserialization to be dropped deliberately.
+        let newer: ctl::Config = serde_json::from_str(
+            r#"{"v":9,"setupId":"s","name":"n","universe":1,"channels":[],"fixtures":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(newer.v, 9);
     }
 
     #[test]
@@ -1019,6 +1472,23 @@ mod tests {
             ctl::presence_topic("abc-123", "0a1b2c3d"),
             "lux/ctl/user/abc-123/presence/0a1b2c3d"
         );
+
+        // A guest's card lands in the owner's space, under the guest's own sub
+        // so the authorizer can wildcard exactly that guest and nothing else.
+        assert_eq!(
+            ctl::guest_presence_topic("owner-1", "contact-2", "0a1b2c3d"),
+            "lux/ctl/user/owner-1/presence/contact-2-0a1b2c3d"
+        );
+        assert_eq!(
+            ctl::guest_presence_filter("owner-1", "contact-2"),
+            "lux/ctl/user/owner-1/presence/contact-2-*"
+        );
+        // The filter must cover the topic and stop at the guest's own prefix.
+        let filter = ctl::guest_presence_filter("owner-1", "contact-2");
+        let stem = filter.trim_end_matches('*');
+        assert!(ctl::guest_presence_topic("owner-1", "contact-2", "s").starts_with(stem));
+        assert!(!ctl::presence_topic("owner-1", "owner-session").starts_with(stem));
+        assert!(!ctl::guest_presence_topic("owner-1", "contact-3", "s").starts_with(stem));
     }
 
     #[test]
