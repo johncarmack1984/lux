@@ -8,6 +8,7 @@ import ColorTrigger from "@/components/color-picker/color-trigger";
 import useThrottle from "@/hooks/useThrottle";
 import { setChannelValue } from "@/lib/actions";
 import { emittersToRgb, mixToEmitters } from "@/lib/color-mix";
+import { togglePreset, useActivePresetId } from "@/lib/preset-toggle";
 
 /**
  * Reading light: tungsten/amber at full, master at 40%. Expressed as a picker
@@ -63,12 +64,13 @@ export default function FixtureColor({
     setColor({ ...rgb, a: dimmer ? at(dimmer) / 255 : 1 });
   }, [buffer, r, g, b, amber, white, dimmer]);
 
-  const send = useThrottle((next: RgbaColor) => {
+  /** The per-address writes that render `next` on this fixture's emitters. */
+  const emitterWrites = (next: RgbaColor): Array<[number | null, number]> => {
     const mix = mixToEmitters(next.r, next.g, next.b, {
       amber: amber !== null,
       white: white !== null,
     });
-    const writes: Array<[number | null, number]> = [
+    return [
       [r, mix.r],
       [g, mix.g],
       [b, mix.b],
@@ -76,7 +78,10 @@ export default function FixtureColor({
       [white, mix.w],
       [dimmer, Math.round(next.a * 255)],
     ];
-    for (const [addr, value] of writes) {
+  };
+
+  const send = useThrottle((next: RgbaColor) => {
+    for (const [addr, value] of emitterWrites(next)) {
       if (addr) setChannelValue({ channelNumber: addr, value }).catch(() => {});
     }
   }, 40);
@@ -84,6 +89,20 @@ export default function FixtureColor({
   const onChange = (next: RgbaColor) => {
     setColor(next);
     send(next);
+  };
+
+  // Reading light toggles: engaging snapshots the frame it replaces, pressing
+  // again restores it. Applied as one buffer write (not through the throttled
+  // wheel path) so the toggle store can track exactly what it set; the swatch
+  // and wheel follow via the buffer round-trip like any out-of-band change.
+  const presetId = `reading-light-${fixture.id}`;
+  const readingLightActive = useActivePresetId() === presetId;
+  const onReadingLight = () => {
+    const writes = new Map<number, number>();
+    for (const [addr, value] of emitterWrites(READING_LIGHT)) {
+      if (addr) writes.set(addr, value);
+    }
+    togglePreset(presetId, writes).catch(() => {});
   };
 
   // Glow tracks the dimmer when present, else the brightest color channel.
@@ -103,10 +122,12 @@ export default function FixtureColor({
         <RgbaColorPicker className="mx-auto" color={color} onChange={onChange} />
         <div className="mt-3">
           <Button
-            variant="outline"
+            variant={readingLightActive ? "default" : "outline"}
             size="sm"
             className="w-full gap-2"
-            onClick={() => onChange(READING_LIGHT)}
+            aria-pressed={readingLightActive}
+            disabled={!buffer}
+            onClick={onReadingLight}
           >
             <LampDesk className="size-4" /> Reading light
           </Button>
