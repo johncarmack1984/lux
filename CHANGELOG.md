@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.0](https://github.com/johncarmack1984/lux/compare/v1.5.0...v1.6.0) (2026-07-19)
+
+
+### Features
+
+* **auth:** stage the device-pairing foundations ([#206](https://github.com/johncarmack1984/lux/issues/206)) ([1a6cc9d](https://github.com/johncarmack1984/lux/commit/1a6cc9d576db7c3a2f93923e7151d63e78d5e534))
+* **auth:** the device-pairing grant — routes, trigger path, device mint ([#208](https://github.com/johncarmack1984/lux/issues/208)) ([4cdbd3d](https://github.com/johncarmack1984/lux/commit/4cdbd3d96aff2e22c81cc95423b8f381c74aa9a2))
+
 ## [1.5.0](https://github.com/johncarmack1984/lux/compare/v1.4.0...v1.5.0) (2026-07-18)
 
 
