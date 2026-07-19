@@ -39,11 +39,12 @@ pub async fn run(
 ) -> Result<(), String> {
     let mut universe = Universe::default();
     let mut refresh_token = session.refresh_token;
+    let client_id = session.client_id;
     let mut backoff_secs = 1u64;
 
     loop {
         // Fresh ID token every attempt; Cognito may rotate the refresh token.
-        let tokens = match auth::refresh(&env, &refresh_token).await {
+        let tokens = match auth::refresh(&env, client_id.as_deref(), &refresh_token).await {
             Ok(tokens) => tokens,
             Err(e) => {
                 log::warn!("token refresh failed ({e}); retrying in {backoff_secs}s");

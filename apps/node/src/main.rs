@@ -89,6 +89,7 @@ fn login(opts: install::Options) -> Result<(), String> {
     config::save_session(&config::StoredSession {
         email: email.clone(),
         refresh_token: refresh,
+        client_id: None,
     })?;
     println!("signed in as {email}; session stored. Next: lux-node run");
     Ok(())
