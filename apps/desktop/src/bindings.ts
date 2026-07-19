@@ -155,6 +155,11 @@ export const cmd = {
   },
 
   /** @throws {string} */
+  list_paired_devices(): Promise<PairedDevice[]> {
+    return invoke("cmd.list_paired_devices");
+  },
+
+  /** @throws {string} */
   list_dmx_devices(): Promise<DmxDeviceInfo[]> {
     return invoke("cmd.list_dmx_devices");
   },
@@ -291,6 +296,15 @@ export type LuxChannels = {
 export type LuxLabelColor = "Red" | "Green" | "Blue" | "Amber" | "White" | "Brightness" | 
 /**  Raw universe channels (7..=512) with no fixed colour role. */
 "Generic";
+
+/**
+ *  One paired headless device (a lux-node box) on the account, thinned from
+ *  [`lux_wire::device::DeviceRecord`] to what the confirm dialog shows.
+ */
+export type PairedDevice = {
+	name: string,
+	hostname: string,
+};
 
 /**
  *  How the current session was established. Password sessions can change
