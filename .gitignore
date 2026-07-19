@@ -54,3 +54,4 @@ apps/desktop/src-tauri/mas/
 # Claude Code — local working notes, not for the public repo
 CLAUDE.md
 .claude/
+AGENTS.md
