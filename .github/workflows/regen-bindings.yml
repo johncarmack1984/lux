@@ -1,0 +1,85 @@
+# Regenerates apps/desktop/src/bindings.ts from the ttipc generator and pushes
+# the result back to the given branch — the self-serve path when a cmd/sync
+# procedure change is authored somewhere that can't compile the desktop crate
+# (a headless box has no webkitgtk stack). Dispatch with the branch to fix;
+# no-ops when the committed bindings already match.
+#
+# Note: the push uses the workflow GITHUB_TOKEN, which deliberately does not
+# retrigger CI — follow up with any push (e.g. an empty commit) or rerun to
+# get checks on the regenerated head.
+name: regen-bindings
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch whose bindings to regenerate (result is pushed back to it)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: "true"
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  regen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ inputs.branch }}
+
+      # Tauri's Rust crates link the system webkitgtk/gtk stack on Linux, so the
+      # -dev packages must be present for the *-sys crates to compile.
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            build-essential \
+            curl wget file
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: apps/desktop/package.json
+
+      # tauri::generate_context! embeds ../dist at compile time, so the frontend
+      # must be built before anything compiles the desktop crate (incl. its tests).
+      - name: Build frontend (for generate_context!)
+        working-directory: apps/desktop
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch
+
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: "."
+          cache-targets: "false"
+
+      - name: Regenerate bindings
+        run: REGEN_BINDINGS=1 cargo test -p lux --test bindings --locked
+
+      - name: Push the result back
+        run: |
+          if git diff --quiet apps/desktop/src/bindings.ts; then
+            echo "bindings already in sync"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(app): regenerate bindings" apps/desktop/src/bindings.ts
+          git push origin "HEAD:${{ inputs.branch }}"
