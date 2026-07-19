@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.7.0](https://github.com/johncarmack1984/lux/compare/v1.6.0...v1.7.0) (2026-07-19)
+
+
+### Features
+
+* **node:** sessions record the app client that minted them ([#210](https://github.com/johncarmack1984/lux/issues/210)) ([46fc216](https://github.com/johncarmack1984/lux/commit/46fc216cdc2e0d3d2302f99fe60c7ee74ed36cb3))
+
+
+### Bug Fixes
+
+* **ui:** drop the dialog slide-in/out utilities that skewed the open animation ([#209](https://github.com/johncarmack1984/lux/issues/209)) ([a389783](https://github.com/johncarmack1984/lux/commit/a3897833d99e7f63f24a7375223c6dd33d3313e3))
+
 ## [1.6.0](https://github.com/johncarmack1984/lux/compare/v1.5.0...v1.6.0) (2026-07-19)
 
 
