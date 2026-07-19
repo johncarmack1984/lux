@@ -279,7 +279,14 @@ async fn tombstone(ctx: &Ctx, sub: &str, id: &str, req: &Request) -> Result<Resp
 /// authorizer's cache expired, publish rights into a dead topic space). Same
 /// discipline as revoking the Apple grant before the wipe.
 async fn delete_user_data(ctx: &Ctx, sub: &str) -> Result<Response<Body>, Error> {
-    shares::cleanup_for_deleted_user(ctx, sub).await;
+    // Refuse to wipe on a failed cleanup rather than proceed and strand a
+    // grant: once this partition is gone there is nothing left to find the
+    // other halves from, and a surviving mirror is access no one can revoke.
+    // The whole flow is idempotent, so the client's retry finishes the job.
+    if let Err(e) = shares::cleanup_for_deleted_user(ctx, sub).await {
+        tracing::error!("shares cleanup failed, refusing to wipe: {e}");
+        return reply(500, error("internal"));
+    }
     match store::delete_all(&ctx.ddb, &ctx.table, sub).await {
         Ok(deleted_items) => reply(200, DeleteUserDataResponse { deleted_items }),
         Err(e) => {

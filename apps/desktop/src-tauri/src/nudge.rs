@@ -162,12 +162,16 @@ impl LuxNudge {
 
     /// The user's other live connections, stable-ordered for the UI poll.
     pub fn remote_peers(&self) -> Vec<RemotePeer> {
+        // `session` comes from the topic, not the card body: the topic is what
+        // the authorizer scoped, the body is whatever the publisher typed. They
+        // agree for a peer's own cards, and a shared-control guest could
+        // otherwise present itself under someone else's session id.
         let mut peers: Vec<RemotePeer> = self
             .peers
             .lock_or_recover()
-            .values()
-            .map(|card| RemotePeer {
-                session: card.session.clone(),
+            .iter()
+            .map(|(session, card)| RemotePeer {
+                session: session.clone(),
                 setup_id: card.setup_id.clone(),
                 name: card.name.clone(),
             })

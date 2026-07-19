@@ -50,12 +50,26 @@ const CODE_ALPHABET: &[u8] = b"23456789CDFGHJKMNPQRTVWXZ";
 const CODE_LEN: usize = 10;
 
 /// Mint a code in the shape a human sends in a message: `LUX-XXXXX-XXXXX`.
+///
+/// Rejection-sampled rather than reduced modulo the alphabet, so every symbol
+/// is equally likely and the entropy noted above is the real figure rather than
+/// an upper bound. (Plain `% 25` would favour 6 of the 25 symbols by about
+/// 10%, costing roughly a bit — immaterial against a single-use 48-hour code,
+/// but the property is free to keep.)
 fn mint_code() -> Result<String, String> {
-    let bytes = random::<CODE_LEN>()?;
-    let body: String = bytes
-        .iter()
-        .map(|b| CODE_ALPHABET[*b as usize % CODE_ALPHABET.len()] as char)
-        .collect();
+    let span = CODE_ALPHABET.len() as u16;
+    let ceiling = (256 / span) * span; // largest whole multiple of the alphabet
+    let mut body = String::with_capacity(CODE_LEN);
+    while body.len() < CODE_LEN {
+        for b in random::<CODE_LEN>()? {
+            if (b as u16) < ceiling {
+                body.push(CODE_ALPHABET[b as usize % CODE_ALPHABET.len()] as char);
+                if body.len() == CODE_LEN {
+                    break;
+                }
+            }
+        }
+    }
     Ok(format!("LUX-{}-{}", &body[..5], &body[5..]))
 }
 
@@ -152,6 +166,15 @@ pub async fn invite(
         Ok(b) => b,
         Err(e) => return reply(400, error(&e)),
     };
+
+    // A setup id ends up inside an IAM resource ARN at the authorizer, where
+    // `*` matches `/` — so `PUT /setups/*` followed by an invite would widen
+    // the grant across the owner's whole setup space. Refuse the id here as
+    // well as there; the write path still accepts whatever it always did, so
+    // no existing setup stops syncing over this.
+    if !is_shareable_id(&body.setup_id) {
+        return reply(400, error("that setup cannot be shared"));
+    }
 
     // Only over a setup the caller actually owns and hasn't deleted. This is
     // the authorization check for the whole feature: a grant can only ever name
@@ -311,9 +334,10 @@ pub async fn claim(
     // The cap the IoT authorizer's policy-document budget forces (see
     // lux_wire::shares::MAX_GRANTS_PER_CONTACT). Refusing here is the loud half
     // of "cap loudly"; the authorizer truncating is the silent half we never
-    // want to reach. Two simultaneous claims could both pass this read and land
-    // one over — the authorizer still holds the real line, and the next claim
-    // is refused.
+    // want to reach. Simultaneous claims can all pass this read before any of
+    // them commits, so the overshoot is bounded by how many live codes one
+    // contact holds at once, not by one — the authorizer is the enforcing line
+    // either way, and it fails closed by truncating.
     if existing.len() >= MAX_GRANTS_PER_CONTACT {
         return reply(
             409,
@@ -561,44 +585,38 @@ pub async fn withdraw(ctx: &Ctx, sub: &str, reference: &str) -> Result<Response<
 /// The retained `config` topics go too: they carry the setup's name and channel
 /// labels, and deleting an account has to mean the data actually leaves.
 ///
-/// Best-effort per item, deliberately: a failure to clean one grant must not
-/// abort a deletion the user asked for and Cognito is about to complete. What
-/// survives a partial failure is at worst a stale row, and the next reader
-/// (list, authorizer) resolves an unmatched half as no access.
-pub async fn cleanup_for_deleted_user(ctx: &Ctx, sub: &str) {
-    let owned = query_partition(ctx, &grant_pk(sub)).await.unwrap_or_else(|e| {
-        tracing::error!("deletion: own grant partition unreadable: {e}");
-        Vec::new()
-    });
-    let received = query_partition(ctx, &shared_pk(sub))
-        .await
-        .unwrap_or_else(|e| {
-            tracing::error!("deletion: shared partition unreadable: {e}");
-            Vec::new()
-        });
+/// **Fallible on purpose, and the caller must not wipe on an error.** An
+/// earlier draft of this ran best-effort and claimed a stale half "resolves as
+/// no access" — that is false, and the module header above says why: the
+/// authorizer reads `SHARED#<sub>` and nothing else, so a surviving mirror is a
+/// live grant into a topic space whose owner no longer exists, with both the
+/// owner's row and the owner's Cognito user gone. There is no revoking that.
+///
+/// So a read or delete that fails here fails the whole request. Deletion is
+/// already idempotent and retryable end to end (the app deletes the Cognito
+/// user only after this returns), and a retry re-reads a shorter list and
+/// finishes the job.
+pub async fn cleanup_for_deleted_user(ctx: &Ctx, sub: &str) -> Result<(), String> {
+    let owned = query_partition(ctx, &grant_pk(sub)).await?;
+    let received = query_partition(ctx, &shared_pk(sub)).await?;
 
     let mut notify: HashSet<String> = HashSet::new();
-    let mut shared_setups: HashSet<String> = HashSet::new();
 
-    // As owner: drop each contact's mirror, and remember the setups whose
-    // retained config has to be cleared.
+    // As owner: drop each contact's mirror.
     for item in &owned {
         let Some(sk) = read_s(item, "sk") else { continue };
         if let Some(contact_sub) = read_s(item, "contactSub") {
             if sk.starts_with("CONTACT#") {
-                if let Some(setup_id) = read_s(item, "setupId") {
-                    shared_setups.insert(setup_id);
-                }
-                delete_key(ctx, &shared_pk(&contact_sub), &mirror_sk_of_owned(item, sub)).await;
+                delete_key(ctx, &shared_pk(&contact_sub), &mirror_sk_of_owned(item, sub)).await?;
                 notify.insert(contact_sub);
             }
         }
         // Outstanding invites: the code row lives in its own partition and
         // would otherwise stay claimable until its TTL.
         if let Some(reference) = read_s(item, "codeRef") {
-            delete_key(ctx, &invite_pk(&reference), INVITE_SK).await;
+            delete_key(ctx, &invite_pk(&reference), INVITE_SK).await?;
         }
-        delete_key(ctx, &grant_pk(sub), &sk).await;
+        delete_key(ctx, &grant_pk(sub), &sk).await?;
     }
 
     // As contact: drop each owner's half of the grant.
@@ -610,20 +628,32 @@ pub async fn cleanup_for_deleted_user(ctx: &Ctx, sub: &str) {
         ) else {
             continue;
         };
-        delete_key(ctx, &grant_pk(&owner_sub), &grant_sk(sub, &setup_id)).await;
-        delete_key(ctx, &shared_pk(sub), &sk).await;
+        delete_key(ctx, &grant_pk(&owner_sub), &grant_sk(sub, &setup_id)).await?;
+        delete_key(ctx, &shared_pk(sub), &sk).await?;
         notify.insert(owner_sub);
     }
 
-    // Retained config carries setup and channel names; clear it with an empty
-    // retained payload, the same idiom presence cards already use.
-    for setup_id in &shared_setups {
-        clear_retained_config(ctx, sub, setup_id).await;
+    // Retained config carries the setup's name and every channel label. Sweep
+    // *every* setup the account has, not just the currently-granted ones: a
+    // setup that was shared and then revoked still has a retained config, and
+    // driving this from live grants alone would walk straight past it.
+    // Clearing a topic that never had a retained message is a no-op.
+    for item in query_partition(ctx, &format!("USER#{sub}")).await? {
+        if let Some(setup_id) = read_s(&item, "sk").and_then(|sk| {
+            sk.strip_prefix("SETUP#")
+                .filter(|id| !id.is_empty())
+                .map(str::to_owned)
+        }) {
+            clear_retained_config(ctx, sub, &setup_id).await;
+        }
     }
 
+    // Nudges stay best-effort, as everywhere else: a missed one is healed by
+    // the other party's next pull, and it is not a correctness boundary.
     for other in &notify {
         nudge(ctx, other, lux_wire::nudge::shares_changed_frame()).await;
     }
+    Ok(())
 }
 
 /// Given a row from the owner's `GRANT#` partition, the key of its mirror in
@@ -791,20 +821,30 @@ async fn delete_grant(
     Ok(())
 }
 
-/// Best-effort single-item delete for the cleanup paths (see
-/// [`cleanup_for_deleted_user`] on why one failure must not stop the rest).
-async fn delete_key(ctx: &Ctx, pk: &str, sk: &str) {
-    if let Err(e) = ctx
-        .ddb
+/// Single-item delete for the cleanup paths. Failing loudly matters here: a
+/// mirror that survives is access nobody can revoke (see
+/// [`cleanup_for_deleted_user`]).
+async fn delete_key(ctx: &Ctx, pk: &str, sk: &str) -> Result<(), String> {
+    ctx.ddb
         .delete_item()
         .table_name(&ctx.table)
         .key("pk", s(pk))
         .key("sk", s(sk))
         .send()
         .await
-    {
-        tracing::warn!("cleanup delete of {pk}/{sk} failed: {e}");
-    }
+        .map_err(|e| format!("cleanup delete of {pk}/{sk} failed: {e}"))?;
+    Ok(())
+}
+
+/// Can this setup id safely become part of an IAM resource ARN? Setup ids are
+/// UUIDs in practice, but the write path never enforced that, and "in practice"
+/// is not a check when the answer decides how wide a grant is.
+fn is_shareable_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 /// Is this row an outstanding (unclaimed, unexpired) invite?
@@ -899,6 +939,20 @@ mod tests {
         // …and the round trip closes: the mirror's own key rebuilds the near
         // half, which is what the contact-side deletion loop does.
         assert_eq!(Some(grant_sk("contact-1", "s-1")), read_s(&owned, "sk"));
+    }
+
+    #[test]
+    fn ids_that_would_widen_a_grant_are_not_shareable() {
+        // A UUID, which is what every real setup id is.
+        assert!(is_shareable_id("7f0175a6-3b64-4a2a-9e1c-000000000001"));
+        // `PUT /setups/*` is a legal request, so this id can genuinely exist —
+        // and in an ARN it would grant the owner's entire setup space, because
+        // IAM wildcards match `/`.
+        assert!(!is_shareable_id("*"));
+        assert!(!is_shareable_id("a/b"));
+        assert!(!is_shareable_id("s-1/../s-2"));
+        assert!(!is_shareable_id(""));
+        assert!(!is_shareable_id(&"x".repeat(65)));
     }
 
     #[test]

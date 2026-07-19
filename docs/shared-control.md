@@ -76,13 +76,15 @@ After any grant change, both affected accounts get an opaque `{"changed":"shares
 
 The one security-critical change. After the JWT verifies, the authorizer queries `SHARED#<sub>` and appends **one policy document per grant**:
 
-- **publish** `…/setup/<id>/frame` and `…/presence/<contactSub>-*`
-- **retain-publish** `…/presence/<contactSub>-*` only
+- **publish** `…/setup/<id>/frame` and `…/presence/<contactSub>`
+- **retain-publish** `…/presence/<contactSub>` only
 - **subscribe/receive** `…/setup/<id>/state` and `…/setup/<id>/config`
 
 The asymmetry is the design. A guest publishes live frames and its own presence card, and reads what the applier publishes. It cannot publish `state` or `config`: the owner's applier is the sole authority on both, and a guest that could retain either could lie to every other surface — including after it left.
 
-Guest presence cards are prefixed with the guest's own sub so the wildcard can be scoped to exactly one guest (`presence/<contactSub>-*`). The authorizer runs during the WebSocket handshake, before a session id exists, so *some* wildcard is unavoidable; the question is only how narrow it can be made. A guest can leave a card and can never clear the owner's or another guest's.
+Guest presence cards go to one exact topic per guest, `…/presence/<contactSub>` — deliberately not per session, and with no wildcard at all. The authorizer runs during the WebSocket handshake, before a session id exists, so a per-session topic could only be authorized as `presence/<contactSub>-*`; and a wildcard over a topic namespace is an unbounded retained-write primitive. A guest could retain messages on arbitrarily many topics, the owner would replay every one on each reconnect, and revoking the grant would remove the guest's ability to clear them — leaving a mess that outlives the grant and that revocation makes permanent rather than fixing. Per-session granularity buys nothing anyway, since a connection's one Last Will stays on the guest's own topic and cards in the owner's space are explicit publish/clear either way. The cost is that a guest signed in on two devices shows one card.
+
+Nothing unvalidated is spliced into an ARN. `PUT /setups/*` is a legal request, so a setup can genuinely be named `*` — and IAM wildcards match `/`, so that id reaching a policy would silently widen a grant across the owner's entire setup space. The invite route rejects ids outside `[A-Za-z0-9_-]`, and the authorizer refuses to emit a document for one regardless of what the write path allowed.
 
 **Why one document per grant, and why the cap is 9.** AWS IoT accepts at most 10 policy documents from a custom authorizer, each at most 2048 characters. A grant's six ARNs (UUID subs, UUID setup ids) run about 1 KB, so two grants will not reliably share a document, and an oversized document is rejected *wholesale* — which would take the caller's own access down with it. One grant per document, with the caller's own space taking the first, gives a hard ceiling of 9. That number lives in `lux_wire::shares::MAX_GRANTS_PER_CONTACT` so the claim route and the authorizer cannot disagree about it.
 
@@ -106,6 +108,10 @@ Deleting an account ends every grant it is part of, in both directions, and the 
 
 As an owner: every contact's mirror row is removed, outstanding invite codes are burned, and the retained `config` frames are cleared. As a contact: the mirrored row in each owner's partition is removed. Everyone affected gets a nudge.
 
+The config sweep runs over *every* setup on the account rather than the currently-granted ones: a setup that was shared and then revoked still has a retained config, and driving the sweep from live grants alone would walk straight past it.
+
+**This step is fallible and the wipe is gated on it.** A stale mirror is not a cosmetic leftover — the authorizer reads `SHARED#<sub>` and nothing else, so a surviving row is a live grant into a topic space whose owner account no longer exists, with the owner's row and the owner's Cognito user both gone. There is no revoking that. So a failed read or delete fails the whole request; deletion is idempotent end to end, and the client's retry re-reads a shorter list and finishes.
+
 Clearing retained config is done **server-side**, not by the app before it signs out. Two reasons. The contact direction has no app-side option at all — a departing guest has no publish rights in the owner's space, correctly — so one direction is forced server-side and one mechanism beats two. And an app that is killed mid-deletion (or an iOS app suspended between steps) would otherwise leave a retained frame carrying setup and channel names addressed to an account that no longer exists. Deleting an account has to mean the data actually leaves.
 
 The delete-account confirm shows both directions before it happens, alongside the setup and paired-device counts.
@@ -115,4 +121,5 @@ The delete-account confirm shows both directions before it happens, alongside th
 - **Presence can go stale.** A connection has exactly one Last Will and it targets the guest's own presence topic, so a guest's card in the owner's space is explicit-publish/explicit-clear. An ungraceful drop can leave a card up until the guest reconnects or signs out. Cards carry a timestamp so surfaces can render staleness.
 - **Guest publish rate** rides the existing ~25 Hz client-side coalescing. Among invited contacts that is a courtesy, not a defence.
 - **Grant labels are denormalized.** The contact's and owner's email are recorded on the grant when it is created; renaming a setup or changing an email later does not rewrite existing rows. The live name reaches the guest through `Config`, which is what their surface actually draws from.
-- **Two simultaneous claims** by one contact can both pass the cap check and land one grant over. The authorizer still holds the real line, and the next claim is refused.
+- **Simultaneous claims can overshoot the cap.** They can all read the grant count before any of them commits, so the overshoot is bounded by how many live codes one contact holds at once, not by one. The authorizer is the enforcing line either way and fails closed by truncating; the visible effect is that grants past the ninth silently do nothing.
+- **Deletion clears retained `config`, but not retained `state` or presence cards.** Those predate this feature and are not part of a grant, and clearing them would need `iot:Publish` on the `state` and `presence` topics — which would cost the property that makes the current grant safe: that the sync API cannot publish a frame or a state, and so cannot drive anybody's lights. (`iot:RetainPublish` alone does not suffice; IoT requires `iot:Publish` for any publish, retained or not.) Worth revisiting on its own terms — a presence card's `name` is the machine hostname, which is often a person's name — but not by quietly widening this role.

@@ -48,6 +48,20 @@ use serde_json::{json, Value};
 const MAX_POLICY_DOCUMENTS: usize = 10;
 const MAX_POLICY_DOCUMENT_CHARS: usize = 2048;
 
+/// Is this identifier safe to splice into an IAM resource ARN?
+///
+/// Subs and setup ids are UUIDs in practice, but "in practice" is not a check.
+/// IAM wildcards match `/`, so a single `*` reaching an ARN turns one grant
+/// into a grant over everything under that path segment — the difference
+/// between "one setup" and "every setup this owner will ever have".
+fn is_arn_safe(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
 /// One live grant, reduced to what a policy needs: whose space, which setup.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct GrantScope {
@@ -287,6 +301,19 @@ fn allow(region: &str, account: &str, sub: &str, grants: &[GrantScope]) -> Value
             );
             break;
         }
+        // Nothing unvalidated is ever spliced into an IAM resource. An id
+        // carrying `*` would silently widen the grant across the owner's whole
+        // setup space, since IAM wildcards match `/` — the ARN builder is the
+        // last place that can still refuse, so it does, whatever the write
+        // path allowed.
+        if !is_arn_safe(&grant.owner_sub) || !is_arn_safe(&grant.setup_id) {
+            tracing::error!(
+                "grant on {}/{} has an id unsafe for an ARN; skipping it",
+                grant.owner_sub,
+                grant.setup_id
+            );
+            continue;
+        }
         let document = grant_policy(&prefix, sub, grant);
         // A document over the ceiling is rejected by IoT as a whole, which
         // would take the caller's own access down with it. Dropping the one
@@ -331,7 +358,7 @@ fn grant_policy(prefix: &str, contact_sub: &str, grant: &GrantScope) -> Value {
     let frame = lux_wire::ctl::frame_topic(&grant.owner_sub, &grant.setup_id);
     let state = lux_wire::ctl::state_topic(&grant.owner_sub, &grant.setup_id);
     let config = lux_wire::ctl::config_topic(&grant.owner_sub, &grant.setup_id);
-    let presence = lux_wire::ctl::guest_presence_filter(&grant.owner_sub, contact_sub);
+    let presence = lux_wire::ctl::guest_presence_topic(&grant.owner_sub, contact_sub);
 
     json!({
         "Version": "2012-10-17",
@@ -537,7 +564,7 @@ mod tests {
             statements[0]["Resource"],
             json!([
                 arn("topic/lux/ctl/user/owner-9/setup/s-1/frame"),
-                arn("topic/lux/ctl/user/owner-9/presence/contact-1-*"),
+                arn("topic/lux/ctl/user/owner-9/presence/contact-1"),
             ])
         );
 
@@ -545,7 +572,7 @@ mod tests {
         assert_eq!(statements[1]["Action"], "iot:RetainPublish");
         assert_eq!(
             statements[1]["Resource"],
-            arn("topic/lux/ctl/user/owner-9/presence/contact-1-*").as_str()
+            arn("topic/lux/ctl/user/owner-9/presence/contact-1").as_str()
         );
 
         assert_eq!(statements[2]["Action"], "iot:Subscribe");
@@ -587,6 +614,10 @@ mod tests {
         assert!(!policy.contains("lux/sync/user/owner-9"));
         assert!(!policy.contains("client/lux-sync-owner-9"));
         assert!(!policy.contains("presence/*"));
+        // The guest's presence resource is an exact topic: no wildcard means
+        // no unbounded retained-write namespace, and nothing to leave behind
+        // that a revoked guest could no longer clear.
+        assert!(!policy.contains("presence/contact-1-"));
         assert!(!policy.contains("setup/s-2"));
         // …and the guest cannot write the two topics the owner's applier owns.
         for forbidden in ["setup/s-1/state", "setup/s-1/config"] {
@@ -594,6 +625,42 @@ mod tests {
                 + &shared["policyDocuments"][1]["Statement"][1]["Resource"].to_string();
             assert!(!publishable.contains(forbidden), "{forbidden} is publishable");
         }
+    }
+
+    #[test]
+    fn ids_unsafe_for_an_arn_never_reach_one() {
+        // `PUT /setups/*` is a legal request, so a setup really can be named
+        // `*`. Spliced into an ARN it would widen the grant across every setup
+        // the owner has, because IAM wildcards match `/`. The same goes for an
+        // id carrying a path separator or an over-long one.
+        for bad in ["*", "s-1/../s-2", "a/b", "", &"x".repeat(65)] {
+            let response = allow(
+                "us-west-1",
+                "735853783919",
+                "contact-1",
+                &[grant(UUID_A, bad)],
+            );
+            assert_eq!(
+                response["policyDocuments"].as_array().map(Vec::len),
+                Some(1),
+                "an id of {bad:?} produced a policy document"
+            );
+        }
+        // A hostile owner sub is refused the same way.
+        let response = allow("us-west-1", "735853783919", "contact-1", &[grant("*", "s-1")]);
+        assert_eq!(response["policyDocuments"].as_array().map(Vec::len), Some(1));
+
+        // …and one bad grant does not cost the caller their good ones.
+        let response = allow(
+            "us-west-1",
+            "735853783919",
+            "contact-1",
+            &[grant(UUID_A, "*"), grant(UUID_A, UUID_B)],
+        );
+        assert_eq!(response["policyDocuments"].as_array().map(Vec::len), Some(2));
+        assert!(response["policyDocuments"][1]
+            .to_string()
+            .contains(UUID_B));
     }
 
     #[test]

@@ -706,21 +706,22 @@ pub mod ctl {
     /// A shared-control guest's presence card in the **owner's** space, so the
     /// owner's desk can show who else is live on it.
     ///
-    /// The session segment is prefixed with the guest's own sub, which is what
-    /// lets the IoT authorizer grant them `presence/<contactSub>-*` instead of
-    /// the whole `presence/*`: a guest can leave a card, and can never overwrite
-    /// or clear the owner's card or another guest's. (Sub-prefixing is the same
-    /// trick the connection's own client-id prefix uses — the authorizer runs
-    /// before the session id exists, so a wildcard is unavoidable; the question
-    /// is only how narrow it can be made.)
-    pub fn guest_presence_topic(owner_sub: &str, contact_sub: &str, session: &str) -> String {
-        format!("{}/presence/{contact_sub}-{session}", user_prefix(owner_sub))
-    }
-
-    /// The wildcard covering exactly one guest's presence cards in an owner's
-    /// space — the authorizer's resource for [`guest_presence_topic`].
-    pub fn guest_presence_filter(owner_sub: &str, contact_sub: &str) -> String {
-        format!("{}/presence/{contact_sub}-*", user_prefix(owner_sub))
+    /// Deliberately keyed by the guest's sub and **not** by session, unlike
+    /// [`presence_topic`]. The authorizer runs during the WebSocket handshake,
+    /// before any session id exists, so a per-session topic could only be
+    /// authorized as a wildcard — and a wildcard over a topic namespace is an
+    /// unbounded retained-write primitive: a guest could retain messages on
+    /// arbitrarily many topics, the owner would replay every one of them on
+    /// each reconnect, and revoking the grant would remove the guest's ability
+    /// to clear them, making the mess permanent. An exact topic has no such
+    /// hazard and needs no wildcard at all.
+    ///
+    /// Per-session granularity buys nothing here anyway: a connection has one
+    /// Last Will and it stays on the guest's *own* presence topic, so cards in
+    /// the owner's space are explicit publish/clear either way. The cost is
+    /// that a guest signed in on two devices shows one card, last write wins.
+    pub fn guest_presence_topic(owner_sub: &str, contact_sub: &str) -> String {
+        format!("{}/presence/{contact_sub}", user_prefix(owner_sub))
     }
 
     /// One live control write. The two kinds mirror the command layer's two
@@ -1473,22 +1474,22 @@ mod tests {
             "lux/ctl/user/abc-123/presence/0a1b2c3d"
         );
 
-        // A guest's card lands in the owner's space, under the guest's own sub
-        // so the authorizer can wildcard exactly that guest and nothing else.
+        // A guest's card lands in the owner's space, keyed by the guest's sub —
+        // one exact topic, so the authorizer needs no wildcard to grant it.
         assert_eq!(
-            ctl::guest_presence_topic("owner-1", "contact-2", "0a1b2c3d"),
-            "lux/ctl/user/owner-1/presence/contact-2-0a1b2c3d"
+            ctl::guest_presence_topic("owner-1", "contact-2"),
+            "lux/ctl/user/owner-1/presence/contact-2"
         );
-        assert_eq!(
-            ctl::guest_presence_filter("owner-1", "contact-2"),
-            "lux/ctl/user/owner-1/presence/contact-2-*"
+        assert!(!ctl::guest_presence_topic("owner-1", "contact-2").contains('*'));
+        // Distinct guests, and guest vs owner, never collide.
+        assert_ne!(
+            ctl::guest_presence_topic("owner-1", "contact-2"),
+            ctl::guest_presence_topic("owner-1", "contact-3")
         );
-        // The filter must cover the topic and stop at the guest's own prefix.
-        let filter = ctl::guest_presence_filter("owner-1", "contact-2");
-        let stem = filter.trim_end_matches('*');
-        assert!(ctl::guest_presence_topic("owner-1", "contact-2", "s").starts_with(stem));
-        assert!(!ctl::presence_topic("owner-1", "owner-session").starts_with(stem));
-        assert!(!ctl::guest_presence_topic("owner-1", "contact-3", "s").starts_with(stem));
+        assert_ne!(
+            ctl::guest_presence_topic("owner-1", "contact-2"),
+            ctl::presence_topic("owner-1", "owner-session")
+        );
     }
 
     #[test]
