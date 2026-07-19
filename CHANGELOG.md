@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.7.1](https://github.com/johncarmack1984/lux/compare/v1.7.0...v1.7.1) (2026-07-19)
+
+
+### Bug Fixes
+
+* **auth:** pairing follow-ups — grant identity fields and a visible deletion blast radius ([#212](https://github.com/johncarmack1984/lux/issues/212)) ([7e9c9de](https://github.com/johncarmack1984/lux/commit/7e9c9dec65439333a4fe7c7ee964e5d0ca5936f4))
+* **ui:** make presets toggle and restore the frame they replaced ([#213](https://github.com/johncarmack1984/lux/issues/213)) ([517eea7](https://github.com/johncarmack1984/lux/commit/517eea700e8e29d879f6176177321a4779ecb7d1))
+* **ui:** merge the setup switcher and manager into one dropdown ([#216](https://github.com/johncarmack1984/lux/issues/216)) ([96e12bb](https://github.com/johncarmack1984/lux/commit/96e12bb6096eda4b1e78a8159d5be350a2f2bf92))
+
 ## [1.7.0](https://github.com/johncarmack1984/lux/compare/v1.6.0...v1.7.0) (2026-07-19)
 
 

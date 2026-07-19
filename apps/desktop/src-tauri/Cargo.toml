@@ -1,6 +1,6 @@
 [package]
 name = "lux"
-version = "1.7.0" # x-release-please-version
+version = "1.7.1" # x-release-please-version
 description = "A DMX lighting control system for Enttec Open DMX USB and sACN/E1.31 network nodes."
 authors = ["John Carmack"]
 edition = "2021"
