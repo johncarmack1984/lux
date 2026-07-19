@@ -363,6 +363,39 @@ impl LuxAccount {
         }
     }
 
+    /// The account's paired headless devices (lux-node boxes) from the auth
+    /// service's registry — the delete-account confirm's tally. No auth
+    /// service configured means no pairing anywhere: an empty list.
+    pub fn list_paired_devices(&self) -> Result<Vec<lux_wire::device::DeviceRecord>, String> {
+        let Some(base) = self.apple_auth_url.clone() else {
+            return Ok(Vec::new());
+        };
+        let Some(token) = self.current_id_token() else {
+            return Err("not signed in".into());
+        };
+        block_on(async move {
+            let response = reqwest::Client::new()
+                .get(format!(
+                    "{base}/{}/{}/{}",
+                    lux_wire::apple::AUTH_SEGMENT,
+                    lux_wire::device::DEVICE_SEGMENT,
+                    lux_wire::device::LIST_SEGMENT
+                ))
+                .bearer_auth(token)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+            if !response.status().is_success() {
+                return Err(format!("device list answered {}", response.status()));
+            }
+            response
+                .json::<lux_wire::device::ListResponse>()
+                .await
+                .map(|r| r.devices)
+                .map_err(|e| e.to_string())
+        })
+    }
+
     pub fn sign_out(&self) -> AuthStatus {
         clear_session();
         self.session.lock_or_recover().clear();

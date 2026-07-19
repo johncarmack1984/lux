@@ -155,6 +155,11 @@ export const cmd = {
   },
 
   /** @throws {string} */
+  list_paired_devices(): Promise<PairedDevice[]> {
+    return invoke("cmd.list_paired_devices");
+  },
+
+  /** @throws {string} */
   list_dmx_devices(): Promise<DmxDeviceInfo[]> {
     return invoke("cmd.list_dmx_devices");
   },
@@ -308,6 +313,15 @@ export type RemotePeer = {
 	session: string,
 	setupId: string,
 	name: string,
+};
+
+/**
+ *  One paired headless device (a lux-node box) on the account, thinned from
+ *  [`lux_wire::device::DeviceRecord`] to what the confirm dialog shows.
+ */
+export type PairedDevice = {
+	name: string,
+	hostname: string,
 };
 
 /**
