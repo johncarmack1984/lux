@@ -124,7 +124,11 @@ pub fn install(opts: Options) -> Result<(), String> {
     let id_token = if Path::new(&session_file).exists() {
         let session = config::load_session()?;
         runtime
-            .block_on(auth::refresh(&env, &session.refresh_token))?
+            .block_on(auth::refresh(
+                &env,
+                session.client_id.as_deref(),
+                &session.refresh_token,
+            ))?
             .id
     } else {
         let email = value_or_prompt(opts.email.clone(), "lux account email", "--email")?;
@@ -138,6 +142,7 @@ pub fn install(opts: Options) -> Result<(), String> {
         config::save_session(&StoredSession {
             email: email.clone(),
             refresh_token: refresh,
+            client_id: None,
         })?;
         run("chown", &["-R", SERVICE_USER, STATE_DIR])?;
         println!("signed in as {email}");

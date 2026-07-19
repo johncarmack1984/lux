@@ -61,6 +61,12 @@ pub fn load_node_config(path: &Path) -> Result<NodeConfig, String> {
 pub struct StoredSession {
     pub email: String,
     pub refresh_token: String,
+    /// Which app client minted this session. Absent (password-era sessions)
+    /// means the interactive client from the embedded endpoints; device
+    /// pairing writes the device client here, and refresh must match the
+    /// minting client or Cognito rejects the token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
 }
 
 /// `$XDG_CONFIG_HOME/lux-node` (or `~/.config/lux-node`).

@@ -98,12 +98,18 @@ pub async fn sign_in(env: &Endpoints, email: &str, password: &str) -> Result<Tok
     tokens_from(resp.authentication_result())
 }
 
-pub async fn refresh(env: &Endpoints, refresh_token: &str) -> Result<Tokens, String> {
+/// `client_id` must be the client that minted the refresh token; `None` means
+/// the interactive client from the endpoints (pre-pairing sessions).
+pub async fn refresh(
+    env: &Endpoints,
+    client_id: Option<&str>,
+    refresh_token: &str,
+) -> Result<Tokens, String> {
     let client = cognito_client(&env.cognito_region).await;
     let out = client
         .initiate_auth()
         .auth_flow(AuthFlowType::RefreshTokenAuth)
-        .client_id(&env.cognito_app_client_id)
+        .client_id(client_id.unwrap_or(&env.cognito_app_client_id))
         .auth_parameters("REFRESH_TOKEN", refresh_token)
         .send()
         .await
