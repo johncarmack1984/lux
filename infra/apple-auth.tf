@@ -46,6 +46,8 @@ resource "aws_iam_role_policy" "lux_apple_auth_ddb" {
         "dynamodb:UpdateItem",
         "dynamodb:DeleteItem",
         "dynamodb:ConditionCheckItem",
+        # The pairing approve screen's same-egress pending list (PAIRIP#).
+        "dynamodb:Query",
       ]
       Resource = aws_dynamodb_table.lux_sync.arn
       Condition = {
@@ -133,8 +135,12 @@ resource "aws_lambda_function" "lux_apple_auth" {
     variables = {
       COGNITO_USER_POOL_ID  = aws_cognito_user_pool.lux.id
       COGNITO_APP_CLIENT_ID = aws_cognito_user_pool_client.lux_app.id
-      COGNITO_REGION        = data.aws_region.current.region
-      DYNAMODB_TABLE        = aws_dynamodb_table.lux_sync.name
+      # Single ids on purpose (they feed AdminInitiateAuth, not just the
+      # verifier): the interactive client above, the device-pairing client
+      # here. The trigger pins each answer kind to its client.
+      COGNITO_DEVICE_CLIENT_ID = aws_cognito_user_pool_client.lux_node_device.id
+      COGNITO_REGION           = data.aws_region.current.region
+      DYNAMODB_TABLE           = aws_dynamodb_table.lux_sync.name
       # Product identity, not environment: the bundle id is the token audience
       # and Apple client_id for native flows.
       APPLE_BUNDLE_ID = "com.johncarmack.lux"

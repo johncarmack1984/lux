@@ -75,6 +75,12 @@ fn create(event: &mut Value) {
 /// A bad token, an unlinked credential, or a link to a different user are all
 /// the same outcome: `answerCorrect = false`. Only infrastructure failures
 /// (the link store erroring) surface as invoke errors.
+///
+/// The answer kind is pinned to the calling app client: the interactive
+/// client answers with an Apple identity token, the device client with a
+/// just-redeemed pairing code (`crate::device`). Pinning both directions means
+/// neither credential can ever mint on the other client — an Apple token
+/// can't open a 10-year device session, a device code can't sign into the app.
 async fn verify(ctx: &Ctx, event: &mut Value) {
     let answer = event
         .pointer("/request/challengeAnswer")
@@ -86,15 +92,26 @@ async fn verify(ctx: &Ctx, event: &mut Value) {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
+    let client_id = event
+        .pointer("/callerContext/clientId")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
 
-    let correct = answer_is_correct(ctx, &answer, &user_sub).await;
+    let correct = if answer.is_empty() || user_sub.is_empty() {
+        false
+    } else if ctx.device_client_id.as_deref() == Some(client_id.as_str()) {
+        crate::device::answer_is_correct(ctx, &answer, &user_sub).await
+    } else if client_id == ctx.client_id {
+        apple_answer_is_correct(ctx, &answer, &user_sub).await
+    } else {
+        tracing::warn!("challenge answer from unknown app client");
+        false
+    };
     event["response"]["answerCorrect"] = json!(correct);
 }
 
-async fn answer_is_correct(ctx: &Ctx, answer: &str, user_sub: &str) -> bool {
-    if answer.is_empty() || user_sub.is_empty() {
-        return false;
-    }
+async fn apple_answer_is_correct(ctx: &Ctx, answer: &str, user_sub: &str) -> bool {
     let claims = match ctx.apple.verify_token(answer).await {
         Ok(c) => c,
         Err(e) => {

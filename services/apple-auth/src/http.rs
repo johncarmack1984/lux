@@ -21,12 +21,20 @@ use crate::{apple, cognito, store, Ctx};
 /// The slice of a Function URL (payload format 2.0) event we route on.
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-struct UrlEvent {
+pub(crate) struct UrlEvent {
     raw_path: String,
     headers: HashMap<String, String>,
     body: Option<String>,
     is_base64_encoded: bool,
     request_context: RequestContext,
+}
+
+impl UrlEvent {
+    /// The caller's public IP as the Function URL saw it — the pairing flow's
+    /// same-egress rendezvous key.
+    pub(crate) fn source_ip(&self) -> &str {
+        &self.request_context.http.source_ip
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -36,9 +44,10 @@ struct RequestContext {
 }
 
 #[derive(Debug, Default, Deserialize)]
-#[serde(default)]
+#[serde(rename_all = "camelCase", default)]
 struct HttpContext {
     method: String,
+    source_ip: String,
 }
 
 pub async fn handle(ctx: &Arc<Ctx>, payload: Value) -> Result<Value, Error> {
@@ -54,6 +63,10 @@ pub async fn handle(ctx: &Arc<Ctx>, payload: Value) -> Result<Value, Error> {
     let path = event.raw_path.clone();
     let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
 
+    use lux_wire::device::{
+        APPROVE_SEGMENT, AUTHORIZE_SEGMENT, DEVICE_SEGMENT, PENDING_SEGMENT, TOKEN_SEGMENT,
+    };
+
     match (method, segments.as_slice()) {
         ("POST", [a, b]) if *a == AUTH_SEGMENT && *b == APPLE_SEGMENT => {
             sign_in(ctx, &event).await
@@ -65,6 +78,26 @@ pub async fn handle(ctx: &Arc<Ctx>, payload: Value) -> Result<Value, Error> {
             if *a == AUTH_SEGMENT && *b == APPLE_SEGMENT && *c == REVOKE_SEGMENT =>
         {
             revoke(ctx, &event).await
+        }
+        ("POST", [a, b, c])
+            if *a == AUTH_SEGMENT && *b == DEVICE_SEGMENT && *c == AUTHORIZE_SEGMENT =>
+        {
+            crate::device::authorize(ctx, &event).await
+        }
+        ("POST", [a, b, c])
+            if *a == AUTH_SEGMENT && *b == DEVICE_SEGMENT && *c == TOKEN_SEGMENT =>
+        {
+            crate::device::token(ctx, &event).await
+        }
+        ("GET", [a, b, c])
+            if *a == AUTH_SEGMENT && *b == DEVICE_SEGMENT && *c == PENDING_SEGMENT =>
+        {
+            crate::device::pending(ctx, &event).await
+        }
+        ("POST", [a, b, c])
+            if *a == AUTH_SEGMENT && *b == DEVICE_SEGMENT && *c == APPROVE_SEGMENT =>
+        {
+            crate::device::approve(ctx, &event).await
         }
         _ => reply(404, &error("not found")),
     }
@@ -114,7 +147,7 @@ async fn sign_in(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
         },
     };
 
-    let mut attempt = cognito::custom_auth(ctx, &username, &req.identity_token).await;
+    let mut attempt = cognito::custom_auth(ctx, &ctx.client_id, &username, &req.identity_token).await;
     if let (Err(cognito::AuthError::UserNotFound), Some(link)) = (&attempt, &existing) {
         // The linked user is gone — an account deletion whose Apple-side
         // revoke never landed. Self-heal: drop the stale link and run this as
@@ -128,7 +161,7 @@ async fn sign_in(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
             Ok(x) => x,
             Err(e) => return Ok(e),
         };
-        attempt = cognito::custom_auth(ctx, &username, &req.identity_token).await;
+        attempt = cognito::custom_auth(ctx, &ctx.client_id, &username, &req.identity_token).await;
     }
     let tokens = match attempt {
         Ok(t) => t,
@@ -365,7 +398,7 @@ async fn refresh_apple_token(ctx: &Arc<Ctx>, apple_sub: &str, code: &str) -> Res
 // --- request/response helpers -------------------------------------------------
 
 /// The verified caller (`sub`) from the bearer token, if any.
-fn caller(ctx: &Ctx, event: &UrlEvent) -> Option<String> {
+pub(crate) fn caller(ctx: &Ctx, event: &UrlEvent) -> Option<String> {
     let token = event
         .headers
         .get("authorization")?
@@ -373,7 +406,7 @@ fn caller(ctx: &Ctx, event: &UrlEvent) -> Option<String> {
     ctx.verifier.verify(token).ok().map(|c| c.sub)
 }
 
-fn parse_body<T: for<'de> Deserialize<'de>>(event: &UrlEvent) -> Result<T, String> {
+pub(crate) fn parse_body<T: for<'de> Deserialize<'de>>(event: &UrlEvent) -> Result<T, String> {
     let raw = event.body.as_deref().unwrap_or_default();
     let bytes = if event.is_base64_encoded {
         BASE64
@@ -385,14 +418,14 @@ fn parse_body<T: for<'de> Deserialize<'de>>(event: &UrlEvent) -> Result<T, Strin
     serde_json::from_slice(&bytes).map_err(|e| format!("bad body: {e}"))
 }
 
-fn error(message: &str) -> ErrorResponse {
+pub(crate) fn error(message: &str) -> ErrorResponse {
     ErrorResponse {
         error: message.to_owned(),
     }
 }
 
 /// A Function URL (payload v2) response.
-fn reply<T: serde::Serialize>(status: u16, body: &T) -> Result<Value, Error> {
+pub(crate) fn reply<T: serde::Serialize>(status: u16, body: &T) -> Result<Value, Error> {
     Ok(json!({
         "statusCode": status,
         "headers": { "content-type": "application/json" },

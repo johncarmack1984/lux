@@ -27,6 +27,7 @@
 
 mod apple;
 mod cognito;
+mod device;
 mod http;
 mod store;
 mod triggers;
@@ -47,6 +48,10 @@ pub(crate) struct Ctx {
     pub siwa_key: tokio::sync::OnceCell<apple::SiwaKey>,
     pub pool_id: String,
     pub client_id: String,
+    /// The device app client (`lux-node-device`) the pairing grant mints on.
+    /// Absent until the infra ships it — the `/auth/device/*` routes and the
+    /// device trigger path stay disabled (fail closed) without it.
+    pub device_client_id: Option<String>,
     pub table: String,
     pub siwa_secret_id: String,
 }
@@ -89,6 +94,7 @@ async fn main() -> Result<(), Error> {
 
     let pool_id = env("COGNITO_USER_POOL_ID")?;
     let client_id = env("COGNITO_APP_CLIENT_ID")?;
+    let device_client_id = std::env::var("COGNITO_DEVICE_CLIENT_ID").ok();
     let region = env("COGNITO_REGION")?;
     let table = env("DYNAMODB_TABLE")?;
     let bundle_id = env("APPLE_BUNDLE_ID")?;
@@ -109,6 +115,7 @@ async fn main() -> Result<(), Error> {
         siwa_key: tokio::sync::OnceCell::new(),
         pool_id,
         client_id,
+        device_client_id,
         table,
         siwa_secret_id,
     });

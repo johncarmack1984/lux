@@ -223,6 +223,138 @@ pub mod apple {
     }
 }
 
+pub mod device {
+    //! Headless device pairing: lux-node ↔ auth service wire
+    //! (docs/claim-code-pairing.md).
+    //!
+    //! An unpaired node registers and polls over plain HTTPS; the owner
+    //! approves from the app, which sees only pending devices that share its
+    //! NAT egress (same public IP). Approval binds the device to the owner's
+    //! account and a setup; the node's next poll returns an ordinary Cognito
+    //! refresh token minted on the device app client.
+    //!
+    //! Routes (on the auth service's Function URL):
+    //! - `POST /auth/device/authorize` — device: register, get a code pair
+    //! - `POST /auth/device/token`     — device: poll for the grant
+    //! - `GET  /auth/device/pending`   — bearer-authed: same-egress pending list
+    //! - `POST /auth/device/approve`   — bearer-authed: approve one device
+
+    use serde::{Deserialize, Serialize};
+
+    /// Path segments under [`super::apple::AUTH_SEGMENT`]:
+    /// `/auth/device/{authorize|token|pending|approve}`.
+    pub const DEVICE_SEGMENT: &str = "device";
+    pub const AUTHORIZE_SEGMENT: &str = "authorize";
+    pub const TOKEN_SEGMENT: &str = "token";
+    pub const PENDING_SEGMENT: &str = "pending";
+    pub const APPROVE_SEGMENT: &str = "approve";
+
+    /// Body for `POST /auth/device/authorize`. Everything here is display
+    /// metadata for the approve screen — identity is established by approval,
+    /// never claimed by the device.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct AuthorizeRequest {
+        /// The node's stable self-generated id (uuid, persisted in its state
+        /// dir). Lets a re-registering node supersede its own earlier codes.
+        pub device_id: String,
+        pub hostname: String,
+        /// Last 4 hex digits of the primary MAC — matches the sticker/port
+        /// label, the approve screen's physical cross-check.
+        pub mac_tail: String,
+        pub version: String,
+        pub arch: String,
+    }
+
+    /// Response to `POST /auth/device/authorize` (RFC 8628 §3.2 shape).
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct AuthorizeResponse {
+        /// The device's secret — polls `/token` with it. Never shown to humans.
+        pub device_code: String,
+        /// Short display code (`LUX-XXXX`) — shown in the app and the node's
+        /// journal for the human cross-check. Never typed anywhere.
+        pub user_code: String,
+        /// Seconds between `/token` polls.
+        pub interval: u32,
+        /// Seconds until this code pair expires and the node re-registers.
+        pub expires_in: u32,
+    }
+
+    /// Body for `POST /auth/device/token`.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct TokenRequest {
+        pub device_code: String,
+    }
+
+    /// Response to `POST /auth/device/token`. `status` follows RFC 8628 §3.5
+    /// (`authorization_pending`, `slow_down`, `expired_token`, `access_denied`)
+    /// plus `granted`, which carries the session fields.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct TokenResponse {
+        pub status: String,
+        /// On `granted`: what the node writes into session.json …
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub email: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub refresh_token: Option<String>,
+        /// … and the setup binding the approver chose.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub setup_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub universe: Option<u16>,
+    }
+
+    /// One pending device on the approve screen (`GET /auth/device/pending`).
+    /// `pair_ref` is an opaque handle for `/approve` — the app never sees the
+    /// device code itself.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PendingDevice {
+        pub pair_ref: String,
+        pub user_code: String,
+        pub hostname: String,
+        pub mac_tail: String,
+        pub version: String,
+        pub arch: String,
+        /// Epoch millis of the registration (server clock).
+        pub first_seen: i64,
+    }
+
+    /// Response to `GET /auth/device/pending`.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PendingResponse {
+        pub devices: Vec<PendingDevice>,
+    }
+
+    /// Body for `POST /auth/device/approve`.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ApproveRequest {
+        /// [`PendingDevice::pair_ref`] from the pending list.
+        pub pair_ref: String,
+        /// The setup this node will drive (the picker replaces `lux-node
+        /// install`'s interactive list for appliances).
+        pub setup_id: String,
+        /// sACN universe; defaults to 1.
+        #[serde(default)]
+        pub universe: Option<u16>,
+        /// Display name for the device registry; defaults to the hostname.
+        #[serde(default)]
+        pub name: Option<String>,
+    }
+
+    /// Response to a successful `POST /auth/device/approve`.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ApproveResponse {
+        pub approved: bool,
+    }
+}
+
 pub mod nudge {
     //! The change-nudge channel: tiny events, opaque to clients.
     //!
@@ -691,6 +823,83 @@ mod tests {
         );
         assert_eq!(apple::LINK_SEGMENT, "link");
         assert_eq!(apple::REVOKE_SEGMENT, "revoke");
+    }
+
+    #[test]
+    fn device_authorize_shapes() {
+        let req = device::AuthorizeRequest {
+            device_id: "d-1".into(),
+            hostname: "venue-node".into(),
+            mac_tail: "2dae".into(),
+            version: "1.5.0".into(),
+            arch: "aarch64".into(),
+        };
+        assert_eq!(
+            serde_json::to_string(&req).unwrap(),
+            r#"{"deviceId":"d-1","hostname":"venue-node","macTail":"2dae","version":"1.5.0","arch":"aarch64"}"#
+        );
+        let resp = device::AuthorizeResponse {
+            device_code: "secret".into(),
+            user_code: "LUX-7QK2".into(),
+            interval: 5,
+            expires_in: 900,
+        };
+        assert_eq!(
+            serde_json::to_string(&resp).unwrap(),
+            r#"{"deviceCode":"secret","userCode":"LUX-7QK2","interval":5,"expiresIn":900}"#
+        );
+    }
+
+    #[test]
+    fn device_token_shapes() {
+        // Pending: bare status, no nulls on the wire.
+        let pending = device::TokenResponse {
+            status: "authorization_pending".into(),
+            email: None,
+            refresh_token: None,
+            setup_id: None,
+            universe: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&pending).unwrap(),
+            r#"{"status":"authorization_pending"}"#
+        );
+        let granted = device::TokenResponse {
+            status: "granted".into(),
+            email: Some("a@b.c".into()),
+            refresh_token: Some("re".into()),
+            setup_id: Some("s-1".into()),
+            universe: Some(1),
+        };
+        assert_eq!(
+            serde_json::to_string(&granted).unwrap(),
+            r#"{"status":"granted","email":"a@b.c","refreshToken":"re","setupId":"s-1","universe":1}"#
+        );
+    }
+
+    #[test]
+    fn device_approve_defaults() {
+        // An approve without universe/name (the app's minimal form) parses.
+        let req: device::ApproveRequest =
+            serde_json::from_str(r#"{"pairRef":"abc","setupId":"s-1"}"#).unwrap();
+        assert_eq!(req.universe, None);
+        assert_eq!(req.name, None);
+    }
+
+    #[test]
+    fn device_segments() {
+        assert_eq!(
+            format!(
+                "/{}/{}/{}",
+                apple::AUTH_SEGMENT,
+                device::DEVICE_SEGMENT,
+                device::AUTHORIZE_SEGMENT
+            ),
+            "/auth/device/authorize"
+        );
+        assert_eq!(device::TOKEN_SEGMENT, "token");
+        assert_eq!(device::PENDING_SEGMENT, "pending");
+        assert_eq!(device::APPROVE_SEGMENT, "approve");
     }
 
     #[test]

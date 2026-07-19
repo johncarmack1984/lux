@@ -149,20 +149,23 @@ fn discarded_password() -> Result<String, String> {
     Ok(format!("A{hex}"))
 }
 
-/// Run the pool's CUSTOM_AUTH flow for `username`, answering the challenge
-/// with the Apple identity token. The VerifyAuthChallenge trigger (this same
-/// binary) re-verifies the token and its link to exactly this user, so these
-/// admin calls add reach, not trust.
+/// Run the pool's CUSTOM_AUTH flow for `username` on the given app client,
+/// answering the challenge with `answer` — the Apple identity token on the
+/// interactive client, the device code on the device client. The
+/// VerifyAuthChallenge trigger (this same binary) re-verifies the answer and
+/// its binding to exactly this user and client, so these admin calls add
+/// reach, not trust.
 pub async fn custom_auth(
     ctx: &Ctx,
+    client_id: &str,
     username: &str,
-    identity_token: &str,
+    answer: &str,
 ) -> Result<Tokens, AuthError> {
     let start = ctx
         .cognito
         .admin_initiate_auth()
         .user_pool_id(&ctx.pool_id)
-        .client_id(&ctx.client_id)
+        .client_id(client_id)
         .auth_flow(AuthFlowType::CustomAuth)
         .auth_parameters("USERNAME", username)
         .send()
@@ -186,11 +189,11 @@ pub async fn custom_auth(
         .cognito
         .admin_respond_to_auth_challenge()
         .user_pool_id(&ctx.pool_id)
-        .client_id(&ctx.client_id)
+        .client_id(client_id)
         .challenge_name(ChallengeNameType::CustomChallenge)
         .session(session)
         .challenge_responses("USERNAME", username)
-        .challenge_responses("ANSWER", identity_token)
+        .challenge_responses("ANSWER", answer)
         .send()
         .await
         .map_err(|e| match e.as_service_error() {
