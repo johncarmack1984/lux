@@ -45,7 +45,7 @@ log = "^0.4.33"
 serde_json.workspace = true
 serde.workspace = true
 strum = { version = "0.28.0", features = ["derive"] }
-specta = { version = "=2.0.0-rc.25", features = ["derive"] }
+specta = { version = "=2.0.0-rc.26", features = ["derive"] }
 strum_macros = "0.28.0"
 tauri = { version = "~2.11", features = [
     "isolation",
