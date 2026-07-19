@@ -202,19 +202,18 @@ fn now_millis() -> i64 {
 // PAIR/PAIRIP items carry `ttl` (epoch seconds) and self-expire; DEVICE items
 // don't.
 
-/// One pairing grant, as read back from the `PAIR#` item.
+/// One pairing grant, as read back from the `PAIR#` item. (The item carries
+/// more — userCode, deviceName — surfaced here only once something reads them.)
 #[derive(Debug)]
 pub struct Pair {
     pub status: String,
     pub device_id: String,
     pub hostname: String,
-    pub user_code: String,
     /// Set on approve.
     pub bound_username: Option<String>,
     pub bound_sub: Option<String>,
     pub setup_id: Option<String>,
     pub universe: Option<u16>,
-    pub device_name: Option<String>,
     /// Epoch millis.
     pub created_at: i64,
     pub expires_at: i64,
@@ -347,12 +346,10 @@ pub async fn get_pair(ctx: &Ctx, pair_ref: &str) -> Result<Option<Pair>, String>
         status: s("status")?,
         device_id: s("deviceId")?,
         hostname: s("hostname")?,
-        user_code: s("userCode")?,
         bound_username: opt_s("boundUsername"),
         bound_sub: opt_s("boundSub"),
         setup_id: opt_s("setupId"),
         universe: opt_n("universe").map(|v| v as u16),
-        device_name: opt_s("deviceName"),
         created_at: num("createdAt")?,
         expires_at: num("expiresAt")?,
         redeemed_at: opt_n("redeemedAt"),
