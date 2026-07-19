@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Check,
@@ -48,6 +48,17 @@ export default function SetupSwitcher() {
   // background refreshes, so a `setupsChanged` mid-edit can't clobber typing.
   const [draft, setDraft] = useState<Draft | null>(null);
   const [rescanning, setRescanning] = useState(false);
+  // Deleting a setup takes its fixtures with it and there is no undo, so the
+  // trash arms on the first tap (turns destructive) and only deletes on the
+  // second; it disarms itself after a moment or when the dropdown closes.
+  const [armedDelete, setArmedDelete] = useState<string | null>(null);
+  const disarmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (disarmTimer.current) clearTimeout(disarmTimer.current);
+    },
+    [],
+  );
 
   if (!setups || !active) {
     return (
@@ -59,7 +70,10 @@ export default function SetupSwitcher() {
 
   const onOpenChange = (next: boolean) => {
     setOpen(next);
-    if (!next) setDraft(null);
+    if (!next) {
+      setDraft(null);
+      setArmedDelete(null);
+    }
   };
 
   const switchTo = (id: string) => {
@@ -106,6 +120,17 @@ export default function SetupSwitcher() {
     } catch (e) {
       toast.error(String(e));
     }
+  };
+
+  const onTrash = (id: string) => {
+    if (armedDelete === id) {
+      setArmedDelete(null);
+      void remove(id);
+      return;
+    }
+    setArmedDelete(id);
+    if (disarmTimer.current) clearTimeout(disarmTimer.current);
+    disarmTimer.current = setTimeout(() => setArmedDelete(null), 3000);
   };
 
   const selectDevice = (key: string) => {
@@ -223,10 +248,19 @@ export default function SetupSwitcher() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
-                    aria-label={`Delete ${s.name}`}
+                    className={cn(
+                      "size-7 shrink-0",
+                      armedDelete === s.id
+                        ? "bg-destructive/15 text-destructive hover:text-destructive"
+                        : "text-muted-foreground hover:text-destructive",
+                    )}
+                    aria-label={
+                      armedDelete === s.id
+                        ? `Tap again to delete ${s.name}`
+                        : `Delete ${s.name}`
+                    }
                     disabled={setups.length <= 1}
-                    onClick={() => remove(s.id)}
+                    onClick={() => onTrash(s.id)}
                   >
                     <Trash2 className="size-3.5" />
                   </Button>
