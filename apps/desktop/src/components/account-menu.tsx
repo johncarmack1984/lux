@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LogOut, Trash2, User as UserIcon } from "lucide-react";
 import { createTauRPCProxy } from "@/bindings";
 import useAuth, { AUTH_QUERY_KEY } from "@/hooks/useAuth";
+import useSetups from "@/hooks/useSetups";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,6 +55,14 @@ export default function AccountMenu() {
   const [pending, setPending] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Blast radius for the delete confirm: what the account will take with it.
+  const setups = useSetups();
+  const { data: pairedDevices } = useQuery({
+    queryKey: ["pairedDevices"],
+    queryFn: () => cmd().list_paired_devices(),
+    // Only worth a network round-trip while the confirm is actually open.
+    enabled: !!status?.signedIn && confirmDelete,
+  });
 
   // Accounts disabled (or status still loading) — render nothing.
   if (!status?.configured) return null;
@@ -128,9 +137,19 @@ export default function AccountMenu() {
             <DialogHeader>
               <DialogTitle>Delete account?</DialogTitle>
               <DialogDescription>
-                This permanently deletes your account and its cloud-synced
-                setups. Setups on this device stay on this device. This can't
-                be undone.
+                This permanently deletes {status.email ?? "your account"}
+                {setups
+                  ? ` and its ${setups.length} cloud-synced setup${
+                      setups.length === 1 ? "" : "s"
+                    }`
+                  : " and its cloud-synced setups"}
+                {pairedDevices?.length
+                  ? `, and unpairs ${pairedDevices.length} device${
+                      pairedDevices.length === 1 ? "" : "s"
+                    } (${pairedDevices.map((d) => d.name).join(", ")})`
+                  : ""}
+                . Setups on this device stay on this device. This can't be
+                undone.
               </DialogDescription>
             </DialogHeader>
             <div className="flex justify-end gap-2">

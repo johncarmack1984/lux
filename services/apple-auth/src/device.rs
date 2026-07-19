@@ -18,8 +18,8 @@ use std::sync::Arc;
 
 use lambda_runtime::Error;
 use lux_wire::device::{
-    ApproveRequest, ApproveResponse, AuthorizeRequest, AuthorizeResponse, PendingDevice,
-    PendingResponse, TokenRequest, TokenResponse,
+    ApproveRequest, ApproveResponse, AuthorizeRequest, AuthorizeResponse, DeviceRecord,
+    ListResponse, PendingDevice, PendingResponse, TokenRequest, TokenResponse,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -158,18 +158,62 @@ async fn grant(
         }
     };
 
+    // The email attribute, not the username — Apple-created accounts have
+    // UUID usernames and the node stores/logs this as the account identity.
+    let email = match cognito::email_of(ctx, &username).await {
+        Ok(Some(e)) => e,
+        Ok(None) => username,
+        Err(e) => {
+            tracing::warn!("email lookup failed, falling back to username: {e}");
+            username
+        }
+    };
+
     reply(
         200,
         &TokenResponse {
             status: "granted".into(),
-            // The pool's usernames are emails; the node stores this beside the
-            // refresh token exactly as `lux-node login` does.
-            email: Some(username),
+            email: Some(email),
             refresh_token: Some(tokens.refresh_token),
+            client_id: Some(device_client_id.to_owned()),
             setup_id: Some(setup_id),
             universe: Some(pair.universe.unwrap_or(1)),
         },
     )
+}
+
+/// `GET /auth/device/list` — bearer-authed: the caller's paired devices.
+pub async fn list(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
+    let Some(caller_sub) = caller(ctx, event) else {
+        return reply(401, &error("invalid or missing token"));
+    };
+    let rows = match store::list_devices(ctx, &caller_sub).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("device list failed: {e}");
+            return reply(500, &error("internal"));
+        }
+    };
+    let devices: Vec<DeviceRecord> = rows
+        .iter()
+        .filter_map(|item| {
+            let s = |k: &str| item.get(k)?.as_s().ok().cloned();
+            let n = |k: &str| {
+                item.get(k)
+                    .and_then(|v| v.as_n().ok())
+                    .and_then(|v| v.parse::<i64>().ok())
+            };
+            Some(DeviceRecord {
+                device_id: item.get("sk")?.as_s().ok()?.clone(),
+                name: s("name")?,
+                hostname: s("hostname")?,
+                setup_id: s("setupId")?,
+                universe: n("universe")? as u16,
+                paired_at: n("pairedAt")?,
+            })
+        })
+        .collect();
+    reply(200, &ListResponse { devices })
 }
 
 /// `GET /auth/device/pending` — bearer-authed: unexpired registrations that
@@ -347,6 +391,7 @@ fn status(code: u16, s: &str) -> Result<Value, Error> {
             status: s.into(),
             email: None,
             refresh_token: None,
+            client_id: None,
             setup_id: None,
             universe: None,
         },

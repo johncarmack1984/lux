@@ -64,7 +64,8 @@ pub async fn handle(ctx: &Arc<Ctx>, payload: Value) -> Result<Value, Error> {
     let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
 
     use lux_wire::device::{
-        APPROVE_SEGMENT, AUTHORIZE_SEGMENT, DEVICE_SEGMENT, PENDING_SEGMENT, TOKEN_SEGMENT,
+        APPROVE_SEGMENT, AUTHORIZE_SEGMENT, DEVICE_SEGMENT, LIST_SEGMENT, PENDING_SEGMENT,
+        TOKEN_SEGMENT,
     };
 
     match (method, segments.as_slice()) {
@@ -93,6 +94,9 @@ pub async fn handle(ctx: &Arc<Ctx>, payload: Value) -> Result<Value, Error> {
             if *a == AUTH_SEGMENT && *b == DEVICE_SEGMENT && *c == PENDING_SEGMENT =>
         {
             crate::device::pending(ctx, &event).await
+        }
+        ("GET", [a, b, c]) if *a == AUTH_SEGMENT && *b == DEVICE_SEGMENT && *c == LIST_SEGMENT => {
+            crate::device::list(ctx, &event).await
         }
         ("POST", [a, b, c])
             if *a == AUTH_SEGMENT && *b == DEVICE_SEGMENT && *c == APPROVE_SEGMENT =>

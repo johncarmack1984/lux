@@ -123,6 +123,9 @@ pub trait CmdMethods {
     // cards on the user channel. Backend-driven, so the UI polls it (events
     // don't reliably reach the webview on iOS).
     fn list_remote_peers(&self, app_handle: AppHandle) -> Result<Vec<RemotePeer>, String>;
+    // Paired headless devices (lux-node boxes) from the account's registry —
+    // the delete-account confirm shows them so the blast radius is visible.
+    fn list_paired_devices(&self, app_handle: AppHandle) -> Result<Vec<PairedDevice>, String>;
     // DMX output — the in-app device picker (the only output selector on mobile,
     // where there's no tray). Mirrors the desktop tray's device menu.
     fn list_dmx_devices(&self, app_handle: AppHandle) -> Result<Vec<DmxDeviceInfo>, String>;
@@ -133,6 +136,15 @@ pub trait CmdMethods {
     ) -> Result<Vec<DmxDeviceInfo>, String>;
     fn rescan_dmx_devices(&self, app_handle: AppHandle) -> Result<(), String>;
 }
+/// One paired headless device (a lux-node box) on the account, thinned from
+/// [`lux_wire::device::DeviceRecord`] to what the confirm dialog shows.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PairedDevice {
+    pub name: String,
+    pub hostname: String,
+}
+
 #[derive(ttipc::Event)]
 pub enum CmdEvent {
     ChannelDataSet {
@@ -451,6 +463,18 @@ impl CmdMethods for CmdEndpoint {
 
     fn list_remote_peers(&self, app_handle: AppHandle) -> Result<Vec<RemotePeer>, String> {
         Ok(app_handle.state::<crate::nudge::LuxNudge>().remote_peers())
+    }
+
+    fn list_paired_devices(&self, app_handle: AppHandle) -> Result<Vec<PairedDevice>, String> {
+        Ok(app_handle
+            .state::<LuxAccount>()
+            .list_paired_devices()?
+            .into_iter()
+            .map(|d| PairedDevice {
+                name: d.name,
+                hostname: d.hostname,
+            })
+            .collect())
     }
 
     fn list_dmx_devices(&self, app_handle: AppHandle) -> Result<Vec<DmxDeviceInfo>, String> {
