@@ -64,3 +64,13 @@ strip = true
 # unaffected. Upstream PR: gtk-rs/gtk-rs-core#1991. Must be at the workspace root.
 [patch.crates-io]
 glib = { git = "https://github.com/johncarmack1984/gtk-rs-core", branch = "lux/glib-0.18-patch" }
+
+# specta 2.0.0-rc.26 and the 0.0.13 exporters are merged on specta main but unpublished
+# (crates.io still serves rc.25 / 0.0.12), and ttipc's crates.io release exact-pins rc.25 --
+# resolving it from crates.io would split the graph into two spectas. Pin all of them to
+# revs until the releases land, then drop these entries (ttipc rev = its specta-rc26 branch,
+# which carries main's async-injection support as of 0.1.6).
+specta = { git = "https://github.com/specta-rs/specta", rev = "ef21f0544e153b944ff5d1b3afd20472afcf760c" }
+specta-serde = { git = "https://github.com/specta-rs/specta", rev = "ef21f0544e153b944ff5d1b3afd20472afcf760c" }
+specta-typescript = { git = "https://github.com/specta-rs/specta", rev = "ef21f0544e153b944ff5d1b3afd20472afcf760c" }
+tauri-typed-ipc = { git = "https://github.com/johncarmack1984/tauri-typed-ipc", rev = "f9f4e74a38accb5a087d6ee3b72dbdc9d056a87d" }
