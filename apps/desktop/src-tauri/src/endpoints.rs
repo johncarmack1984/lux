@@ -28,6 +28,11 @@ pub struct Endpoints {
     pub cognito_region: String,
     pub cognito_user_pool_id: String,
     pub cognito_app_client_id: String,
+    /// The `lux-node-device` app client the headless pairing grant mints on.
+    /// Present from the first release after that client's Terraform applied;
+    /// only lux-node refreshes against it, but the app carries it so the
+    /// generated endpoints file stays one shape across both embedders.
+    pub cognito_device_client_id: String,
     pub sync_url: String,
     pub nudge_endpoint: String,
     /// Base URL of the lux-apple-auth Function URL (Sign in with Apple).
@@ -111,6 +116,10 @@ fn overlay(base: &mut Endpoints, local: Endpoints) {
     take(&mut base.cognito_region, local.cognito_region);
     take(&mut base.cognito_user_pool_id, local.cognito_user_pool_id);
     take(&mut base.cognito_app_client_id, local.cognito_app_client_id);
+    take(
+        &mut base.cognito_device_client_id,
+        local.cognito_device_client_id,
+    );
     take(&mut base.sync_url, local.sync_url);
     take(&mut base.nudge_endpoint, local.nudge_endpoint);
     take(&mut base.apple_auth_url, local.apple_auth_url);
@@ -134,6 +143,7 @@ mod tests {
         assert!(!endpoints.cognito_region.is_empty());
         assert!(!endpoints.cognito_user_pool_id.is_empty());
         assert!(!endpoints.cognito_app_client_id.is_empty());
+        assert!(!endpoints.cognito_device_client_id.is_empty());
         assert!(!endpoints.sync_url.is_empty());
         assert!(!endpoints.nudge_endpoint.is_empty());
         assert!(!endpoints.apple_auth_url.is_empty());

@@ -15,19 +15,21 @@ cd "$(dirname "$0")/.."
 out() { terraform -chdir=infra output -raw "$1"; }
 
 jq -Sn \
-  --arg cognitoRegion      "$(out cognito_region)" \
-  --arg cognitoUserPoolId  "$(out cognito_user_pool_id)" \
-  --arg cognitoAppClientId "$(out cognito_app_client_id)" \
-  --arg syncUrl            "$(out lux_sync_url)" \
-  --arg nudgeEndpoint      "$(out iot_endpoint)" \
-  --arg appleAuthUrl       "$(out apple_auth_url)" \
+  --arg cognitoRegion         "$(out cognito_region)" \
+  --arg cognitoUserPoolId     "$(out cognito_user_pool_id)" \
+  --arg cognitoAppClientId    "$(out cognito_app_client_id)" \
+  --arg cognitoDeviceClientId "$(out cognito_device_client_id)" \
+  --arg syncUrl               "$(out lux_sync_url)" \
+  --arg nudgeEndpoint         "$(out iot_endpoint)" \
+  --arg appleAuthUrl          "$(out apple_auth_url)" \
   '{
-    cognitoRegion:      $cognitoRegion,
-    cognitoUserPoolId:  $cognitoUserPoolId,
-    cognitoAppClientId: $cognitoAppClientId,
-    syncUrl:            $syncUrl,
-    nudgeEndpoint:      $nudgeEndpoint,
-    appleAuthUrl:       $appleAuthUrl
+    cognitoRegion:         $cognitoRegion,
+    cognitoUserPoolId:     $cognitoUserPoolId,
+    cognitoAppClientId:    $cognitoAppClientId,
+    cognitoDeviceClientId: $cognitoDeviceClientId,
+    syncUrl:               $syncUrl,
+    nudgeEndpoint:         $nudgeEndpoint,
+    appleAuthUrl:          $appleAuthUrl
   }' > apps/desktop/src-tauri/endpoints.prod.json
 
 echo "wrote apps/desktop/src-tauri/endpoints.prod.json:"
