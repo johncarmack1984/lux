@@ -21,8 +21,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use lux_wire::{
-    DeleteUserDataResponse, ListSetupsResponse, SetupRecord, TombstoneResponse, UpsertSetupBody,
-    UpsertSettingsBody, WriteResponse,
+    DeleteUserDataResponse, ListSetupsResponse, SetupRecord, TombstoneResponse, UpsertSettingsBody,
+    UpsertSetupBody, WriteResponse,
 };
 use reqwest::{Client, StatusCode};
 use serde::de::DeserializeOwned;
@@ -407,9 +407,7 @@ fn share_call(app: &AppHandle) -> Result<(String, String), String> {
 /// Read a share route's reply, surfacing the server's own message on the
 /// refusals it states plainly (a cap reached, a setup gone, a bad code) rather
 /// than flattening them to a status code.
-async fn typed_error_or_json<T: DeserializeOwned>(
-    resp: reqwest::Response,
-) -> Result<T, SyncError> {
+async fn typed_error_or_json<T: DeserializeOwned>(resp: reqwest::Response) -> Result<T, SyncError> {
     if matches!(
         resp.status(),
         StatusCode::NOT_FOUND | StatusCode::CONFLICT | StatusCode::BAD_REQUEST
@@ -424,10 +422,7 @@ async fn typed_error_or_json<T: DeserializeOwned>(
 }
 
 /// Redeem an invite code, gaining control of one of someone else's setups.
-pub fn claim_share(
-    app: &AppHandle,
-    code: &str,
-) -> Result<lux_wire::shares::ClaimResponse, String> {
+pub fn claim_share(app: &AppHandle, code: &str) -> Result<lux_wire::shares::ClaimResponse, String> {
     let (base, token) = {
         let account = app.state::<LuxAccount>();
         let base = account.sync_url().ok_or("cloud sync is not configured")?;
@@ -552,7 +547,8 @@ async fn push_all(app: &AppHandle, client: &Client, base: &str, token: &mut Stri
     }
 
     if let Some((settings, base_updated_at)) = settings_to_push(app) {
-        let mut result = upsert_settings(client, base, token.clone(), &settings, base_updated_at).await;
+        let mut result =
+            upsert_settings(client, base, token.clone(), &settings, base_updated_at).await;
         if matches!(result, Err(SyncError::Unauthorized)) {
             if let Ok(fresh) = refresh(app).await {
                 *token = fresh;
@@ -568,7 +564,9 @@ async fn push_all(app: &AppHandle, client: &Client, base: &str, token: &mut Stri
                 log::info!("settings push conflict; reconciling on next pull")
             }
             Err(SyncError::NotFound) => {
-                log::info!("sync-api has no settings route yet; pausing settings sync this session");
+                log::info!(
+                    "sync-api has no settings route yet; pausing settings sync this session"
+                );
                 app.state::<LuxSync>()
                     .settings_unsupported
                     .store(true, Ordering::SeqCst);

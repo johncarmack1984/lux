@@ -138,10 +138,7 @@ mod tests {
         );
         let horizontal: UserSettings =
             serde_json::from_str(r#"{"sliderOrientation":"horizontal"}"#).unwrap();
-        assert_eq!(
-            horizontal.slider_orientation,
-            SliderOrientation::Horizontal
-        );
+        assert_eq!(horizontal.slider_orientation, SliderOrientation::Horizontal);
     }
 
     #[test]
@@ -161,13 +158,11 @@ mod tests {
         // A future client writes a variant this build doesn't know. The
         // `ok_or_default` fallback keeps the blob — and the whole setups.json
         // it is embedded in — parseable on a downgrade.
-        let future: UserSettings =
-            serde_json::from_str(r#"{"sliderOrientation":"grid"}"#).unwrap();
+        let future: UserSettings = serde_json::from_str(r#"{"sliderOrientation":"grid"}"#).unwrap();
         assert_eq!(future.slider_orientation, SliderOrientation::Vertical);
 
         // So does a wrong-typed value from a corrupted write.
-        let corrupt: UserSettings =
-            serde_json::from_str(r#"{"sliderOrientation":42}"#).unwrap();
+        let corrupt: UserSettings = serde_json::from_str(r#"{"sliderOrientation":42}"#).unwrap();
         assert_eq!(corrupt.slider_orientation, SliderOrientation::Vertical);
     }
 

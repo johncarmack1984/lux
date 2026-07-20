@@ -47,7 +47,10 @@ mod tests {
 
     #[test]
     fn ipv4_sorts_ahead_of_ipv6_stably() {
-        let v6a = SocketAddr::from((Ipv6Addr::new(0x2603, 0x8003, 0x1cf0, 0x88a0, 0, 0, 0, 1), 443));
+        let v6a = SocketAddr::from((
+            Ipv6Addr::new(0x2603, 0x8003, 0x1cf0, 0x88a0, 0, 0, 0, 1),
+            443,
+        ));
         let v4a = SocketAddr::from((Ipv4Addr::new(76, 33, 40, 136), 443));
         let v6b = SocketAddr::from((Ipv6Addr::LOCALHOST, 443));
         let v4b = SocketAddr::from((Ipv4Addr::new(192, 168, 1, 85), 443));

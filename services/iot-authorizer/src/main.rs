@@ -224,9 +224,7 @@ async fn live_grants(store: &GrantStore, sub: &str) -> Result<Vec<GrantScope>, S
         .await
         .map_err(|e| format!("query failed: {e}"))?;
 
-    let s = |item: &HashMap<String, AttributeValue>, key: &str| {
-        item.get(key)?.as_s().ok().cloned()
-    };
+    let s = |item: &HashMap<String, AttributeValue>, key: &str| item.get(key)?.as_s().ok().cloned();
     Ok(out
         .items()
         .iter()
@@ -626,7 +624,10 @@ mod tests {
         for forbidden in ["setup/s-1/state", "setup/s-1/config"] {
             let publishable = shared["policyDocuments"][1]["Statement"][0]["Resource"].to_string()
                 + &shared["policyDocuments"][1]["Statement"][1]["Resource"].to_string();
-            assert!(!publishable.contains(forbidden), "{forbidden} is publishable");
+            assert!(
+                !publishable.contains(forbidden),
+                "{forbidden} is publishable"
+            );
         }
     }
 
@@ -650,8 +651,16 @@ mod tests {
             );
         }
         // A hostile owner sub is refused the same way.
-        let response = allow("us-west-1", "735853783919", "contact-1", &[grant("*", "s-1")]);
-        assert_eq!(response["policyDocuments"].as_array().map(Vec::len), Some(1));
+        let response = allow(
+            "us-west-1",
+            "735853783919",
+            "contact-1",
+            &[grant("*", "s-1")],
+        );
+        assert_eq!(
+            response["policyDocuments"].as_array().map(Vec::len),
+            Some(1)
+        );
 
         // …and one bad grant does not cost the caller their good ones.
         let response = allow(
@@ -660,10 +669,11 @@ mod tests {
             "contact-1",
             &[grant(UUID_A, "*"), grant(UUID_A, UUID_B)],
         );
-        assert_eq!(response["policyDocuments"].as_array().map(Vec::len), Some(2));
-        assert!(response["policyDocuments"][1]
-            .to_string()
-            .contains(UUID_B));
+        assert_eq!(
+            response["policyDocuments"].as_array().map(Vec::len),
+            Some(2)
+        );
+        assert!(response["policyDocuments"][1].to_string().contains(UUID_B));
     }
 
     #[test]
@@ -680,11 +690,17 @@ mod tests {
             .expect("policyDocuments is an array");
 
         // Every grant made it in, and the whole set fits the 10-document limit.
-        assert_eq!(documents.len(), lux_wire::shares::MAX_GRANTS_PER_CONTACT + 1);
+        assert_eq!(
+            documents.len(),
+            lux_wire::shares::MAX_GRANTS_PER_CONTACT + 1
+        );
         assert!(documents.len() <= MAX_POLICY_DOCUMENTS);
         for document in documents {
             let size = document.to_string().len();
-            assert!(size <= MAX_POLICY_DOCUMENT_CHARS, "document is {size} chars");
+            assert!(
+                size <= MAX_POLICY_DOCUMENT_CHARS,
+                "document is {size} chars"
+            );
         }
     }
 

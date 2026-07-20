@@ -457,7 +457,9 @@ pub async fn list(ctx: &Ctx, sub: &str) -> Result<Response<Body>, Error> {
     let mut granted = Vec::new();
     let mut pending = Vec::new();
     for item in &owned {
-        let Some(sk) = read_s(item, "sk") else { continue };
+        let Some(sk) = read_s(item, "sk") else {
+            continue;
+        };
         if sk.starts_with("CONTACT#") {
             let (Some(contact_sub), Some(setup_id), Some(created_at)) = (
                 read_s(item, "contactSub"),
@@ -616,10 +618,17 @@ pub async fn cleanup_for_deleted_user(ctx: &Ctx, sub: &str) -> Result<(), String
 
     // As owner: drop each contact's mirror.
     for item in &owned {
-        let Some(sk) = read_s(item, "sk") else { continue };
+        let Some(sk) = read_s(item, "sk") else {
+            continue;
+        };
         if let Some(contact_sub) = read_s(item, "contactSub") {
             if sk.starts_with("CONTACT#") {
-                delete_key(ctx, &shared_pk(&contact_sub), &mirror_sk_of_owned(item, sub)).await?;
+                delete_key(
+                    ctx,
+                    &shared_pk(&contact_sub),
+                    &mirror_sk_of_owned(item, sub),
+                )
+                .await?;
                 notify.insert(contact_sub);
             }
         }
@@ -977,16 +986,16 @@ mod tests {
     #[test]
     fn pending_invites_are_the_unexpired_invite_rows() {
         let row = |sk: &str, expires: i64| {
-            HashMap::from([("sk".to_owned(), s(sk)), ("expiresAt".to_owned(), n(expires))])
+            HashMap::from([
+                ("sk".to_owned(), s(sk)),
+                ("expiresAt".to_owned(), n(expires)),
+            ])
         };
         let now = 1_000;
         assert!(is_pending_invite(&row("INVITE#abc", now + 1), now));
         // Expired codes stay in the table until TTL sweeps them, but they are
         // not offered to the owner and never count against the cap.
         assert!(!is_pending_invite(&row("INVITE#abc", now), now));
-        assert!(!is_pending_invite(
-            &row("CONTACT#c#SETUP#s", now + 1),
-            now
-        ));
+        assert!(!is_pending_invite(&row("CONTACT#c#SETUP#s", now + 1), now));
     }
 }

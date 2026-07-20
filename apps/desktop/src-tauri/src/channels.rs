@@ -1,8 +1,8 @@
-use crate::lock::LockPolicy;
 use crate::buffer::UNIVERSE_SIZE;
 use crate::channel::{Channel, LuxChannel};
 use crate::cmd::CmdEvent;
 use crate::colors::LuxLabelColor;
+use crate::lock::LockPolicy;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::fmt::{self, Display, Formatter};

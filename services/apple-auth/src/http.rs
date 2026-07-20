@@ -69,9 +69,7 @@ pub async fn handle(ctx: &Arc<Ctx>, payload: Value) -> Result<Value, Error> {
     };
 
     match (method, segments.as_slice()) {
-        ("POST", [a, b]) if *a == AUTH_SEGMENT && *b == APPLE_SEGMENT => {
-            sign_in(ctx, &event).await
-        }
+        ("POST", [a, b]) if *a == AUTH_SEGMENT && *b == APPLE_SEGMENT => sign_in(ctx, &event).await,
         ("POST", [a, b, c]) if *a == AUTH_SEGMENT && *b == APPLE_SEGMENT && *c == LINK_SEGMENT => {
             link(ctx, &event).await
         }
@@ -156,7 +154,8 @@ async fn sign_in(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
         },
     };
 
-    let mut attempt = cognito::custom_auth(ctx, &ctx.client_id, &username, &req.identity_token).await;
+    let mut attempt =
+        cognito::custom_auth(ctx, &ctx.client_id, &username, &req.identity_token).await;
     if let (Err(cognito::AuthError::UserNotFound), Some(link)) = (&attempt, &existing) {
         // The linked user is gone — an account deletion whose Apple-side
         // revoke never landed. Self-heal: drop the stale link and run this as

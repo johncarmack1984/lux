@@ -10,6 +10,7 @@ name: desktop
 #   - rust-test: cargo test across the workspace, including tests/bindings.rs — the
 #     drift guard that fails when src/bindings.ts is stale.
 #   - rust-clippy: the workspace lint gate at -D warnings.
+#   - fmt: rustfmt, compiling nothing, so a formatting slip is red in seconds.
 #
 # No job here depends on another: every one starts at once and the gate costs
 # the slowest of them, not their sum.
@@ -217,6 +218,23 @@ jobs:
       - name: sccache stats
         if: ${{ always() }}
         run: sccache --show-stats
+
+  # Formatting needs no system libraries, no frontend bundle and no compiler
+  # cache, so it answers in seconds on a runner of its own instead of riding
+  # inside a job that compiles. rust-toolchain.toml pins the channel and the
+  # rustfmt component, the same way the clippy job gets clippy.
+  fmt:
+    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch
+
+      - run: cargo fmt --all --check
 
   # The test suite and the lint gate are two independent compilations of the
   # same workspace, and neither one's result is an input to the other. Run

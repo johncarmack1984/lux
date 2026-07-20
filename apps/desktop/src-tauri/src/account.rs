@@ -205,7 +205,8 @@ impl LuxAccount {
     /// Developer ID .dmg stays dark until it embeds a provisioning profile
     /// with the entitlement.
     fn apple_sign_in_available(&self) -> bool {
-        let entitled = cfg!(target_os = "ios") || (cfg!(target_os = "macos") && cfg!(feature = "mas"));
+        let entitled =
+            cfg!(target_os = "ios") || (cfg!(target_os = "macos") && cfg!(feature = "mas"));
         entitled && self.config.is_some() && self.apple_auth_url.is_some()
     }
 
@@ -309,8 +310,8 @@ impl LuxAccount {
 
         // The session's email (the local store's cloud-binding key) comes from
         // our own id token — the sheet only carries one on first authorization.
-        let email = email_from_id_token(&tokens.id_token)
-            .ok_or("sign-in response carried no email")?;
+        let email =
+            email_from_id_token(&tokens.id_token).ok_or("sign-in response carried no email")?;
         save_session(&StoredSession {
             refresh_token: tokens.refresh_token.clone(),
             email: email.clone(),
