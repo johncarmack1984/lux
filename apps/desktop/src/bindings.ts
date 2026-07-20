@@ -208,6 +208,21 @@ export const cmd = {
   },
 
   /** @throws {string} */
+  close_shared_desk(): Promise<null> {
+    return invoke("cmd.close_shared_desk");
+  },
+
+  /** @throws {string} */
+  set_shared_channel(channelNumber: number, value: number): Promise<null> {
+    return invoke("cmd.set_shared_channel", { channel_number: channelNumber, value });
+  },
+
+  /** @throws {string} */
+  set_shared_buffer(buffer: number[]): Promise<null> {
+    return invoke("cmd.set_shared_buffer", { buffer });
+  },
+
+  /** @throws {string} */
   list_dmx_devices(): Promise<DmxDeviceInfo[]> {
     return invoke("cmd.list_dmx_devices");
   },

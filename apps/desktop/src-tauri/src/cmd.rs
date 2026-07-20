@@ -156,6 +156,13 @@ pub trait CmdMethods {
         owner_sub: String,
         setup_id: String,
     ) -> Result<Option<SharedDesk>, String>;
+    fn close_shared_desk(&self, app_handle: AppHandle) -> Result<(), String>;
+    // Guest control writes. These publish to the *owner's* frame topic and
+    // never touch this device's own buffer — a guest moving a fader on someone
+    // else's desk must not move their own fixtures.
+    fn set_shared_channel(&self, app_handle: AppHandle, channel_number: u16, value: u8)
+        -> Result<(), String>;
+    fn set_shared_buffer(&self, app_handle: AppHandle, buffer: Vec<u8>) -> Result<(), String>;
     // DMX output — the in-app device picker (the only output selector on mobile,
     // where there's no tray). Mirrors the desktop tray's device menu.
     fn list_dmx_devices(&self, app_handle: AppHandle) -> Result<Vec<DmxDeviceInfo>, String>;
@@ -701,7 +708,7 @@ impl CmdMethods for CmdEndpoint {
             // running. The surface says so rather than drawing an empty desk.
             return Ok(None);
         };
-        Ok(Some(SharedDesk {
+        let desk = Ok(Some(SharedDesk {
             owner_sub: owner_sub.clone(),
             setup_id: setup_id.clone(),
             name: config.name,
@@ -725,7 +732,32 @@ impl CmdMethods for CmdEndpoint {
                 })
                 .collect(),
             buffer: guest.state(&owner_sub, &setup_id).unwrap_or_default(),
-        }))
+        }));
+        // Bind the publish target and announce this guest on the owner's desk
+        // only once there is something to draw — a surface that couldn't render
+        // shouldn't claim to be live on it.
+        crate::guest::open_desk(&app_handle, &owner_sub, &setup_id);
+        desk
+    }
+
+    fn close_shared_desk(&self, app_handle: AppHandle) -> Result<(), String> {
+        crate::guest::close_desk(&app_handle);
+        Ok(())
+    }
+
+    fn set_shared_channel(
+        &self,
+        app_handle: AppHandle,
+        channel_number: u16,
+        value: u8,
+    ) -> Result<(), String> {
+        crate::guest::publish_channel(&app_handle, channel_number, value);
+        Ok(())
+    }
+
+    fn set_shared_buffer(&self, app_handle: AppHandle, buffer: Vec<u8>) -> Result<(), String> {
+        crate::guest::publish_overlay(&app_handle, buffer);
+        Ok(())
     }
 
     fn list_dmx_devices(&self, app_handle: AppHandle) -> Result<Vec<DmxDeviceInfo>, String> {

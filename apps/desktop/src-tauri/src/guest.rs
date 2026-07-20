@@ -15,16 +15,28 @@
 //! sooner (the owner clears the retained config, and the authorizer stops
 //! granting receive at the next reconnect).
 //!
-//! This module is read-only by construction: it subscribes, parses, and
-//! stores. Publishing into an owner's space — presence and control frames —
-//! is a separate concern and lives with the surface that does it.
+//! **Writing is deliberately its own path.** A guest's controls publish to the
+//! *owner's* frame topic and never touch this device's own buffer, and the
+//! local input path never targets an owner's space. They share no state and no
+//! function — moving a fader on someone else's desk must not move your own
+//! fixtures, and moving your own must never reach into their rig. That
+//! separation is structural rather than conditional, because the failure would
+//! be silent and would be pointed at real lights.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
+use rumqttc::QoS;
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::lock::LockPolicy;
+
+/// Trailing-edge coalescing window for a guest's control frames — the same
+/// 40 ms the owner's own publishes use, so a drag costs the same ~25 Hz
+/// whichever desk it is on.
+const PUBLISH_WINDOW: Duration = Duration::from_millis(40);
 
 /// Identifies one shared setup: whose space it lives in, and which setup.
 type Key = (String, String);
@@ -62,6 +74,15 @@ pub struct LuxGuest {
     configs: Mutex<HashMap<Key, lux_wire::ctl::Config>>,
     /// Each shared setup's last-known buffer, from the owner's state echo.
     states: Mutex<HashMap<Key, Vec<u8>>>,
+    /// The shared desk this device currently has open, if any. Also the guard
+    /// on every publish: with nothing open there is no target, so a stray call
+    /// cannot reach anyone's rig.
+    open: Mutex<Option<Key>>,
+    /// Control writes accumulated between flushes. Separate from the local
+    /// outbox on purpose (see the module docs) — they must never drain into
+    /// each other's topic.
+    outbox: Mutex<crate::nudge::Outbox>,
+    publish_pending: AtomicBool,
 }
 
 impl LuxGuest {
@@ -215,6 +236,142 @@ pub fn receive_state<R: Runtime>(
     }
 }
 
+/// Where a guest's control frames go: the open desk's owner's frame topic, or
+/// nothing at all when no desk is open.
+///
+/// A pure function so the property that matters can be asserted directly — a
+/// guest's writes land in the *owner's* namespace and never in this device's
+/// own, whatever the surface above it does.
+fn publish_target(open: Option<&Key>) -> Option<String> {
+    open.map(|(owner_sub, setup_id)| lux_wire::ctl::frame_topic(owner_sub, setup_id))
+}
+
+/// Open a shared desk: remember it as the publish target, and announce this
+/// guest on the owner's desk with a retained presence card.
+///
+/// The card goes on [`lux_wire::ctl::guest_presence_topic`] — one exact topic
+/// per guest, which is what lets the authorizer grant it without a wildcard.
+/// It is explicit publish/clear rather than a Last Will: a connection has one
+/// will and it is already spoken for by this device's own presence, so an
+/// ungraceful drop leaves the card until [`close_desk`] or the next sign-out.
+/// The card carries a timestamp so a surface can render staleness.
+pub fn open_desk<R: Runtime>(app: &AppHandle<R>, owner_sub: &str, setup_id: &str) {
+    let guest = app.state::<LuxGuest>();
+    if !guest.granted(owner_sub, setup_id) {
+        log::warn!("refusing to open {owner_sub}/{setup_id}: no live grant");
+        return;
+    }
+    // Leaving one desk for another clears the first card, so a guest is never
+    // shown as live on two of an owner's setups at once.
+    close_desk(app);
+    *guest.open.lock_or_recover() = Some((owner_sub.to_owned(), setup_id.to_owned()));
+
+    let Some(echo) = crate::nudge::connection(app) else {
+        return;
+    };
+    let card = lux_wire::ctl::PresenceCard::new(
+        echo.session.clone(),
+        setup_id.to_owned(),
+        crate::nudge::device_name(),
+    );
+    let topic = lux_wire::ctl::guest_presence_topic(owner_sub, &echo.sub);
+    let Ok(payload) = serde_json::to_vec(&card) else {
+        return;
+    };
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = echo
+            .client
+            .publish(topic.clone(), QoS::AtMostOnce, true, payload)
+            .await
+        {
+            log::debug!("guest presence publish to {topic} failed: {e}");
+        }
+    });
+}
+
+/// Leave the open desk: stop publishing there and clear the presence card so
+/// the owner's surface stops showing this guest as live.
+pub fn close_desk<R: Runtime>(app: &AppHandle<R>) {
+    let guest = app.state::<LuxGuest>();
+    let Some((owner_sub, _)) = guest.open.lock_or_recover().take() else {
+        return;
+    };
+    // Anything still queued was for the desk being left; it must not follow
+    // the guest to the next one.
+    guest.outbox.lock_or_recover().drain();
+    let Some(echo) = crate::nudge::connection(app) else {
+        return;
+    };
+    let topic = lux_wire::ctl::guest_presence_topic(&owner_sub, &echo.sub);
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = echo
+            .client
+            .publish(topic.clone(), QoS::AtMostOnce, true, Vec::<u8>::new())
+            .await
+        {
+            log::debug!("guest presence clear on {topic} failed: {e}");
+        }
+    });
+}
+
+/// Queue one slot write on the open shared desk.
+pub fn publish_channel<R: Runtime>(app: &AppHandle<R>, ch: u16, val: u8) {
+    let guest = app.state::<LuxGuest>();
+    if guest.open.lock_or_recover().is_none() {
+        return;
+    }
+    guest.outbox.lock_or_recover().push_channel(ch, val);
+    schedule_flush(app);
+}
+
+/// Queue an overlay write (the colour-picker path) on the open shared desk.
+pub fn publish_overlay<R: Runtime>(app: &AppHandle<R>, bytes: Vec<u8>) {
+    let guest = app.state::<LuxGuest>();
+    if guest.open.lock_or_recover().is_none() {
+        return;
+    }
+    guest.outbox.lock_or_recover().push_overlay(bytes);
+    schedule_flush(app);
+}
+
+/// Drain the guest outbox to the open desk's owner, trailing-edge coalesced.
+/// Frames carry `src` so the owner's applier can attribute them in its per-slot
+/// merge — and so this device drops its own frames when they echo back.
+fn schedule_flush<R: Runtime>(app: &AppHandle<R>) {
+    let state = app.state::<LuxGuest>();
+    if state.publish_pending.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(PUBLISH_WINDOW).await;
+        let guest = app.state::<LuxGuest>();
+        guest.publish_pending.store(false, Ordering::SeqCst);
+
+        // Re-read the target *after* the window: a guest who closed the desk
+        // mid-drag must not have the tail of that drag delivered.
+        let target = publish_target(guest.open.lock_or_recover().as_ref());
+        let (Some(topic), Some(echo)) = (target, crate::nudge::connection(&app)) else {
+            guest.outbox.lock_or_recover().drain();
+            return;
+        };
+        let frames = guest.outbox.lock_or_recover().drain();
+        for frame in frames {
+            let Ok(payload) = serde_json::to_vec(&frame.with_src(&echo.session)) else {
+                continue;
+            };
+            if let Err(e) = echo
+                .client
+                .publish(topic.clone(), QoS::AtMostOnce, false, payload)
+                .await
+            {
+                log::debug!("guest ctl publish failed (connection likely down): {e}");
+                return;
+            }
+        }
+    });
+}
+
 /// The topics a guest subscribes to for one grant: the owner's compiled setup
 /// and their applier's state echo, and nothing else. Exactly the two the
 /// authorizer grants receive on.
@@ -242,6 +399,24 @@ mod tests {
             setup_name: Some("Living room".into()),
             created_at: 0,
         }
+    }
+
+    #[test]
+    fn a_guests_writes_land_in_the_owners_namespace_and_never_its_own() {
+        let me = "me-1";
+        let open = ("owner-9".to_owned(), "s-1".to_owned());
+
+        let topic = publish_target(Some(&open)).expect("an open desk has a target");
+        assert_eq!(topic, "lux/ctl/user/owner-9/setup/s-1/frame");
+        // The property worth pinning: a guest's control writes address the
+        // owner's space. Publishing into our own would silently drive this
+        // device's fixtures instead of the ones the user is looking at.
+        assert!(!topic.contains(me));
+        assert!(topic.starts_with(&lux_wire::ctl::user_prefix("owner-9")));
+
+        // Nothing open, nothing to publish to — the guard that keeps a stray
+        // call from reaching anyone's rig.
+        assert_eq!(publish_target(None), None);
     }
 
     #[test]
