@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.1](https://github.com/johncarmack1984/lux/compare/v1.9.0...v1.9.1) (2026-07-20)
+
+
+### Bug Fixes
+
+* **pairing:** prefer IPv4 for the rendezvous so dual-stack ends line up ([#237](https://github.com/johncarmack1984/lux/issues/237)) ([06f3ed6](https://github.com/johncarmack1984/lux/commit/06f3ed6c8fa67131b7c327260154909094025c4a))
+
 ## [1.9.0](https://github.com/johncarmack1984/lux/compare/v1.8.0...v1.9.0) (2026-07-20)
 
 
