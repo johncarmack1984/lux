@@ -53,6 +53,54 @@ pub struct Setup {
 }
 
 impl Setup {
+    /// Compile this setup into the payload a surface that holds no copy of it
+    /// renders from — a shared-control guest today, a render node later
+    /// (`lux_wire::ctl::Config`, published retained on the setup's `config`
+    /// topic; see docs/shared-control.md).
+    ///
+    /// This is a lossy, deliberate projection, not a serialization. It carries
+    /// what it takes to *draw a desk*: which slots exist, what to call them,
+    /// and what kind of control each wants. It drops fixture ids, sync
+    /// metadata, and the local-only view state — a guest has no business
+    /// knowing any of it, and an embedded node has no use for it.
+    ///
+    /// Only patched slots appear. An unpatched setup compiles to empty lists,
+    /// which is not an empty desk: it means "no patch", and a surface renders
+    /// the plain universe, exactly as this app does locally.
+    pub fn compile(&self) -> lux_wire::ctl::Config {
+        let mut channels = Vec::new();
+        let mut fixtures = Vec::new();
+        for fixture in &self.fixtures {
+            fixtures.push(lux_wire::ctl::ConfigFixture {
+                name: fixture.name.clone(),
+                address: fixture.address,
+                count: fixture.channels.len() as u16,
+            });
+            for (offset, channel) in fixture.channels.iter().enumerate() {
+                channels.push(lux_wire::ctl::ConfigChannel {
+                    // 1-based DMX slot, matching `Frame::Channel`'s `ch` — the
+                    // number a guest will publish back.
+                    n: fixture.address.saturating_add(offset as u16),
+                    name: channel.label.clone(),
+                    // The variant name, which is exactly how the role rides
+                    // every other wire in this app. A consumer matches what it
+                    // knows and treats the rest as a plain fader.
+                    role: channel.role.as_ref().to_owned(),
+                });
+            }
+        }
+        // Slot order, not patch order: a surface draws a universe, and fixtures
+        // are patched in whatever order the user added them.
+        channels.sort_by_key(|c| c.n);
+        lux_wire::ctl::Config::new(
+            self.id.to_string(),
+            self.name.clone(),
+            self.universe,
+            channels,
+            fixtures,
+        )
+    }
+
     /// Whether this setup has changes the cloud doesn't have yet: explicit local
     /// edits, or a setup that has never been synced.
     fn needs_push(&self) -> bool {
@@ -681,6 +729,74 @@ fn reconcile(store: &mut SetupStore) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compile_lists_patched_slots_in_universe_order() {
+        use crate::colors::LuxLabelColor::*;
+        let ch = |role, label: &str| ChannelDef {
+            role,
+            label: label.to_owned(),
+        };
+        // Patched out of order on purpose: a user adds fixtures in whatever
+        // order they like, and a surface draws a universe.
+        let setup = new_setup(
+            "Living room",
+            7,
+            vec![
+                Fixture {
+                    id: uuid::Uuid::nil(),
+                    name: "Back par".into(),
+                    address: 10,
+                    channels: vec![ch(Red, "R"), ch(Green, "G")],
+                },
+                Fixture {
+                    id: uuid::Uuid::nil(),
+                    name: "Front par".into(),
+                    address: 1,
+                    channels: vec![ch(Brightness, "Dim")],
+                },
+            ],
+        );
+
+        let config = setup.compile();
+        assert_eq!(config.v, lux_wire::ctl::VERSION);
+        assert_eq!(config.name, "Living room");
+        assert_eq!(config.universe, 7);
+        assert_eq!(config.setup_id, setup.id.to_string());
+
+        // Slots are 1-based and ordered, and each carries the address it was
+        // patched at — not its offset within its fixture.
+        let slots: Vec<(u16, &str, &str)> = config
+            .channels
+            .iter()
+            .map(|c| (c.n, c.name.as_str(), c.role.as_str()))
+            .collect();
+        assert_eq!(
+            slots,
+            vec![
+                (1, "Dim", "Brightness"),
+                (10, "R", "Red"),
+                (11, "G", "Green"),
+            ]
+        );
+
+        // Fixtures carry only what a heading needs.
+        assert_eq!(config.fixtures.len(), 2);
+        assert_eq!(config.fixtures[1].name, "Front par");
+        assert_eq!(config.fixtures[1].address, 1);
+        assert_eq!(config.fixtures[1].count, 1);
+    }
+
+    #[test]
+    fn compile_of_an_unpatched_setup_is_empty_not_absent() {
+        // Empty lists mean "no patch, render the plain universe" — the same
+        // thing this app does locally. A fixed parser reads the same field set
+        // either way, which is why these are empty rather than omitted.
+        let config = new_setup("Blank", 1, vec![]).compile();
+        assert!(config.channels.is_empty() && config.fixtures.is_empty());
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains(r#""channels":[]"#) && json.contains(r#""fixtures":[]"#));
+    }
 
     #[test]
     fn default_store_is_one_home_setup_with_rgbaw() {
