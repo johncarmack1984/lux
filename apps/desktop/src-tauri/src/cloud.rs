@@ -289,6 +289,14 @@ async fn list_shares_req(
 /// An account with cloud sync never configured has no shares at all, which is
 /// an empty answer rather than an error.
 pub fn list_shares(app: &AppHandle) -> Result<lux_wire::shares::SharesResponse, String> {
+    let app = app.clone();
+    crate::account::block_on(async move { shares(&app).await })
+}
+
+/// The async half of [`list_shares`], for callers already inside the runtime —
+/// the retained-config publisher runs on the nudge connection's task, where
+/// blocking on a worker thread would stall the whole user channel.
+pub async fn shares(app: &AppHandle) -> Result<lux_wire::shares::SharesResponse, String> {
     let (base, token) = {
         let account = app.state::<LuxAccount>();
         let Some(base) = account.sync_url() else {
@@ -301,16 +309,13 @@ pub fn list_shares(app: &AppHandle) -> Result<lux_wire::shares::SharesResponse, 
         let token = account.current_id_token().ok_or("not signed in")?;
         (base, token)
     };
-    let app = app.clone();
-    crate::account::block_on(async move {
-        let client = Client::new();
-        let mut result = list_shares_req(&client, &base, token).await;
-        if matches!(result, Err(SyncError::Unauthorized)) {
-            let fresh = refresh(&app).await.map_err(|e| e.to_string())?;
-            result = list_shares_req(&client, &base, fresh).await;
-        }
-        result.map_err(|e| format!("could not list shares: {e}"))
-    })
+    let client = Client::new();
+    let mut result = list_shares_req(&client, &base, token).await;
+    if matches!(result, Err(SyncError::Unauthorized)) {
+        let fresh = refresh(app).await.map_err(|e| e.to_string())?;
+        result = list_shares_req(&client, &base, fresh).await;
+    }
+    result.map_err(|e| format!("could not list shares: {e}"))
 }
 
 async fn read_json<T: DeserializeOwned>(resp: reqwest::Response) -> Result<T, SyncError> {

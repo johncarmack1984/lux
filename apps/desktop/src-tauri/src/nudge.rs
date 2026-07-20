@@ -52,6 +52,12 @@ use crate::buffer::LuxBuffer;
 use crate::lock::LockPolicy;
 use crate::setup::LuxSetups;
 
+/// Trailing-edge coalescing window for retained-config reconciles. Generous
+/// because the triggers are human-paced (a patch edit, a grant change) and
+/// arrive in bursts: a nudge, the pull it schedules, and the local commit that
+/// pull produces are all one logical change.
+const CONFIG_WINDOW: Duration = Duration::from_millis(750);
+
 /// Trailing-edge coalescing window for the retained state echo (≤5 Hz) — a
 /// remote surface needs truth, not every intermediate slider position.
 const ECHO_WINDOW: Duration = Duration::from_millis(200);
@@ -100,6 +106,8 @@ pub struct LuxNudge {
     local_input_at: Mutex<Option<Instant>>,
     /// Consecutive ctl-suspect connection deaths (see [`CTL_FAILURE_LIMIT`]).
     ctl_failures: AtomicU32,
+    /// A retained-config reconcile is queued (see [`refresh_shared_configs`]).
+    configs_pending: AtomicBool,
 }
 
 impl Default for LuxNudge {
@@ -109,6 +117,7 @@ impl Default for LuxNudge {
             presence: watch::channel(0).0,
             echo: Mutex::new(None),
             echo_pending: AtomicBool::new(false),
+            configs_pending: AtomicBool::new(false),
             peers: Mutex::new(HashMap::new()),
             outbox: Mutex::new(Outbox::default()),
             publish_pending: AtomicBool::new(false),
@@ -359,6 +368,131 @@ pub fn schedule_state_echo<R: Runtime>(app: &AppHandle<R>) {
     });
 }
 
+/// The setup ids a shared-control guest may currently render, from the
+/// caller's own grants (`GET /shares`). Pure so the reconcile below stays
+/// testable without a broker: given what is granted and what exists locally,
+/// exactly these setups should carry a retained config and every other local
+/// setup should carry none.
+fn shared_setup_ids(
+    granted: &[lux_wire::shares::Grant],
+    local: &[uuid::Uuid],
+) -> std::collections::HashSet<uuid::Uuid> {
+    let local: std::collections::HashSet<uuid::Uuid> = local.iter().copied().collect();
+    granted
+        .iter()
+        .filter_map(|g| uuid::Uuid::parse_str(&g.setup_id).ok())
+        .filter(|id| local.contains(id))
+        .collect()
+}
+
+/// Publish the retained compiled setup for every shared setup, and clear it for
+/// every other setup on the account.
+///
+/// Deliberately a full reconcile rather than incremental publish/clear calls,
+/// and it keeps no record of what it published last. A guest's whole view of a
+/// setup is this retained frame, so the failure that matters is a stale one
+/// outliving its grant — and any bookkeeping of "what did I publish" is exactly
+/// the thing that drifts when the app is closed while a grant is revoked from
+/// another device. Deriving the answer from current state every time cannot
+/// drift, and clearing a topic that holds nothing is a no-op.
+///
+/// The one case this cannot cover is a setup deleted locally: it is gone from
+/// the account, so nothing here names it. [`clear_config`] handles that at the
+/// deletion site, before the setup disappears.
+pub fn reconcile_configs<R: Runtime>(app: &AppHandle<R>, granted: &[lux_wire::shares::Grant]) {
+    let Some(echo) = app.state::<LuxNudge>().echo.lock_or_recover().clone() else {
+        return; // no connection; the next connect reconciles from scratch
+    };
+    for (setup_id, config) in config_plan(&app.state::<LuxSetups>().all(), granted) {
+        // `None` is a clear: an empty retained payload deletes the retained
+        // message, the same idiom the presence card uses.
+        let payload = match config.as_ref().map(serde_json::to_vec).transpose() {
+            Ok(payload) => payload.unwrap_or_default(),
+            Err(e) => {
+                log::warn!("could not compile setup {setup_id} for sharing: {e}");
+                continue;
+            }
+        };
+        let topic = lux_wire::ctl::config_topic(&echo.sub, &setup_id.to_string());
+        let client = echo.client.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = client.publish(&topic, QoS::AtMostOnce, true, payload).await {
+                log::debug!("config publish to {topic} failed (connection likely down): {e}");
+            }
+        });
+    }
+}
+
+/// The retained-config writes one reconcile implies: a compiled payload for
+/// every shared setup, `None` (clear) for every other setup on the account.
+///
+/// Split out from the publish loop because *this* is the part worth being sure
+/// about — which setups a guest can see — and it is a pure function of local
+/// setups plus current grants, so it can be checked without a broker.
+fn config_plan(
+    setups: &[crate::setup::Setup],
+    granted: &[lux_wire::shares::Grant],
+) -> Vec<(uuid::Uuid, Option<lux_wire::ctl::Config>)> {
+    let shared = shared_setup_ids(granted, &setups.iter().map(|s| s.id).collect::<Vec<_>>());
+    setups
+        .iter()
+        .map(|setup| {
+            let config = shared.contains(&setup.id).then(|| setup.compile());
+            (setup.id, config)
+        })
+        .collect()
+}
+
+/// Clear one setup's retained config. Called when a setup is deleted, while its
+/// id is still known — after that, [`reconcile_configs`] can no longer name it.
+pub fn clear_config<R: Runtime>(app: &AppHandle<R>, setup_id: uuid::Uuid) {
+    let Some(echo) = app.state::<LuxNudge>().echo.lock_or_recover().clone() else {
+        return;
+    };
+    let topic = lux_wire::ctl::config_topic(&echo.sub, &setup_id.to_string());
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = echo
+            .client
+            .publish(&topic, QoS::AtMostOnce, true, Vec::<u8>::new())
+            .await
+        {
+            log::debug!("config clear on {topic} failed (connection likely down): {e}");
+        }
+    });
+}
+
+/// Fetch the caller's grants and reconcile the retained configs against them.
+/// The entry point for anything that changes *who* can see a setup — a shares
+/// nudge, and the connect handshake, where a grant may have changed while this
+/// device was offline.
+/// Coalesced, so every caller can be naive: a cloud pull, the nudge that caused
+/// it, and the local commit it produces all land in one reconcile instead of
+/// three round trips.
+pub fn refresh_shared_configs(app: &AppHandle) {
+    let state = app.state::<LuxNudge>();
+    if state.echo.lock_or_recover().is_none() {
+        return;
+    }
+    if state.configs_pending.swap(true, Ordering::SeqCst) {
+        return; // one is already queued and will see this change too
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(CONFIG_WINDOW).await;
+        app.state::<LuxNudge>()
+            .configs_pending
+            .store(false, Ordering::SeqCst);
+        match crate::cloud::shares(&app).await {
+            Ok(shares) => reconcile_configs(&app, &shares.granted),
+            // Leave the retained configs exactly as they are. Publishing on a
+            // guess is worse than publishing late: the pull retries, and a
+            // grant that was revoked is already unreadable by the guest whose
+            // policy no longer covers it.
+            Err(e) => log::warn!("could not refresh shares for config publish: {e}"),
+        }
+    });
+}
+
 /// Queue a locally-entered overlay write (the color-picker path) for remote
 /// publish. Called from the command layer only — never from an apply path —
 /// which is the structural loop guard: remotely-applied frames re-enter the
@@ -549,14 +683,23 @@ async fn run_connection(
                         publish_presence(&client, app, sub, &session).await;
                         // Refresh the retained truth for whoever is watching.
                         schedule_state_echo(app);
+                        // …including shared-control guests, whose entire view
+                        // of a setup is its retained config. Grants can change
+                        // while this device is offline, so reconcile on every
+                        // connect rather than trusting what a past session
+                        // published.
+                        refresh_shared_configs(app);
                     }
                 }
                 Ok(Event::Incoming(Packet::Publish(publish))) => {
                     match route(&publish.topic, sub) {
                         Route::Nudge => {
-                            // Opaque frame — never parsed; any frame means "pull now".
+                            // Opaque frame — never parsed; any frame means "pull
+                            // now", and since shared control the pull covers who
+                            // can see a setup as well as what is in it.
                             log::debug!("nudge received; scheduling sync");
                             crate::cloud::schedule_sync(app);
+                            refresh_shared_configs(app);
                         }
                         Route::Frame { setup_id } => {
                             apply_frame(app, &publish.payload, setup_id, &session);
@@ -710,6 +853,82 @@ fn apply_frame(app: &AppHandle, payload: &[u8], frame_setup: &str, own_session: 
 mod tests {
     use super::*;
     use lux_wire::ctl::Frame;
+
+    #[test]
+    fn shared_setups_are_the_granted_ones_that_still_exist_here() {
+        use std::collections::HashSet;
+        let a = uuid::Uuid::from_u128(1);
+        let b = uuid::Uuid::from_u128(2);
+        let gone = uuid::Uuid::from_u128(3);
+        let grant = |id: uuid::Uuid| lux_wire::shares::Grant {
+            contact_sub: "c".into(),
+            contact_label: "c@example.com".into(),
+            setup_id: id.to_string(),
+            setup_name: None,
+            label: None,
+            created_at: 0,
+        };
+
+        // Two contacts on one setup is one setup, not two configs.
+        assert_eq!(
+            shared_setup_ids(&[grant(a), grant(a), grant(b)], &[a, b]),
+            HashSet::from([a, b])
+        );
+
+        // A grant naming a setup this device doesn't have — deleted elsewhere,
+        // or not pulled yet — publishes nothing. There is no setup to compile,
+        // and inventing an empty one would blank a guest's desk.
+        assert!(shared_setup_ids(&[grant(gone)], &[a]).is_empty());
+
+        // No grants: every local setup falls into the reconcile's clear set.
+        assert!(shared_setup_ids(&[], &[a, b]).is_empty());
+
+        // A malformed setup id is skipped, not panicked on.
+        let mut bad = grant(a);
+        bad.setup_id = "not-a-uuid".into();
+        assert!(shared_setup_ids(&[bad], &[a]).is_empty());
+    }
+
+    #[test]
+    fn the_plan_publishes_only_shared_setups_and_clears_every_other() {
+        let setup = |id: u128, name: &str| crate::setup::Setup {
+            id: uuid::Uuid::from_u128(id),
+            name: name.to_owned(),
+            universe: 1,
+            fixtures: Vec::new(),
+            updated_at: None,
+            dirty: false,
+        };
+        let grant = |id: u128| lux_wire::shares::Grant {
+            contact_sub: "c".into(),
+            contact_label: "c@example.com".into(),
+            setup_id: uuid::Uuid::from_u128(id).to_string(),
+            setup_name: None,
+            label: None,
+            created_at: 0,
+        };
+        let setups = vec![setup(1, "Shared"), setup(2, "Private")];
+
+        let plan = config_plan(&setups, &[grant(1)]);
+        assert_eq!(plan.len(), 2, "every local setup gets a decision");
+        let shared = plan.iter().find(|(id, _)| *id == setups[0].id).unwrap();
+        let private = plan.iter().find(|(id, _)| *id == setups[1].id).unwrap();
+        assert_eq!(
+            shared.1.as_ref().map(|c| c.name.as_str()),
+            Some("Shared"),
+            "a granted setup publishes its compiled config"
+        );
+        assert!(
+            private.1.is_none(),
+            "an ungranted setup is cleared, not skipped — a config from a \
+             revoked grant must not outlive it"
+        );
+
+        // Revoking the last grant turns the publish into a clear on the very
+        // next reconcile, with no memory of what was published before.
+        let after_revoke = config_plan(&setups, &[]);
+        assert!(after_revoke.iter().all(|(_, config)| config.is_none()));
+    }
 
     #[test]
     fn outbox_coalesces_channels_to_latest_value() {

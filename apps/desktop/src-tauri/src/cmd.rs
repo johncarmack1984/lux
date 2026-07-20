@@ -371,6 +371,11 @@ impl CmdMethods for CmdEndpoint {
         let setups = app_handle.state::<LuxSetups>();
         let was_active = setups.active_id() == id;
         setups.delete(id)?;
+        // Clear the retained config here rather than leaving it to the
+        // reconcile: once the setup is out of the store nothing can name its
+        // topic, and a guest's whole view of a setup is that frame — an
+        // orphaned one would outlive the setup it describes.
+        crate::nudge::clear_config(&app_handle, id);
         // Deleting the active setup reassigns active inside the store; re-sync the
         // output and UI to whatever became active, exactly like a manual switch.
         if was_active {
@@ -650,6 +655,9 @@ fn commit_patch(app: &AppHandle, setups: &LuxSetups) -> Result<Vec<Fixture>, Str
     .emit(app)
     .map_err(|e| format!("Failed to emit patch_set event: {e}"))?;
     crate::cloud::schedule_push(app);
+    // A shared setup's guests render from its retained config, so it has to
+    // follow the setup rather than lag it (coalesced; see refresh_shared_configs).
+    crate::nudge::refresh_shared_configs(app);
     Ok(fixtures)
 }
 
@@ -675,6 +683,9 @@ fn commit_setups(app: &AppHandle, setups: &LuxSetups) -> Result<Vec<SetupSummary
     .emit(app)
     .map_err(|e| format!("Failed to emit setups_changed event: {e}"))?;
     crate::cloud::schedule_push(app);
+    // A shared setup's guests render from its retained config, so it has to
+    // follow the setup rather than lag it (coalesced; see refresh_shared_configs).
+    crate::nudge::refresh_shared_configs(app);
     Ok(summaries)
 }
 
@@ -684,6 +695,10 @@ fn commit_setups(app: &AppHandle, setups: &LuxSetups) -> Result<Vec<SetupSummary
 pub fn broadcast_synced_state(app: &AppHandle) {
     let setups = app.state::<LuxSetups>();
     setup::save(app, &setups);
+    // A pull can change a shared setup's patch, name, or universe from another
+    // device; guests render from the retained config, so it follows the pull.
+    // (Coalesced, so this and the nudge that scheduled the pull are one.)
+    crate::nudge::refresh_shared_configs(app);
     devices::set_active_universe(app, setups.active_universe());
     let active_id = setups.active_id().to_string();
     let _ = CmdEvent::SetupsChanged {
