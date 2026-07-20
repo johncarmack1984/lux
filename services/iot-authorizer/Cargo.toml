@@ -19,7 +19,9 @@ lux-auth = { path = "../../crates/lux-auth" }
 lux-wire = { path = "../../crates/lux-wire" }
 # Shared-control grants are read from the lux-sync table at connect time.
 aws-config.workspace = true
-aws-sdk-dynamodb = "1"
+aws-smithy-http-client.workspace = true
+aws-smithy-runtime-api = "1"
+aws-sdk-dynamodb = { version = "1", default-features = false, features = ["rt-tokio"] }
 lambda_runtime = "1"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 serde = { workspace = true }

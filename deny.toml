@@ -18,14 +18,6 @@ ignore = [
     # Lambdas only VERIFY Cognito JWTs (public-key ops); no private-key RSA
     # runs here. No fixed rsa release exists.
     { id = "RUSTSEC-2023-0071", reason = "verification-only rsa usage; no fixed release" },
-    # The legacy rustls-0.21/webpki-0.101 branch that aws-smithy-http-client
-    # (latest) still carries via hyper-rustls's acceptor feature. Never
-    # executed: the SDK's runtime client is the rustls-0.23/webpki-0.103 line,
-    # which is patched in this lockfile. No fixed 0.101 releases exist.
-    { id = "RUSTSEC-2026-0049", reason = "legacy aws-smithy rustls edge, unused at runtime" },
-    { id = "RUSTSEC-2026-0098", reason = "legacy aws-smithy rustls edge, unused at runtime" },
-    { id = "RUSTSEC-2026-0099", reason = "legacy aws-smithy rustls edge, unused at runtime" },
-    { id = "RUSTSEC-2026-0104", reason = "legacy aws-smithy rustls edge, unused at runtime" },
 ]
 
 [licenses]

@@ -22,6 +22,8 @@ serde_json.workspace = true
 ed25519-dalek = "3"
 hex = "0.4"
 aws-config.workspace = true
-aws-sdk-iotdataplane = "1"
+aws-smithy-http-client.workspace = true
+aws-smithy-runtime-api = "1"
+aws-sdk-iotdataplane = { version = "1", default-features = false, features = ["rt-tokio"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
