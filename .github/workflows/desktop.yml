@@ -13,6 +13,22 @@ name: desktop
 #
 # No job here depends on another: every one starts at once and the gate costs
 # the slowest of them, not their sum.
+#
+# Every job also carries the same guard, so a commit is gated once and not
+# twice. The release-please PR — and the release commit it becomes — hold no
+# code that main's tip was not already gated against, only version stamps
+# (whose own failure mode has a dedicated tripwire in release.yml), and
+# release.yml runs this entire workflow against the release tag before
+# anything ships. So both skip here and that `ci` run is their record. Merges
+# to main are PR-only, so anything else reaching main was gated as a PR first.
+# A job added below needs the guard too.
+#
+# The guard's first two terms are what keeps a release gating itself: either
+# says "another workflow called this one, never skip". github.workflow is the
+# CALLER's name under workflow_call (see the concurrency note below), and
+# release.yml's ci job pins a ref. Both are checked because the failure they
+# prevent — a release shipping ungated — is the one failure worth two seatbelts,
+# and because github.workflow fails open if this workflow is ever renamed.
 
 on:
   pull_request:
@@ -20,8 +36,9 @@ on:
     # the action_required state (GitHub holds runs for events its own token
     # caused, and pull_request branch filters can only match the BASE branch,
     # so the machine branches cannot be excluded here). release.yml approves
-    # those held runs right after pushing; the authoritative gate is its ci
-    # job at the release tag either way.
+    # those held runs right after pushing, and the per-job guard below skips
+    # their work: the release PR gets a concluded, near-free gate instead of
+    # either an "awaiting approval" banner or a full re-run of main's tip.
     paths:
       - 'apps/desktop/**'
       - 'apps/site/**'
@@ -84,6 +101,7 @@ jobs:
   # needs it), so a workflow file without its own permissions block silently
   # inherits a write-capable token. Every workflow must say what it wants.
   workflow-permissions:
+    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -100,6 +118,7 @@ jobs:
           exit "$fail"
 
   deny:
+    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -114,6 +133,7 @@ jobs:
           command: check advisories bans licenses sources
 
   tauri-versions:
+    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -134,6 +154,7 @@ jobs:
         run: bun run check:tauri-versions
 
   frontend:
+    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -164,6 +185,7 @@ jobs:
   # renamed crate, or a musl-hostile dependency is a red PR check instead of a
   # failed release run.
   lambda-build:
+    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -203,6 +225,7 @@ jobs:
   # each reports the moment it knows. They share their setup through a composite
   # action rather than a copy, so the two can never drift apart.
   rust-test:
+    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -228,6 +251,7 @@ jobs:
         run: sccache --show-stats
 
   rust-clippy:
+    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -256,6 +280,7 @@ jobs:
   # The product site + shared UI package: typecheck and production build, so a
   # PR can't land something the deploy workflow (site.yml) would choke on.
   site:
+    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
