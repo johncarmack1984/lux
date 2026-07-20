@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.8.0](https://github.com/johncarmack1984/lux/compare/v1.7.1...v1.8.0) (2026-07-20)
+
+
+### Features
+
+* **desktop:** claim-code pairing — Add-device UI, device list, and revoke ([#224](https://github.com/johncarmack1984/lux/issues/224)) ([a99a6a2](https://github.com/johncarmack1984/lux/commit/a99a6a28897abe580acb7d7bc06c89b684ce2f0a))
+* **node:** claim-code pairing — unpaired-boot state machine and `pair` ([#221](https://github.com/johncarmack1984/lux/issues/221)) ([03eae60](https://github.com/johncarmack1984/lux/commit/03eae603e48362c0a3f7d7e9cebea89a15fb18c3))
+* **shares:** grant a contact control of one setup (shared control, phase 1) ([#223](https://github.com/johncarmack1984/lux/issues/223)) ([f9276ee](https://github.com/johncarmack1984/lux/commit/f9276ee233124b6d0c95b9354e92191bf6d72a65))
+
+
+### Bug Fixes
+
+* **shares:** make the retained-config clear fallible, and carry the runbook in-repo ([#225](https://github.com/johncarmack1984/lux/issues/225)) ([05cc2ec](https://github.com/johncarmack1984/lux/commit/05cc2ec6b09e6cb695b8c7206e914853f08eaefe))
+
 ## [1.7.1](https://github.com/johncarmack1984/lux/compare/v1.7.0...v1.7.1) (2026-07-19)
 
 

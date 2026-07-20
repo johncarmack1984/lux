@@ -3726,7 +3726,7 @@ dependencies = [
 
 [[package]]
 name = "lux"
-version = "1.7.1"
+version = "1.8.0"
 dependencies = [
  "anyhow",
  "apple-native-keyring-store",
