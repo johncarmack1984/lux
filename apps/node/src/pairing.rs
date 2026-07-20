@@ -96,7 +96,7 @@ pub async fn pair_wait(
 ) -> Result<Granted, String> {
     let device_id = crate::config::load_or_create_device_id()?;
     let request = device_request(device_id);
-    let client = http_client()?;
+    let client = http_client(env)?;
     let mut net_backoff = 1u64;
 
     'register: loop {
@@ -228,13 +228,27 @@ async fn poll_once(
     serde_json::from_slice(&body).map_err(|e| format!("token poll {status}: unreadable body: {e}"))
 }
 
-fn http_client() -> Result<reqwest::Client, String> {
+fn http_client(env: &Endpoints) -> Result<reqwest::Client, String> {
     let certs = reqwest::Certificate::from_pem_bundle(webpki_pem_bundle())
         .map_err(|e| format!("webpki bundle: {e}"))?;
-    reqwest::Client::builder()
-        .tls_certs_only(certs)
-        .build()
-        .map_err(|e| e.to_string())
+    let mut builder = reqwest::Client::builder().tls_certs_only(certs);
+    // Prefer IPv4 for the rendezvous: the shared NAT address is the identity the
+    // approving app can reliably match on a dual-stack network (lux_engine::net).
+    // Best-effort — a resolution miss leaves reqwest's default dual-stack DNS.
+    if let Some((host, port)) = host_port(&env.apple_auth_url) {
+        let addrs = lux_engine::net::ipv4_first_addrs(&host, port);
+        if !addrs.is_empty() {
+            builder = builder.resolve_to_addrs(&host, &addrs);
+        }
+    }
+    builder.build().map_err(|e| e.to_string())
+}
+
+/// Host + port (defaulting 443) from a base URL, for a reqwest resolver override.
+fn host_port(base_url: &str) -> Option<(String, u16)> {
+    let url = reqwest::Url::parse(base_url).ok()?;
+    let host = url.host_str()?.to_owned();
+    Some((host, url.port_or_known_default().unwrap_or(443)))
 }
 
 /// `<appleAuthUrl>/auth/device/<segment>`.
