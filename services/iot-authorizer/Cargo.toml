@@ -17,6 +17,9 @@ workspace = true
 [dependencies]
 lux-auth = { path = "../../crates/lux-auth" }
 lux-wire = { path = "../../crates/lux-wire" }
+# Shared-control grants are read from the lux-sync table at connect time.
+aws-config.workspace = true
+aws-sdk-dynamodb = "1"
 lambda_runtime = "1"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 serde = { workspace = true }

@@ -41,6 +41,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
 lambda_http = "1.2"
+sha2 = "0.11"
 
 # Small, optimized release binaries. Profiles must live at the workspace root, so
 # this now governs the Lambda services too — lto + opt-level "s" give them smaller,

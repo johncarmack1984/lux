@@ -583,6 +583,31 @@ jobs:
           cat /tmp/body; echo
           test "$code" = "401" && grep -q '"error"' /tmp/body
 
+      # Shared control's routes answer the same typed 401, which is the cheapest
+      # proof that the shares module shipped and is gated: an unauthenticated
+      # claim must never reach the code lookup, and an unrouted path would 404.
+      - name: Smoke sync-api shares routes
+        run: |
+          url=$(aws lambda get-function-url-config --function-name lux-sync-api --query FunctionUrl --output text)
+          code=$(curl -s -o /tmp/shares-list -w '%{http_code}' "${url}shares")
+          cat /tmp/shares-list; echo
+          test "$code" = "401" && grep -q '"error"' /tmp/shares-list
+          code=$(curl -s -o /tmp/shares-claim -w '%{http_code}' -X POST \
+            -H 'content-type: application/json' -d '{"code":"LUX-SMOKE-TEST0"}' "${url}shares/claim")
+          cat /tmp/shares-claim; echo
+          test "$code" = "401" && grep -q '"error"' /tmp/shares-claim
+
+      # The authorizer reads grants from DynamoDB now, and a missing table is
+      # not an error there — it degrades to "no connection is ever widened",
+      # which would look exactly like shared control quietly not working. Assert
+      # the applied configuration rather than waiting to discover it.
+      - name: Assert authorizer grant lookup is configured
+        run: |
+          table=$(aws lambda get-function-configuration --function-name lux-iot-authorizer \
+            --query 'Environment.Variables.DYNAMODB_TABLE' --output text)
+          echo "authorizer grant table: $table"
+          test "$table" = "lux-sync"
+
       # A garbage identity token answering the typed 401 proves the new binary
       # cold-started (its init fetches the Cognito JWKS before serving), routes
       # /auth/apple, and rejects unverifiable tokens.

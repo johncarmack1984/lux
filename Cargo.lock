@@ -3840,6 +3840,8 @@ dependencies = [
 name = "lux-iot-authorizer"
 version = "0.1.0"
 dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
  "lambda_runtime",
  "lux-auth",
  "lux-wire",
@@ -3888,6 +3890,7 @@ dependencies = [
  "rustls 0.23.41",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "tokio",
  "tracing",
  "tracing-subscriber",
