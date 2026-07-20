@@ -325,6 +325,104 @@ async fn claim_share_req(
     read_json(resp).await
 }
 
+/// Mint an invite code for one of the caller's own setups.
+pub fn invite_to_setup(
+    app: &AppHandle,
+    setup_id: &str,
+    label: Option<String>,
+) -> Result<lux_wire::shares::InviteResponse, String> {
+    let (base, token) = share_call(app)?;
+    let body = lux_wire::shares::InviteRequest {
+        setup_id: setup_id.to_owned(),
+        label,
+    };
+    let app = app.clone();
+    crate::account::block_on(async move {
+        let client = Client::new();
+        let send = |token: String| {
+            let url = format!(
+                "{base}/{}/{}",
+                lux_wire::shares::SHARES_SEGMENT,
+                lux_wire::shares::INVITE_SEGMENT
+            );
+            let client = client.clone();
+            let body = &body;
+            async move {
+                let resp = client
+                    .post(url)
+                    .bearer_auth(token)
+                    .json(body)
+                    .send()
+                    .await
+                    .map_err(|e| SyncError::Other(e.to_string()))?;
+                typed_error_or_json(resp).await
+            }
+        };
+        let mut result = send(token).await;
+        if matches!(result, Err(SyncError::Unauthorized)) {
+            result = send(refresh(&app).await.map_err(|e| e.to_string())?).await;
+        }
+        result.map_err(|e| e.to_string())
+    })
+}
+
+/// End a share, from either end. `path` is the route tail naming the other
+/// party (`granted/<contact>/<setup>`, `received/<owner>/<setup>`) or the code
+/// (`invite/<codeRef>`) — the caller's own side always comes from the token.
+pub fn end_share(app: &AppHandle, path: &str) -> Result<(), String> {
+    let (base, token) = share_call(app)?;
+    let url = format!("{base}/{}/{path}", lux_wire::shares::SHARES_SEGMENT);
+    let app = app.clone();
+    crate::account::block_on(async move {
+        let client = Client::new();
+        let send = |token: String| {
+            let url = url.clone();
+            let client = client.clone();
+            async move {
+                let resp = client
+                    .delete(url)
+                    .bearer_auth(token)
+                    .send()
+                    .await
+                    .map_err(|e| SyncError::Other(e.to_string()))?;
+                typed_error_or_json::<lux_wire::shares::RevokeResponse>(resp).await
+            }
+        };
+        let mut result = send(token).await;
+        if matches!(result, Err(SyncError::Unauthorized)) {
+            result = send(refresh(&app).await.map_err(|e| e.to_string())?).await;
+        }
+        result.map(|_| ()).map_err(|e| e.to_string())
+    })
+}
+
+/// Base URL + a fresh token, or a reason the call cannot be made.
+fn share_call(app: &AppHandle) -> Result<(String, String), String> {
+    let account = app.state::<LuxAccount>();
+    let base = account.sync_url().ok_or("cloud sync is not configured")?;
+    let token = account.current_id_token().ok_or("not signed in")?;
+    Ok((base, token))
+}
+
+/// Read a share route's reply, surfacing the server's own message on the
+/// refusals it states plainly (a cap reached, a setup gone, a bad code) rather
+/// than flattening them to a status code.
+async fn typed_error_or_json<T: DeserializeOwned>(
+    resp: reqwest::Response,
+) -> Result<T, SyncError> {
+    if matches!(
+        resp.status(),
+        StatusCode::NOT_FOUND | StatusCode::CONFLICT | StatusCode::BAD_REQUEST
+    ) {
+        let body = resp.json::<lux_wire::ErrorResponse>().await;
+        return Err(SyncError::Other(match body {
+            Ok(e) => e.error,
+            Err(_) => "that request was refused".to_owned(),
+        }));
+    }
+    read_json(resp).await
+}
+
 /// Redeem an invite code, gaining control of one of someone else's setups.
 pub fn claim_share(
     app: &AppHandle,

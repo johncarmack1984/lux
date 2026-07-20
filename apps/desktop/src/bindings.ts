@@ -180,6 +180,26 @@ export const cmd = {
   },
 
   /** @throws {string} */
+  invite_to_setup(setupId: string, label: string | null): Promise<InviteCode> {
+    return invoke("cmd.invite_to_setup", { setup_id: setupId, label });
+  },
+
+  /** @throws {string} */
+  list_granted_shares(): Promise<GrantedShares> {
+    return invoke("cmd.list_granted_shares");
+  },
+
+  /** @throws {string} */
+  revoke_share(contactSub: string, setupId: string): Promise<null> {
+    return invoke("cmd.revoke_share", { contact_sub: contactSub, setup_id: setupId });
+  },
+
+  /** @throws {string} */
+  withdraw_invite(codeRef: string): Promise<null> {
+    return invoke("cmd.withdraw_invite", { code_ref: codeRef });
+  },
+
+  /** @throws {string} */
   claim_share(code: string): Promise<SharedSetup> {
     return invoke("cmd.claim_share", { code });
   },
@@ -346,6 +366,39 @@ export type FixturePreset = {
 	channels: ChannelDef[],
 };
 
+/**  One contact who can control one of the caller's setups. */
+export type GrantedShare = {
+	contactSub: string,
+	/**  The contact's account email, recorded when they claimed. */
+	contactLabel: string,
+	setupId: string,
+	setupName: string | null,
+	/**  The owner's own private note from the invite, if they set one. */
+	label: string | null,
+};
+
+/**
+ *  The owner's whole sharing picture: who holds a grant, and which codes are
+ *  still out there unclaimed.
+ */
+export type GrantedShares = {
+	granted: GrantedShare[],
+	pending: PendingShare[],
+};
+
+/**
+ *  A freshly minted invite code. The only time the code itself exists in
+ *  readable form — the server stores nothing but its hash, so a code that is
+ *  lost is withdrawn and re-minted rather than recovered.
+ */
+export type InviteCode = {
+	code: string,
+	/**  Handle for withdrawing this code before anyone claims it. */
+	codeRef: string,
+	/**  Epoch millis (an `f64` so it crosses to the webview as a plain number). */
+	expiresAt: number | null,
+};
+
 export type LuxBuffer = {
 	buffer: number[],
 };
@@ -388,6 +441,16 @@ export type PendingDevice = {
 	version: string,
 	arch: string,
 	firstSeen: number | null,
+};
+
+/**  One outstanding code the caller has handed out and nobody has claimed. */
+export type PendingShare = {
+	codeRef: string,
+	setupId: string,
+	setupName: string | null,
+	label: string | null,
+	/**  Epoch millis (an `f64`; see [`InviteCode`]). */
+	expiresAt: number | null,
 };
 
 /**

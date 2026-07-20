@@ -144,6 +144,22 @@ pub trait CmdMethods {
     // account ends every share it is part of, including ones other people
     // depend on.
     fn list_shares(&self, app_handle: AppHandle) -> Result<ShareTally, String>;
+    // Shared control, owner side: mint a code for one of my setups, see who
+    // holds a grant on what, and end either a grant or an unclaimed code.
+    fn invite_to_setup(
+        &self,
+        app_handle: AppHandle,
+        setup_id: String,
+        label: Option<String>,
+    ) -> Result<InviteCode, String>;
+    fn list_granted_shares(&self, app_handle: AppHandle) -> Result<GrantedShares, String>;
+    fn revoke_share(
+        &self,
+        app_handle: AppHandle,
+        contact_sub: String,
+        setup_id: String,
+    ) -> Result<(), String>;
+    fn withdraw_invite(&self, app_handle: AppHandle, code_ref: String) -> Result<(), String>;
     // Shared control, guest side: setups other people have shared with this
     // account. `open_shared_desk` returns everything a surface needs to draw
     // one — the owner's compiled setup plus their applier's last-known buffer —
@@ -214,6 +230,52 @@ pub struct ShareTally {
     pub granted_to: Vec<String>,
     /// People whose setups the caller can currently control.
     pub received_from: Vec<String>,
+}
+
+/// A freshly minted invite code. The only time the code itself exists in
+/// readable form — the server stores nothing but its hash, so a code that is
+/// lost is withdrawn and re-minted rather than recovered.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct InviteCode {
+    pub code: String,
+    /// Handle for withdrawing this code before anyone claims it.
+    pub code_ref: String,
+    /// Epoch millis (an `f64` so it crosses to the webview as a plain number).
+    pub expires_at: f64,
+}
+
+/// One contact who can control one of the caller's setups.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GrantedShare {
+    pub contact_sub: String,
+    /// The contact's account email, recorded when they claimed.
+    pub contact_label: String,
+    pub setup_id: String,
+    pub setup_name: Option<String>,
+    /// The owner's own private note from the invite, if they set one.
+    pub label: Option<String>,
+}
+
+/// One outstanding code the caller has handed out and nobody has claimed.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingShare {
+    pub code_ref: String,
+    pub setup_id: String,
+    pub setup_name: Option<String>,
+    pub label: Option<String>,
+    /// Epoch millis (an `f64`; see [`InviteCode`]).
+    pub expires_at: f64,
+}
+
+/// The owner's whole sharing picture: who holds a grant, and which codes are
+/// still out there unclaimed.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct GrantedShares {
+    pub granted: Vec<GrantedShare>,
+    pub pending: Vec<PendingShare>,
 }
 
 /// Everything a guest surface needs to draw one shared setup: the owner's
@@ -673,6 +735,81 @@ impl CmdMethods for CmdEndpoint {
             granted_to: names(granted),
             received_from: names(received),
         })
+    }
+
+    fn invite_to_setup(
+        &self,
+        app_handle: AppHandle,
+        setup_id: String,
+        label: Option<String>,
+    ) -> Result<InviteCode, String> {
+        let minted = crate::cloud::invite_to_setup(
+            &app_handle,
+            &setup_id,
+            label.filter(|l| !l.trim().is_empty()),
+        )?;
+        // Publish the compiled setup now: a code is useless until the guest
+        // has something to render, and this is the setup's first grant.
+        crate::nudge::refresh_shares(&app_handle);
+        Ok(InviteCode {
+            code: minted.code,
+            code_ref: minted.code_ref,
+            expires_at: minted.expires_at as f64,
+        })
+    }
+
+    fn list_granted_shares(&self, app_handle: AppHandle) -> Result<GrantedShares, String> {
+        let shares = crate::cloud::list_shares(&app_handle)?;
+        Ok(GrantedShares {
+            granted: shares
+                .granted
+                .into_iter()
+                .map(|g| GrantedShare {
+                    contact_sub: g.contact_sub,
+                    contact_label: g.contact_label,
+                    setup_id: g.setup_id,
+                    setup_name: g.setup_name,
+                    label: g.label,
+                })
+                .collect(),
+            pending: shares
+                .pending
+                .into_iter()
+                .map(|p| PendingShare {
+                    code_ref: p.code_ref,
+                    setup_id: p.setup_id,
+                    setup_name: p.setup_name,
+                    label: p.label,
+                    expires_at: p.expires_at as f64,
+                })
+                .collect(),
+        })
+    }
+
+    fn revoke_share(
+        &self,
+        app_handle: AppHandle,
+        contact_sub: String,
+        setup_id: String,
+    ) -> Result<(), String> {
+        crate::cloud::end_share(
+            &app_handle,
+            &format!(
+                "{}/{contact_sub}/{setup_id}",
+                lux_wire::shares::GRANTED_SEGMENT
+            ),
+        )?;
+        // Revoking the last grant on a setup clears its retained config, so the
+        // contact's surface goes dark rather than holding a stale desk.
+        crate::nudge::refresh_shares(&app_handle);
+        Ok(())
+    }
+
+    fn withdraw_invite(&self, app_handle: AppHandle, code_ref: String) -> Result<(), String> {
+        crate::cloud::end_share(
+            &app_handle,
+            &format!("{}/{code_ref}", lux_wire::shares::INVITE_SEGMENT),
+        )
     }
 
     fn claim_share(&self, app_handle: AppHandle, code: String) -> Result<SharedSetup, String> {

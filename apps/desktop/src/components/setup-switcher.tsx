@@ -6,6 +6,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Share2,
   Trash2,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -21,6 +22,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import ShareDialog from "@/components/share-dialog";
 
 const cmd = () => createTauRPCProxy().cmd;
 
@@ -52,6 +54,11 @@ export default function SetupSwitcher() {
   // trash arms on the first tap (turns destructive) and only deletes on the
   // second; it disarms itself after a moment or when the dropdown closes.
   const [armedDelete, setArmedDelete] = useState<string | null>(null);
+  // Sharing opens its own dialog rather than expanding inline: it manages
+  // people and outstanding codes, which is more than a row can hold.
+  const [sharing, setSharing] = useState<{ id: string; name: string } | null>(
+    null,
+  );
   const disarmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -197,6 +204,15 @@ export default function SetupSwitcher() {
   );
 
   return (
+    <>
+      {sharing ? (
+        <ShareDialog
+          setupId={sharing.id}
+          setupName={sharing.name}
+          open
+          onOpenChange={(next) => !next && setSharing(null)}
+        />
+      ) : null}
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm" className="gap-1.5">
@@ -244,6 +260,15 @@ export default function SetupSwitcher() {
                     }
                   >
                     <Pencil className="size-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
+                    aria-label={`Share ${s.name}`}
+                    onClick={() => setSharing({ id: s.id, name: s.name })}
+                  >
+                    <Share2 className="size-3.5" />
                   </Button>
                   <Button
                     variant="ghost"
@@ -334,5 +359,6 @@ export default function SetupSwitcher() {
         </div>
       </PopoverContent>
     </Popover>
+    </>
   );
 }
