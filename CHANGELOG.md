@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.9.0](https://github.com/johncarmack1984/lux/compare/v1.8.0...v1.9.0) (2026-07-20)
+
+
+### Features
+
+* **shares:** invite, manage, and revoke from the setup that is shared ([#232](https://github.com/johncarmack1984/lux/issues/232)) ([cf20a5d](https://github.com/johncarmack1984/lux/commit/cf20a5d0229227a777bf18d8351bcdf9790047b2))
+* **shares:** let a guest drive a setup someone shared with them ([#231](https://github.com/johncarmack1984/lux/issues/231)) ([88497e5](https://github.com/johncarmack1984/lux/commit/88497e5654c13dac762f48cc19f6b3647c641991))
+* **shares:** let a guest see a setup someone shared with them ([#230](https://github.com/johncarmack1984/lux/issues/230)) ([139d09a](https://github.com/johncarmack1984/lux/commit/139d09a33193ea48d956d962f4a4df0588cc8949))
+* **shares:** publish the retained compiled setup for shared setups ([#226](https://github.com/johncarmack1984/lux/issues/226)) ([bc37d56](https://github.com/johncarmack1984/lux/commit/bc37d561a5bfe1b042003890c714750925d3324c))
+
+
+### Bug Fixes
+
+* **auth:** pair by /64 network, not exact IP, so IPv6 clients rendezvous ([#233](https://github.com/johncarmack1984/lux/issues/233)) ([76431f8](https://github.com/johncarmack1984/lux/commit/76431f8d77009ef7cb42ae027deeb2af438c02f3))
+
 ## [1.8.0](https://github.com/johncarmack1984/lux/compare/v1.7.1...v1.8.0) (2026-07-20)
 
 
