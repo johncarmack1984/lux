@@ -48,12 +48,13 @@ jobs:
 
       # Maintains the release PR (version bump + CHANGELOG + every version
       # stamp via extra-files, one generated commit) on the workflow's own
-      # GITHUB_TOKEN — no GitHub App, no minted tokens. GITHUB_TOKEN-authored
-      # pushes and PRs start no workflow runs, so the release PR carries no
-      # checks (desktop.yml ignores its branches outright); the authoritative
-      # gate is the `ci` job below, re-run against the exact release commit
-      # before anything ships. skip-github-release in the config keeps the
-      # action away from tagging — the cut step below owns that.
+      # GITHUB_TOKEN — no GitHub App, no minted tokens. Its branch pushes DO
+      # start desktop.yml runs, held in the action_required state and approved
+      # below; desktop.yml's per-job guard then skips their work, because the
+      # release PR carries nothing main's tip was not already gated against.
+      # The authoritative gate is the `ci` job below, run against the exact
+      # release commit before anything ships. skip-github-release in the config
+      # keeps the action away from tagging — the cut step below owns that.
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         with:
           config-file: release-please-config.json
@@ -91,7 +92,9 @@ jobs:
       # action_required state (GitHub holds workflow runs for events the token
       # caused; pull_request branch filters can't exclude a head branch, they
       # match the base). Approve the held run so the release PR carries a
-      # live green gate instead of an "awaiting approval" banner — but ONLY
+      # concluded gate instead of an "awaiting approval" banner — the run
+      # itself is near-free, since desktop.yml's per-job guard skips the work
+      # for this branch and the tag gate below is what actually rules — but ONLY
       # the branch tip's run: the PR's gate runs share one concurrency group,
       # so approving a superseded head's run alongside the live one lets the
       # loser cancel the winner. Stale held runs are deleted instead (their
@@ -246,10 +249,12 @@ jobs:
             | gh release edit "$TAG" --notes-file -
           echo "attached store notes to $TAG"
 
-  # The release gate: the same checks as the PR/main `desktop` workflow
-  # (tauri-versions, frontend build/typecheck/lint, cargo test --workspace),
-  # re-run against the exact release commit. Everything that ships — infra,
-  # Lambda code, the desktop bundle — is downstream of this job, so a red main
+  # The release gate: the whole `desktop` workflow (tauri-versions, frontend
+  # build/typecheck/lint, cargo test and cargo clippy across the workspace, the
+  # Lambda musl build, cargo-deny), run against the exact release commit — and
+  # the only gate that commit gets, since its push-triggered run skips itself
+  # rather than duplicate this one. Everything that ships — infra, Lambda code,
+  # the desktop bundle — is downstream of this job, so a red release commit
   # cannot release.
   ci:
     needs: release
