@@ -1971,15 +1971,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
-name = "enttecopendmx"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "439b5a6167b4d55c80838155742c65c5159f76ee4acd25324bdeb142828aa0c5"
-dependencies = [
- "libftd2xx 0.31.0",
-]
-
-[[package]]
 name = "enumflags2"
 version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3485,18 +3476,6 @@ dependencies = [
 
 [[package]]
 name = "libftd2xx"
-version = "0.31.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6b3be3aa1917532fb3918dde5fda1c82d7169d2bbd2e79353bac2cd3985e68a"
-dependencies = [
- "libftd2xx-ffi",
- "log",
- "paste",
- "static_assertions",
-]
-
-[[package]]
-name = "libftd2xx"
 version = "0.33.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e09fe202b49276fc72160c27c8af5ff34e6ee3db78625bbfe3bd9c2b2e595af6"
@@ -3573,18 +3552,16 @@ checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 name = "lux"
 version = "1.9.0"
 dependencies = [
- "anyhow",
  "apple-native-keyring-store",
  "aws-cognito-srp",
  "aws-config",
  "aws-sdk-cognitoidentityprovider",
  "aws-smithy-http-client",
  "base64 0.22.1",
- "enttecopendmx",
  "gethostname",
  "keyring",
  "keyring-core",
- "libftd2xx 0.33.1",
+ "libftd2xx",
  "log",
  "lux-apple-id",
  "lux-engine",
@@ -3597,7 +3574,6 @@ dependencies = [
  "sha2 0.11.0",
  "specta",
  "strum",
- "strum_macros",
  "tauri",
  "tauri-build",
  "tauri-plugin-log",
