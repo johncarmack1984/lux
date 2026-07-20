@@ -44,7 +44,7 @@ use tokio::sync::watch;
 use uuid::Uuid;
 
 use lux_engine::auth::jwt_sub;
-use lux_engine::ctl::{gate, route, RemoteApply, Route};
+use lux_engine::ctl::{gate, guest_route, route, GuestRoute, RemoteApply, Route};
 use lux_engine::tls::webpki_pem_bundle;
 
 use crate::account::LuxAccount;
@@ -106,7 +106,7 @@ pub struct LuxNudge {
     local_input_at: Mutex<Option<Instant>>,
     /// Consecutive ctl-suspect connection deaths (see [`CTL_FAILURE_LIMIT`]).
     ctl_failures: AtomicU32,
-    /// A retained-config reconcile is queued (see [`refresh_shared_configs`]).
+    /// A retained-config reconcile is queued (see [`refresh_shares`]).
     configs_pending: AtomicBool,
 }
 
@@ -443,6 +443,28 @@ fn config_plan(
         .collect()
 }
 
+/// Subscribe to the topics this device's received grants allow it to read.
+///
+/// Additive and idempotent: re-subscribing to a topic already held is a no-op
+/// at the broker, and a grant that ended simply stops being subscribed on the
+/// next connection. There is deliberately no unsubscribe — the authorizer stops
+/// delivering when it drops the grant from the policy, and
+/// [`crate::guest::adopt_grants`] has already forgotten the content, so an
+/// extra subscription buys an attacker nothing and costs a round trip.
+fn subscribe_shared<R: Runtime>(app: &AppHandle<R>, received: &[lux_wire::shares::ReceivedGrant]) {
+    let Some(echo) = app.state::<LuxNudge>().echo.lock_or_recover().clone() else {
+        return;
+    };
+    for topic in crate::guest::subscriptions(received) {
+        let client = echo.client.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = client.subscribe(&topic, QoS::AtMostOnce).await {
+                log::debug!("could not subscribe to {topic}: {e}");
+            }
+        });
+    }
+}
+
 /// Clear one setup's retained config. Called when a setup is deleted, while its
 /// id is still known — after that, [`reconcile_configs`] can no longer name it.
 pub fn clear_config<R: Runtime>(app: &AppHandle<R>, setup_id: uuid::Uuid) {
@@ -461,14 +483,18 @@ pub fn clear_config<R: Runtime>(app: &AppHandle<R>, setup_id: uuid::Uuid) {
     });
 }
 
-/// Fetch the caller's grants and reconcile the retained configs against them.
+/// Fetch the caller's shares and reconcile both halves of the feature against
+/// them: the retained configs this device publishes as an owner, and the
+/// grants it holds as a guest. One pull answers both, so they cannot disagree
+/// about what is shared.
+///
 /// The entry point for anything that changes *who* can see a setup — a shares
 /// nudge, and the connect handshake, where a grant may have changed while this
 /// device was offline.
 /// Coalesced, so every caller can be naive: a cloud pull, the nudge that caused
 /// it, and the local commit it produces all land in one reconcile instead of
 /// three round trips.
-pub fn refresh_shared_configs(app: &AppHandle) {
+pub fn refresh_shares(app: &AppHandle) {
     let state = app.state::<LuxNudge>();
     if state.echo.lock_or_recover().is_none() {
         return;
@@ -483,7 +509,11 @@ pub fn refresh_shared_configs(app: &AppHandle) {
             .configs_pending
             .store(false, Ordering::SeqCst);
         match crate::cloud::shares(&app).await {
-            Ok(shares) => reconcile_configs(&app, &shares.granted),
+            Ok(shares) => {
+                reconcile_configs(&app, &shares.granted);
+                crate::guest::adopt_grants(&app, &shares.received);
+                subscribe_shared(&app, &shares.received);
+            }
             // Leave the retained configs exactly as they are. Publishing on a
             // guess is worse than publishing late: the pull retries, and a
             // grant that was revoked is already unreadable by the guest whose
@@ -688,7 +718,7 @@ async fn run_connection(
                         // while this device is offline, so reconcile on every
                         // connect rather than trusting what a past session
                         // published.
-                        refresh_shared_configs(app);
+                        refresh_shares(app);
                     }
                 }
                 Ok(Event::Incoming(Packet::Publish(publish))) => {
@@ -699,7 +729,7 @@ async fn run_connection(
                             // can see a setup as well as what is in it.
                             log::debug!("nudge received; scheduling sync");
                             crate::cloud::schedule_sync(app);
-                            refresh_shared_configs(app);
+                            refresh_shares(app);
                         }
                         Route::Frame { setup_id } => {
                             apply_frame(app, &publish.payload, setup_id, &session);
@@ -710,10 +740,35 @@ async fn run_connection(
                         Route::Presence { session: card_session } => {
                             update_presence(app, &publish.payload, card_session, &session);
                         }
-                        Route::Config => {}
-                        Route::Unknown => {
-                            log::debug!("ignoring publish on unexpected topic {}", publish.topic);
+                        Route::Config => {
+                            // Our own compiled setup, echoed back by the `#`
+                            // subscribe. We published it; nothing to learn.
                         }
+                        // Not our own space — the other place a publish can
+                        // legitimately come from is an owner who shared a setup
+                        // with us.
+                        Route::Unknown => match guest_route(&publish.topic, sub) {
+                            Some(GuestRoute::Config { owner_sub, setup_id }) => {
+                                crate::guest::receive_config(
+                                    app,
+                                    owner_sub,
+                                    setup_id,
+                                    &publish.payload,
+                                );
+                            }
+                            Some(GuestRoute::State { owner_sub, setup_id }) => {
+                                crate::guest::receive_state(
+                                    app,
+                                    owner_sub,
+                                    setup_id,
+                                    &publish.payload,
+                                );
+                            }
+                            None => log::debug!(
+                                "ignoring publish on unexpected topic {}",
+                                publish.topic
+                            ),
+                        },
                     }
                 }
                 Ok(_) => {}

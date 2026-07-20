@@ -46,6 +46,62 @@ pub fn route<'t>(topic: &'t str, sub: &str) -> Route<'t> {
     Route::Unknown
 }
 
+/// An incoming publish from *another* account's ctl space — one this
+/// connection holds a shared-control grant in (docs/shared-control.md).
+///
+/// Separate from [`Route`] rather than folded into it because the two answer
+/// different questions. [`Route`] asks "what is this in my own space", where
+/// the sub is known up front. This asks "which owner and setup is this about",
+/// where the owner is what the topic is telling us. A guest also sees strictly
+/// less: frames and presence in an owner's space are not its business, and the
+/// authorizer never grants receive on them.
+#[derive(Debug, PartialEq, Eq)]
+pub enum GuestRoute<'t> {
+    /// The owner's compiled setup — a guest surface's entire source of truth
+    /// for what the desk looks like. An empty payload means the grant ended or
+    /// the setup is gone.
+    Config {
+        owner_sub: &'t str,
+        setup_id: &'t str,
+    },
+    /// The owner applier's retained state echo — what the fixtures are actually
+    /// doing, so a guest's faders open at the truth rather than at zero.
+    State {
+        owner_sub: &'t str,
+        setup_id: &'t str,
+    },
+}
+
+/// Classify a publish arriving from an owner's space. `own_sub` is this
+/// connection's own user, whose traffic belongs to [`route`] instead — so the
+/// two classifiers never both claim a topic.
+///
+/// Structural only: it reports what a topic *says*, not whether the grant
+/// behind it is live. The authorizer already decides what may be received, and
+/// the caller matches the pair against its own list of grants before acting.
+pub fn guest_route<'t>(topic: &'t str, own_sub: &str) -> Option<GuestRoute<'t>> {
+    let rest = topic.strip_prefix("lux/ctl/user/")?;
+    let (owner_sub, rest) = rest.split_once('/')?;
+    if owner_sub.is_empty() || owner_sub == own_sub {
+        return None; // our own space
+    }
+    let (setup_id, leaf) = rest.strip_prefix("setup/")?.split_once('/')?;
+    if setup_id.is_empty() {
+        return None;
+    }
+    match leaf {
+        "config" => Some(GuestRoute::Config {
+            owner_sub,
+            setup_id,
+        }),
+        "state" => Some(GuestRoute::State {
+            owner_sub,
+            setup_id,
+        }),
+        _ => None,
+    }
+}
+
 /// One applicable buffer mutation extracted from a gated ctl frame.
 #[derive(Debug, PartialEq, Eq)]
 pub enum RemoteApply {
@@ -86,6 +142,41 @@ pub fn gate(
 mod tests {
     use super::*;
     use lux_wire::ctl::Frame;
+
+    #[test]
+    fn guest_route_reads_the_owner_and_setup_off_the_topic() {
+        let me = "me-1";
+        assert_eq!(
+            guest_route("lux/ctl/user/owner-9/setup/s-1/config", me),
+            Some(GuestRoute::Config {
+                owner_sub: "owner-9",
+                setup_id: "s-1"
+            })
+        );
+        assert_eq!(
+            guest_route("lux/ctl/user/owner-9/setup/s-1/state", me),
+            Some(GuestRoute::State {
+                owner_sub: "owner-9",
+                setup_id: "s-1"
+            })
+        );
+
+        // Our own space belongs to `route`; the two never both claim a topic.
+        assert_eq!(guest_route("lux/ctl/user/me-1/setup/s-1/config", me), None);
+        assert_eq!(route("lux/ctl/user/me-1/setup/s-1/state", me), Route::State { setup_id: "s-1" });
+
+        // A guest is never granted receive on these, and must not act on one
+        // if a future policy change ever delivered it.
+        assert_eq!(guest_route("lux/ctl/user/owner-9/setup/s-1/frame", me), None);
+        assert_eq!(guest_route("lux/ctl/user/owner-9/presence/me-1", me), None);
+
+        // Malformed or foreign topics are not guessed at.
+        assert_eq!(guest_route("lux/sync/user/owner-9", me), None);
+        assert_eq!(guest_route("lux/ctl/user//setup/s-1/config", me), None);
+        assert_eq!(guest_route("lux/ctl/user/owner-9/setup//config", me), None);
+        assert_eq!(guest_route("lux/ctl/user/owner-9/setup/s-1", me), None);
+        assert_eq!(guest_route("nonsense", me), None);
+    }
 
     #[test]
     fn route_classifies_the_user_channel() {

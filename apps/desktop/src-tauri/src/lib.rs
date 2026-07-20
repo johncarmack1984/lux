@@ -13,6 +13,7 @@ mod error;
 mod fixture;
 mod lock;
 mod logger;
+mod guest;
 mod nudge;
 mod remote;
 mod settings;
@@ -77,7 +78,8 @@ pub async fn run() {
         .manage(default_channels)
         .manage(DmxOutput::default())
         .manage(cloud::LuxSync::default())
-        .manage(nudge::LuxNudge::default());
+        .manage(nudge::LuxNudge::default())
+        .manage(guest::LuxGuest::default());
     // Window positioning relative to monitors and the tray, backing the
     // frontend's @tauri-apps/plugin-positioner API. Desktop-only: mobile has
     // no movable windows and no tray.

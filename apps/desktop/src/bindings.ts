@@ -180,6 +180,34 @@ export const cmd = {
   },
 
   /** @throws {string} */
+  claim_share(code: string): Promise<SharedSetup> {
+    return invoke("cmd.claim_share", { code });
+  },
+
+  /** @throws {string} */
+  list_shared_setups(): Promise<SharedSetup[]> {
+    return invoke("cmd.list_shared_setups");
+  },
+
+  /** @throws {string} */
+  open_shared_desk(ownerSub: string, setupId: string): Promise<{
+	ownerSub: string,
+	setupId: string,
+	/**  The setup's live name, from the compiled config. */
+	name: string,
+	universe: number,
+	channels: SharedChannel[],
+	fixtures: SharedFixture[],
+	/**
+	 *  The owner applier's last-applied buffer. Empty when it hasn't published
+	 *  one — a surface should render zeros, not refuse to draw.
+	 */
+	buffer: number[],
+} | null> {
+    return invoke("cmd.open_shared_desk", { owner_sub: ownerSub, setup_id: setupId });
+  },
+
+  /** @throws {string} */
   list_dmx_devices(): Promise<DmxDeviceInfo[]> {
     return invoke("cmd.list_dmx_devices");
   },
@@ -388,6 +416,69 @@ export type ShareTally = {
 	grantedTo: string[],
 	/**  People whose setups the caller can currently control. */
 	receivedFrom: string[],
+};
+
+/**  One patched slot on a shared desk (`lux_wire::ctl::ConfigChannel`). */
+export type SharedChannel = {
+	/**  1-based DMX slot. */
+	n: number,
+	name: string,
+	/**
+	 *  Role name; a surface matches the ones it knows and treats the rest as a
+	 *  plain fader, so an unfamiliar value is never an error.
+	 */
+	role: string,
+};
+
+/**
+ *  Everything a guest surface needs to draw one shared setup: the owner's
+ *  compiled setup, flattened, plus their applier's last-known buffer so the
+ *  faders open at the truth instead of at zero.
+ * 
+ *  Returned whole rather than as separate calls because a guest has no copy of
+ *  any of it — there is no local store to read a second time, and a surface
+ *  that drew before the buffer arrived would show a dark desk that isn't.
+ */
+export type SharedDesk = {
+	ownerSub: string,
+	setupId: string,
+	/**  The setup's live name, from the compiled config. */
+	name: string,
+	universe: number,
+	channels: SharedChannel[],
+	fixtures: SharedFixture[],
+	/**
+	 *  The owner applier's last-applied buffer. Empty when it hasn't published
+	 *  one — a surface should render zeros, not refuse to draw.
+	 */
+	buffer: number[],
+};
+
+/**  One fixture on a shared desk (`lux_wire::ctl::ConfigFixture`). */
+export type SharedFixture = {
+	name: string,
+	address: number,
+	count: number,
+};
+
+/**  One setup another account has shared with this one, as a surface sees it. */
+export type SharedSetup = {
+	/**  The owner's Cognito sub — the ctl topic space this grant addresses. */
+	ownerSub: string,
+	/**  How the owner appears in the list (their account email). */
+	ownerLabel: string,
+	setupId: string,
+	/**
+	 *  The name recorded when the grant was created. The live name rides the
+	 *  compiled config; this is what the list shows before one arrives.
+	 */
+	setupName: string | null,
+	/**
+	 *  True once the owner's compiled config has arrived, which is what a
+	 *  surface needs before it can draw anything. False means the owner's
+	 *  applier has not published one — it may simply not be running.
+	 */
+	renderable: boolean,
 };
 
 /**
