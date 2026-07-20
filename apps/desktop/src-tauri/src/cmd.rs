@@ -569,7 +569,9 @@ impl CmdMethods for CmdEndpoint {
     fn list_shares(&self, app_handle: AppHandle) -> Result<ShareTally, String> {
         let shares = crate::cloud::list_shares(&app_handle)?;
         // One person can hold several of the caller's setups; the dialog is
-        // counting people, so fold by account and keep first-seen order.
+        // counting people, so fold by account. Sorted by sub rather than kept
+        // in list order because the dedup below is adjacent-only, and a stable
+        // order beats DynamoDB's for a sentence a human reads.
         let names = |mut seen: Vec<(String, String)>| -> Vec<String> {
             seen.dedup_by(|a, b| a.0 == b.0);
             seen.into_iter().map(|(_, label)| label).collect()
