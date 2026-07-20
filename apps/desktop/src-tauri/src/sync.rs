@@ -1,4 +1,3 @@
-use crate::lock::LockPolicy;
 use crate::{
     buffer::{Buffer, LuxBuffer},
     channels::LuxChannels,
@@ -21,11 +20,24 @@ pub enum SyncEvent {
 pub struct SyncEndpoint;
 
 impl SyncMethods for SyncEndpoint {
+    /// Read the live buffer. **A read, and only a read.**
+    ///
+    /// This used to round-trip through `LuxBuffer::set`, which is the write
+    /// path: it renders to the DMX output and republishes the retained state
+    /// echo. Every caller here wants the current value — the mount-time query
+    /// behind `useBuffer`, the preset toggle's base snapshot — so those were
+    /// side effects nobody asked for, on a code path that runs whenever a
+    /// surface opens.
+    ///
+    /// That is worse than wasted work. A device that has been asleep holds a
+    /// stale buffer, so opening the app pushed *that* onto the rig: rendering
+    /// it over sACN, and overwriting the retained echo every other surface
+    /// reads as truth. With one person driving it usually went unnoticed,
+    /// because the stale buffer was their own last state. It stops being
+    /// survivable the moment someone else is at the desk.
     fn sync_buffer(&self, app_handle: AppHandle) -> Result<LuxBuffer, String> {
         log::trace!("sync_buffer");
-        let mut state = app_handle.state::<LuxBuffer>().inner().clone();
-        let buffer = state.buffer.lock_or_recover().clone();
-        state.set(buffer, app_handle.clone())
+        Ok(app_handle.state::<LuxBuffer>().inner().clone())
     }
     fn sync_channels(&self, app_handle: AppHandle) -> Result<LuxChannels, String> {
         log::trace!("sync_channels");
