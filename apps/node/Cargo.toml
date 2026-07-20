@@ -18,9 +18,9 @@ workspace = true
 lux-engine = { path = "../../crates/lux-engine" }
 lux-wire = { path = "../../crates/lux-wire" }
 aws-config.workspace = true
-aws-sdk-cognitoidentityprovider = "1"
+aws-sdk-cognitoidentityprovider = { version = "1", default-features = false, features = ["rt-tokio"] }
 aws-cognito-srp = "0.2.5"
-aws-smithy-http-client = { version = "1", features = ["rustls-ring"] }
+aws-smithy-http-client.workspace = true
 gethostname = "1.1.0"
 log = "^0.4.33"
 reqwest = { workspace = true }

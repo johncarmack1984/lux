@@ -28,12 +28,12 @@ anyhow = "1.0.103"
 # storage. Cognito's auth ops are unauthenticated, so the client runs with
 # `.no_credentials()` — end users never need AWS keys.
 aws-config.workspace = true
-aws-sdk-cognitoidentityprovider = "1"
+aws-sdk-cognitoidentityprovider = { version = "1", default-features = false, features = ["rt-tokio"] }
 aws-cognito-srp = "0.2.5"
 # Custom SDK HTTP client that trusts the bundled webpki (Mozilla) roots instead
 # of the platform native store, which is unreadable on iOS. Crypto on ring to
 # match the app's process-default provider (no aws-lc-sys C build).
-aws-smithy-http-client = { version = "1", features = ["rustls-ring"] }
+aws-smithy-http-client.workspace = true
 keyring = "4"
 # keyring's backing crate, named directly on every platform: session entries are
 # built through keyring-core types (on iOS with an access-policy modifier, see

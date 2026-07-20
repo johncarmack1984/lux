@@ -33,7 +33,19 @@ unimplemented = "warn"
 # needed). Bump a shared version in one place.
 [workspace.dependencies]
 tokio = "1.52"
-aws-config = { version = "1", features = ["behavior-version-latest"] }
+# `default-https-client` is deliberately off. Every AWS client in this
+# workspace is built explicitly with aws-smithy-http-client on rustls 0.23
+# (ring), and the bundled default drags in hyper-rustls 0.24 -> rustls 0.21 ->
+# rustls-webpki 0.101 purely for a server-side TLS acceptor type nothing here
+# uses. The rest of aws-config's defaults are kept verbatim.
+aws-config = { version = "1", default-features = false, features = [
+    "behavior-version-latest",
+    "rt-tokio",
+    "credentials-process",
+    "sso",
+] }
+# The client every service installs in place of that default.
+aws-smithy-http-client = { version = "1", features = ["rustls-ring"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
@@ -65,6 +77,17 @@ strip = true
 # unaffected. Upstream PR: gtk-rs/gtk-rs-core#1991. Must be at the workspace root.
 [patch.crates-io]
 glib = { git = "https://github.com/johncarmack1984/gtk-rs-core", branch = "lux/glib-0.18-patch" }
+
+# rustls-webpki 0.102.8 carries four advisories (a CRL parsing panic, two
+# name-constraint acceptance issues, CRL distribution-point handling), all fixed
+# in 0.103.13. rumqttc 0.25.1 — the latest release, and upstream main — pins
+# `0.102.8`, so no version bump reaches it. It uses the crate in exactly one
+# place, the `#[from] webpki::Error` variant on its error enum, and that type is
+# unchanged across the two lines, so the fork is a one-line version bump with no
+# code change. Certificate verification already ran on the 0.103.x copy that
+# rustls 0.23 resolves; this removes the vulnerable one from the graph rather
+# than changing any validation behaviour. Drop this entry when upstream moves.
+rumqttc = { git = "https://github.com/johncarmack1984/rumqtt", branch = "lux/rumqttc-webpki-0.103" }
 
 # specta 2.0.0-rc.26 and the 0.0.13 exporters are merged on specta main but unpublished
 # (crates.io still serves rc.25 / 0.0.12), and ttipc's crates.io release exact-pins rc.25 --

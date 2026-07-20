@@ -73,7 +73,10 @@ async fn main() -> Result<(), Error> {
         .await
         .expect("failed to fetch Cognito JWKS");
 
-    let conf = aws_config::load_defaults(BehaviorVersion::latest()).await;
+    let conf = aws_config::defaults(BehaviorVersion::latest())
+        .http_client(aws_http_client())
+        .load()
+        .await;
     let ddb = aws_sdk_dynamodb::Client::new(&conf);
 
     // The nudge publisher needs the account's ATS data endpoint (the default
@@ -363,4 +366,20 @@ pub(crate) fn reply<T: Serialize>(status: u16, body: T) -> Result<Response<Body>
         .status(status)
         .header("content-type", "application/json")
         .body(Body::from(serde_json::to_string(&body)?))?)
+}
+
+/// The AWS SDK's HTTP client, built explicitly rather than taken from
+/// `aws-config`'s default.
+///
+/// The bundled default pulls hyper-rustls 0.24 → rustls 0.21 →
+/// rustls-webpki 0.101 (four open advisories) for a server-side TLS acceptor
+/// type nothing here uses. Building the client ourselves on rustls 0.23 keeps
+/// exactly one TLS stack in the binary, and it is the same construction the
+/// desktop and node already use.
+fn aws_http_client() -> aws_smithy_runtime_api::client::http::SharedHttpClient {
+    aws_smithy_http_client::Builder::new()
+        .tls_provider(aws_smithy_http_client::tls::Provider::Rustls(
+            aws_smithy_http_client::tls::rustls_provider::CryptoMode::Ring,
+        ))
+        .build_https()
 }

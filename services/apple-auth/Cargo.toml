@@ -24,9 +24,11 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 aws-config = { workspace = true }
-aws-sdk-cognitoidentityprovider = "1"
-aws-sdk-dynamodb = "1"
-aws-sdk-secretsmanager = "1"
+aws-smithy-http-client.workspace = true
+aws-smithy-runtime-api = "1"
+aws-sdk-cognitoidentityprovider = { version = "1", default-features = false, features = ["rt-tokio"] }
+aws-sdk-dynamodb = { version = "1", default-features = false, features = ["rt-tokio"] }
+aws-sdk-secretsmanager = { version = "1", default-features = false, features = ["rt-tokio"] }
 # Same backend note as lux-auth: rust_crypto (rsa + sha2 + p256) covers our
 # RS256 verify and ES256 client-secret signing with no C, no musl-static risk.
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
