@@ -407,8 +407,11 @@ impl LuxAccount {
         let Some(token) = self.current_id_token() else {
             return Err("not signed in".into());
         };
+        // Prefer IPv4 so we rendezvous on the same public network as the box (see
+        // [`pairing_client`] / lux_engine::net).
+        let client = pairing_client(&base);
         block_on(async move {
-            let response = reqwest::Client::new()
+            let response = client
                 .get(format!(
                     "{base}/{}/{}/{}",
                     lux_wire::apple::AUTH_SEGMENT,
@@ -446,8 +449,11 @@ impl LuxAccount {
         let Some(token) = self.current_id_token() else {
             return Err("not signed in".into());
         };
+        // Same IPv4 preference as the pending list, so the approve's same-egress
+        // check lands on the box's network key.
+        let client = pairing_client(&base);
         block_on(async move {
-            let response = reqwest::Client::new()
+            let response = client
                 .post(format!(
                     "{base}/{}/{}/{}",
                     lux_wire::apple::AUTH_SEGMENT,
@@ -887,6 +893,25 @@ fn clear_session() {
 // --- async bridge ------------------------------------------------------------
 
 /// Run an async Cognito call to completion from a synchronous ttipc command.
+/// A reqwest client that prefers IPv4 for the pairing rendezvous, matching the
+/// node so both ends land on the same public-network key (the shared NAT
+/// address; see `lux_engine::net`). Best-effort: if the host can't be
+/// pre-resolved we fall back to reqwest's default dual-stack DNS, so a lookup
+/// hiccup never blocks pairing.
+fn pairing_client(base_url: &str) -> reqwest::Client {
+    let mut builder = reqwest::Client::builder();
+    if let Ok(url) = reqwest::Url::parse(base_url) {
+        if let Some(host) = url.host_str() {
+            let port = url.port_or_known_default().unwrap_or(443);
+            let addrs = lux_engine::net::ipv4_first_addrs(host, port);
+            if !addrs.is_empty() {
+                builder = builder.resolve_to_addrs(host, &addrs);
+            }
+        }
+    }
+    builder.build().unwrap_or_else(|_| reqwest::Client::new())
+}
+
 /// A dedicated thread with its own current-thread runtime keeps this safe to
 /// call whether or not we're already inside the Tauri runtime; auth is
 /// infrequent (sign-in / sign-up / refresh), so the per-call runtime is fine.

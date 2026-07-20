@@ -11,6 +11,7 @@
 
 pub mod auth;
 pub mod ctl;
+pub mod net;
 pub mod sacn;
 pub mod tls;
 pub mod universe;
