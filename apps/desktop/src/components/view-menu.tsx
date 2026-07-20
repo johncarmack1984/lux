@@ -1,10 +1,5 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import {
-  Check,
-  ChevronsUpDown,
-  Lightbulb,
-  SlidersVertical,
-} from "lucide-react";
+import { Check, ChevronsUpDown, Lightbulb, SlidersVertical, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -16,6 +11,7 @@ import {
 const VIEWS = [
   { to: "/", label: "Fixtures", icon: Lightbulb },
   { to: "/universe", label: "Universe", icon: SlidersVertical },
+  { to: "/shared", label: "Shared with you", icon: Users },
 ] as const;
 
 /**

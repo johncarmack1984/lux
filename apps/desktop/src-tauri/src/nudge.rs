@@ -206,13 +206,13 @@ pub struct RemotePeer {
 /// channels) matches local chronology — an overlay clears the pending channel
 /// writes it covers, and later channel writes land after it at the applier.
 #[derive(Debug, Default, PartialEq, Eq)]
-struct Outbox {
+pub(crate) struct Outbox {
     overlay: Option<Vec<u8>>,
     channels: BTreeMap<u16, u8>,
 }
 
 impl Outbox {
-    fn push_overlay(&mut self, bytes: Vec<u8>) {
+    pub(crate) fn push_overlay(&mut self, bytes: Vec<u8>) {
         // The overlay supersedes any pending channel writes inside its range.
         self.channels.retain(|ch, _| usize::from(*ch) > bytes.len());
         match &mut self.overlay {
@@ -224,13 +224,13 @@ impl Outbox {
         }
     }
 
-    fn push_channel(&mut self, ch: u16, val: u8) {
+    pub(crate) fn push_channel(&mut self, ch: u16, val: u8) {
         self.channels.insert(ch, val);
     }
 
     /// Everything pending as publishable frames, in apply order, leaving the
     /// outbox empty.
-    fn drain(&mut self) -> Vec<lux_wire::ctl::Frame> {
+    pub(crate) fn drain(&mut self) -> Vec<lux_wire::ctl::Frame> {
         let mut frames = Vec::with_capacity(1 + self.channels.len());
         if let Some(bytes) = self.overlay.take() {
             frames.push(lux_wire::ctl::Frame::buffer(bytes));
@@ -242,12 +242,13 @@ impl Outbox {
     }
 }
 
-/// The live connection's handle for publishing the retained state echo.
+/// The live connection's handle for publishing the retained state echo — and,
+/// for a shared-control guest, control frames into an owner's space.
 #[derive(Clone)]
-struct EchoHandle {
-    client: AsyncClient,
-    sub: String,
-    session: String,
+pub(crate) struct EchoHandle {
+    pub(crate) client: AsyncClient,
+    pub(crate) sub: String,
+    pub(crate) session: String,
 }
 
 /// Start (or restart) the listener for the signed-in user. Called after
@@ -326,6 +327,12 @@ pub fn stop(app: &AppHandle) {
 /// Ask the live connection to republish its presence card — called when the
 /// active setup changes, so remote surfaces learn the new binding without a
 /// reconnect. No-op when no connection is up.
+/// The live connection, if there is one — the guest publisher's handle into
+/// the same socket everything else on this channel uses.
+pub(crate) fn connection<R: Runtime>(app: &AppHandle<R>) -> Option<EchoHandle> {
+    app.state::<LuxNudge>().echo.lock_or_recover().clone()
+}
+
 pub fn presence_changed<R: Runtime>(app: &AppHandle<R>) {
     app.state::<LuxNudge>().presence.send_modify(|g| *g += 1);
 }
@@ -808,7 +815,7 @@ async fn publish_presence(client: &AsyncClient, app: &AppHandle, sub: &str, sess
 }
 
 /// This device's human-readable name for presence cards.
-fn device_name() -> String {
+pub(crate) fn device_name() -> String {
     gethostname::gethostname().to_string_lossy().into_owned()
 }
 
