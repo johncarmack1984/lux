@@ -1,3 +1,4 @@
+use crate::guest::SharedSetup;
 use crate::lock::LockPolicy;
 use crate::{
     account::{AuthStatus, LuxAccount},
@@ -143,6 +144,18 @@ pub trait CmdMethods {
     // account ends every share it is part of, including ones other people
     // depend on.
     fn list_shares(&self, app_handle: AppHandle) -> Result<ShareTally, String>;
+    // Shared control, guest side: setups other people have shared with this
+    // account. `open_shared_desk` returns everything a surface needs to draw
+    // one — the owner's compiled setup plus their applier's last-known buffer —
+    // in a single call, because a guest holds no copy of either.
+    fn claim_share(&self, app_handle: AppHandle, code: String) -> Result<SharedSetup, String>;
+    fn list_shared_setups(&self, app_handle: AppHandle) -> Result<Vec<SharedSetup>, String>;
+    fn open_shared_desk(
+        &self,
+        app_handle: AppHandle,
+        owner_sub: String,
+        setup_id: String,
+    ) -> Result<Option<SharedDesk>, String>;
     // DMX output — the in-app device picker (the only output selector on mobile,
     // where there's no tray). Mirrors the desktop tray's device menu.
     fn list_dmx_devices(&self, app_handle: AppHandle) -> Result<Vec<DmxDeviceInfo>, String>;
@@ -194,6 +207,48 @@ pub struct ShareTally {
     pub granted_to: Vec<String>,
     /// People whose setups the caller can currently control.
     pub received_from: Vec<String>,
+}
+
+/// Everything a guest surface needs to draw one shared setup: the owner's
+/// compiled setup, flattened, plus their applier's last-known buffer so the
+/// faders open at the truth instead of at zero.
+///
+/// Returned whole rather than as separate calls because a guest has no copy of
+/// any of it — there is no local store to read a second time, and a surface
+/// that drew before the buffer arrived would show a dark desk that isn't.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedDesk {
+    pub owner_sub: String,
+    pub setup_id: String,
+    /// The setup's live name, from the compiled config.
+    pub name: String,
+    pub universe: u16,
+    pub channels: Vec<SharedChannel>,
+    pub fixtures: Vec<SharedFixture>,
+    /// The owner applier's last-applied buffer. Empty when it hasn't published
+    /// one — a surface should render zeros, not refuse to draw.
+    pub buffer: Vec<u8>,
+}
+
+/// One patched slot on a shared desk (`lux_wire::ctl::ConfigChannel`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct SharedChannel {
+    /// 1-based DMX slot.
+    pub n: u16,
+    pub name: String,
+    /// Role name; a surface matches the ones it knows and treats the rest as a
+    /// plain fader, so an unfamiliar value is never an error.
+    pub role: String,
+}
+
+/// One fixture on a shared desk (`lux_wire::ctl::ConfigFixture`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedFixture {
+    pub name: String,
+    pub address: u16,
+    pub count: u16,
 }
 
 #[derive(ttipc::Event)]
@@ -613,6 +668,66 @@ impl CmdMethods for CmdEndpoint {
         })
     }
 
+    fn claim_share(&self, app_handle: AppHandle, code: String) -> Result<SharedSetup, String> {
+        let claimed = crate::cloud::claim_share(&app_handle, &code)?;
+        // Pull straight away rather than waiting on the nudge: the claimer is
+        // watching this happen, and the grant is what makes the retained
+        // topics readable at all.
+        crate::nudge::refresh_shares(&app_handle);
+        Ok(SharedSetup {
+            owner_sub: claimed.owner_sub,
+            owner_label: claimed.owner_label,
+            setup_id: claimed.setup_id,
+            setup_name: claimed.setup_name,
+            // The owner's compiled setup arrives on its retained topic a moment
+            // after the subscribe; the list shows the row meanwhile.
+            renderable: false,
+        })
+    }
+
+    fn list_shared_setups(&self, app_handle: AppHandle) -> Result<Vec<SharedSetup>, String> {
+        Ok(app_handle.state::<crate::guest::LuxGuest>().shared_setups())
+    }
+
+    fn open_shared_desk(
+        &self,
+        app_handle: AppHandle,
+        owner_sub: String,
+        setup_id: String,
+    ) -> Result<Option<SharedDesk>, String> {
+        let guest = app_handle.state::<crate::guest::LuxGuest>();
+        let Some(config) = guest.config(&owner_sub, &setup_id) else {
+            // No compiled setup yet: the owner's applier may simply not be
+            // running. The surface says so rather than drawing an empty desk.
+            return Ok(None);
+        };
+        Ok(Some(SharedDesk {
+            owner_sub: owner_sub.clone(),
+            setup_id: setup_id.clone(),
+            name: config.name,
+            universe: config.universe,
+            channels: config
+                .channels
+                .into_iter()
+                .map(|c| SharedChannel {
+                    n: c.n,
+                    name: c.name,
+                    role: c.role,
+                })
+                .collect(),
+            fixtures: config
+                .fixtures
+                .into_iter()
+                .map(|f| SharedFixture {
+                    name: f.name,
+                    address: f.address,
+                    count: f.count,
+                })
+                .collect(),
+            buffer: guest.state(&owner_sub, &setup_id).unwrap_or_default(),
+        }))
+    }
+
     fn list_dmx_devices(&self, app_handle: AppHandle) -> Result<Vec<DmxDeviceInfo>, String> {
         Ok(devices::device_list(&app_handle))
     }
@@ -656,8 +771,8 @@ fn commit_patch(app: &AppHandle, setups: &LuxSetups) -> Result<Vec<Fixture>, Str
     .map_err(|e| format!("Failed to emit patch_set event: {e}"))?;
     crate::cloud::schedule_push(app);
     // A shared setup's guests render from its retained config, so it has to
-    // follow the setup rather than lag it (coalesced; see refresh_shared_configs).
-    crate::nudge::refresh_shared_configs(app);
+    // follow the setup rather than lag it (coalesced; see refresh_shares).
+    crate::nudge::refresh_shares(app);
     Ok(fixtures)
 }
 
@@ -684,8 +799,8 @@ fn commit_setups(app: &AppHandle, setups: &LuxSetups) -> Result<Vec<SetupSummary
     .map_err(|e| format!("Failed to emit setups_changed event: {e}"))?;
     crate::cloud::schedule_push(app);
     // A shared setup's guests render from its retained config, so it has to
-    // follow the setup rather than lag it (coalesced; see refresh_shared_configs).
-    crate::nudge::refresh_shared_configs(app);
+    // follow the setup rather than lag it (coalesced; see refresh_shares).
+    crate::nudge::refresh_shares(app);
     Ok(summaries)
 }
 
@@ -698,7 +813,7 @@ pub fn broadcast_synced_state(app: &AppHandle) {
     // A pull can change a shared setup's patch, name, or universe from another
     // device; guests render from the retained config, so it follows the pull.
     // (Coalesced, so this and the nudge that scheduled the pull are one.)
-    crate::nudge::refresh_shared_configs(app);
+    crate::nudge::refresh_shares(app);
     devices::set_active_universe(app, setups.active_universe());
     let active_id = setups.active_id().to_string();
     let _ = CmdEvent::SetupsChanged {

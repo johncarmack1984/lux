@@ -293,6 +293,62 @@ pub fn list_shares(app: &AppHandle) -> Result<lux_wire::shares::SharesResponse, 
     crate::account::block_on(async move { shares(&app).await })
 }
 
+async fn claim_share_req(
+    client: &Client,
+    base: &str,
+    token: String,
+    code: &str,
+) -> Result<lux_wire::shares::ClaimResponse, SyncError> {
+    let resp = client
+        .post(format!(
+            "{base}/{}/{}",
+            lux_wire::shares::SHARES_SEGMENT,
+            lux_wire::shares::CLAIM_SEGMENT
+        ))
+        .bearer_auth(token)
+        .json(&lux_wire::shares::ClaimRequest {
+            code: code.to_owned(),
+        })
+        .send()
+        .await
+        .map_err(|e| SyncError::Other(e.to_string()))?;
+    // A refused code is the ordinary outcome here (mistyped, expired, already
+    // used), and the server deliberately says the same thing for all of them —
+    // so surface its message rather than a status code.
+    if resp.status() == StatusCode::NOT_FOUND || resp.status() == StatusCode::CONFLICT {
+        let body = resp.json::<lux_wire::ErrorResponse>().await;
+        return Err(SyncError::Other(match body {
+            Ok(e) => e.error,
+            Err(_) => "that invite code is not valid".to_owned(),
+        }));
+    }
+    read_json(resp).await
+}
+
+/// Redeem an invite code, gaining control of one of someone else's setups.
+pub fn claim_share(
+    app: &AppHandle,
+    code: &str,
+) -> Result<lux_wire::shares::ClaimResponse, String> {
+    let (base, token) = {
+        let account = app.state::<LuxAccount>();
+        let base = account.sync_url().ok_or("cloud sync is not configured")?;
+        let token = account.current_id_token().ok_or("not signed in")?;
+        (base, token)
+    };
+    let app = app.clone();
+    let code = code.to_owned();
+    crate::account::block_on(async move {
+        let client = Client::new();
+        let mut result = claim_share_req(&client, &base, token, &code).await;
+        if matches!(result, Err(SyncError::Unauthorized)) {
+            let fresh = refresh(&app).await.map_err(|e| e.to_string())?;
+            result = claim_share_req(&client, &base, fresh, &code).await;
+        }
+        result.map_err(|e| e.to_string())
+    })
+}
+
 /// The async half of [`list_shares`], for callers already inside the runtime —
 /// the retained-config publisher runs on the nudge connection's task, where
 /// blocking on a worker thread would stall the whole user channel.
