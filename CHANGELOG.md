@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.2](https://github.com/johncarmack1984/lux/compare/v1.9.1...v1.9.2) (2026-07-20)
+
+
+### Bug Fixes
+
+* **buffer:** stop the buffer read from driving the rig ([#241](https://github.com/johncarmack1984/lux/issues/241)) ([5197123](https://github.com/johncarmack1984/lux/commit/5197123241b5d5e3579e99850856ca344587f093))
+
 ## [1.9.1](https://github.com/johncarmack1984/lux/compare/v1.9.0...v1.9.1) (2026-07-20)
 
 
