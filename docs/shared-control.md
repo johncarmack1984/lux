@@ -120,6 +120,8 @@ The delete-account confirm shows both directions before it happens, alongside th
 
 There is no UI for any of this in phase 1, so the proof is a runbook. It creates two throwaway accounts through the normal sign-up path, walks invite → claim → policy, and deletes them again. Run it against a stack after the backend deploys there.
 
+**Verified against production 2026-07-20**, on the 1.8.0 deploy. Every step below passed, including the two that were open questions: `TransactWriteItems` works without `dynamodb:ConditionCheckItem`, and a claim in a mangled spelling (lowercased, dashes stripped) resolves to the same consumed code and is refused.
+
 ```bash
 SYNC=$(aws lambda get-function-url-config --function-name lux-sync-api --query FunctionUrl --output text)
 POOL=us-west-1_jV7esPwmi
@@ -129,16 +131,14 @@ OWNER_EMAIL=you+shareowner@example.com
 CONTACT_EMAIL=you+sharecontact@example.com
 PW='Runbook123'
 
-# 1. Two throwaway accounts (public API, no AWS credentials). Cognito emails
-#    each a 6-digit code; confirm both before continuing.
+# 1. Two throwaway accounts through the normal sign-up path. Confirming them
+#    with admin credentials skips the emailed 6-digit code, so the addresses
+#    never have to be real or reachable — sign-up is still the path under test.
 for e in "$OWNER_EMAIL" "$CONTACT_EMAIL"; do
   aws cognito-idp sign-up --region $REGION --client-id $CLIENT \
     --username "$e" --password "$PW" --user-attributes Name=email,Value="$e"
+  aws cognito-idp admin-confirm-sign-up --region $REGION --user-pool-id $POOL --username "$e"
 done
-aws cognito-idp confirm-sign-up --region $REGION --client-id $CLIENT \
-  --username "$OWNER_EMAIL" --confirmation-code <code from email>
-aws cognito-idp confirm-sign-up --region $REGION --client-id $CLIENT \
-  --username "$CONTACT_EMAIL" --confirmation-code <code from email>
 
 # 2. ID tokens. ADMIN_USER_PASSWORD_AUTH exists for exactly this (accounts.tf).
 mint() {
@@ -177,10 +177,18 @@ curl -s "$SYNC/shares" -H "authorization: Bearer $OWNER"   | jq '{granted,pendin
 curl -s "$SYNC/shares" -H "authorization: Bearer $CONTACT" | jq '.received'
 
 # 7. THE PROOF — the contact's connect-time policy now reaches the owner's setup.
-#    No --token-signature: the authorizer is registered signing_disabled.
+#
+#    The token rides --http-context, not --token. TestInvokeAuthorizer has no
+#    usable call shape for a signing-disabled authorizer otherwise: --token
+#    alone is refused ("must provide both token and tokenSignature together")
+#    and supplying a signature is also refused ("signing is disabled for the
+#    authorizer"). httpContext is how IoT actually delivers the token here
+#    anyway — the handshake header the authorizer reads — so this exercises the
+#    real extraction path rather than a test-only shortcut.
 policy() {
   aws iot test-invoke-authorizer --region $REGION --authorizer-name lux-sync-auth \
-    --token "$1" --query 'policyDocuments' --output text
+    --http-context "{\"headers\":{\"x-lux-token\":\"$1\"}}" \
+    --query 'policyDocuments' --output json
 }
 policy "$CONTACT" | jq
 ```
@@ -208,10 +216,16 @@ curl -s -X DELETE "$SYNC/user" -H "authorization: Bearer $OWNER" | jq
 curl -s "$SYNC/shares" -H "authorization: Bearer $CONTACT" | jq '.received'  # → []
 policy "$CONTACT" | jq 'length'   # → 1
 
-# 10. Tear down.
+# 10. Tear down, then prove the teardown.
+curl -s -X DELETE "$SYNC/user" -H "authorization: Bearer $CONTACT" | jq
 for e in "$OWNER_EMAIL" "$CONTACT_EMAIL"; do
   aws cognito-idp admin-delete-user --region $REGION --user-pool-id $POOL --username "$e"
 done
+# Nothing keyed to either account may survive, in any partition family.
+aws dynamodb scan --table-name lux-sync --region $REGION \
+  --filter-expression "contains(pk, :o) OR contains(pk, :c) OR contains(sk, :o) OR contains(sk, :c)" \
+  --expression-attribute-values "{\":o\":{\"S\":\"$OWNER_SUB\"},\":c\":{\"S\":\"$CONTACT_SUB\"}}" \
+  --query 'Count' --output text   # → 0
 ```
 
 ## Accepted limits
