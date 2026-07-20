@@ -7,8 +7,12 @@ name: desktop
 #   - tauri-versions: @tauri-apps/* JS packages must share their minor with their
 #     Rust crate counterparts (the drift that broke the 0.8.0 release).
 #   - frontend: production build (also generates routeTree.gen.ts) + typecheck + lint.
-#   - rust: cargo test across the workspace, including tests/bindings.rs — the
+#   - rust-test: cargo test across the workspace, including tests/bindings.rs — the
 #     drift guard that fails when src/bindings.ts is stale.
+#   - rust-clippy: the workspace lint gate at -D warnings.
+#
+# No job here depends on another: every one starts at once and the gate costs
+# the slowest of them, not their sum.
 
 on:
   pull_request:
@@ -192,7 +196,13 @@ jobs:
         if: ${{ always() }}
         run: sccache --show-stats
 
-  rust:
+  # The test suite and the lint gate are two independent compilations of the
+  # same workspace, and neither one's result is an input to the other. Run
+  # sequentially they cost their sum and a lint error waits out the whole suite
+  # before it surfaces; as two jobs the gate costs the longer of the two and
+  # each reports the moment it knows. They share their setup through a composite
+  # action rather than a copy, so the two can never drift apart.
+  rust-test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -204,48 +214,7 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
-      # Tauri's Rust crates link the system webkitgtk/gtk stack on Linux, so the
-      # -dev packages must be present for the *-sys crates to compile.
-      - name: Install Tauri system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libxdo-dev \
-            libssl-dev \
-            build-essential \
-            curl wget file
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version-file: apps/desktop/package.json
-
-      # tauri::generate_context! embeds ../dist at compile time, so the frontend
-      # must be built before anything compiles the desktop crate (incl. its tests).
-      - name: Build frontend (for generate_context!)
-        working-directory: apps/desktop
-        run: |
-          bun install --frozen-lockfile
-          bun run build
-
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch
-
-      # Compilation cache, content-addressed per crate: a Cargo.lock bump — which
-      # invalidates rust-cache's whole target/ — still hits for every unchanged
-      # crate (the common PR case with lux's large AWS-SDK + Tauri trees). Backed
-      # by the GitHub Actions cache.
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
-
-      # sccache owns compilation caching now, so rust-cache just keeps the cargo
-      # registry/index warm — cache-targets: false skips the big target/ dir, so
-      # this frequent job's GHA-cache footprint stays small.
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          workspaces: "."
-          cache-targets: "false"
+      - uses: ./.github/actions/setup-rust-desktop
 
       # Full workspace suite: desktop unit tests (incl. the cloud reconcile logic)
       # plus tests/bindings.rs, which regenerates the IPC bindings and fails if
@@ -254,7 +223,25 @@ jobs:
       - name: cargo test
         run: cargo test --workspace --locked
 
-      # Lint gate: deny-level workspace lints fail this step (notably
+      - name: sccache stats
+        if: ${{ always() }}
+        run: sccache --show-stats
+
+  rust-clippy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: ./.github/actions/setup-rust-desktop
+
+      # Lint gate: deny-level workspace lints fail this job (notably
       # clippy::unwrap_used — production code must not unwrap; see
       # [workspace.lints] in the root Cargo.toml). Default targets only, so
       # test code keeps idiomatic unwraps. `-D warnings` fails the build on any

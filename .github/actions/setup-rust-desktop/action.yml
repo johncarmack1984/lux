@@ -1,0 +1,61 @@
+name: Set up the Rust desktop toolchain
+description: >
+  System libraries, frontend bundle, Rust toolchain and compilation caches that
+  any job compiling the workspace needs. Defined once so the jobs that compile
+  it in parallel cannot drift apart. Requires the repository to be checked out
+  already.
+
+runs:
+  using: composite
+  steps:
+    # Tauri's Rust crates link the system webkitgtk/gtk stack on Linux, so the
+    # -dev packages must be present for the *-sys crates to compile.
+    - name: Install Tauri system dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libwebkit2gtk-4.1-dev \
+          libgtk-3-dev \
+          libayatana-appindicator3-dev \
+          librsvg2-dev \
+          libxdo-dev \
+          libssl-dev \
+          build-essential \
+          curl wget file
+
+    - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      with:
+        bun-version-file: apps/desktop/package.json
+
+    # tauri::generate_context! embeds ../dist at compile time, so the frontend
+    # must be built before anything compiles the desktop crate (incl. its
+    # tests). Every compiling job builds its own copy rather than downloading
+    # the frontend job's: ~7s here against ~25s to wait out that job and
+    # round-trip an artifact, which would also chain jobs that are otherwise
+    # free to start at once.
+    - name: Build frontend (for generate_context!)
+      shell: bash
+      working-directory: apps/desktop
+      run: |
+        bun install --frozen-lockfile
+        bun run build
+
+    - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch
+
+    # Compilation cache, content-addressed per crate: a Cargo.lock bump — which
+    # invalidates rust-cache's whole target/ — still hits for every unchanged
+    # crate (the common PR case with lux's large AWS-SDK + Tauri trees). Backed
+    # by the GitHub Actions cache, so it is also what keeps the cost of
+    # compiling the workspace in two jobs at once close to compiling it once:
+    # whichever job reaches a crate second reads the object instead of building
+    # it.
+    - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+
+    # sccache owns compilation caching now, so rust-cache just keeps the cargo
+    # registry/index warm — cache-targets: false skips the big target/ dir, so
+    # these frequent jobs' GHA-cache footprint stays small.
+    - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      with:
+        workspaces: "."
+        cache-targets: "false"
