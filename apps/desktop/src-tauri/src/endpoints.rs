@@ -147,7 +147,10 @@ mod tests {
         assert!(!endpoints.sync_url.is_empty());
         assert!(!endpoints.nudge_endpoint.is_empty());
         assert!(!endpoints.apple_auth_url.is_empty());
-        assert!(endpoints.remote_control.is_none(), "prod never configures remote control");
+        assert!(
+            endpoints.remote_control.is_none(),
+            "prod never configures remote control"
+        );
     }
 
     #[test]

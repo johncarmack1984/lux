@@ -163,11 +163,17 @@ mod tests {
 
         // Our own space belongs to `route`; the two never both claim a topic.
         assert_eq!(guest_route("lux/ctl/user/me-1/setup/s-1/config", me), None);
-        assert_eq!(route("lux/ctl/user/me-1/setup/s-1/state", me), Route::State { setup_id: "s-1" });
+        assert_eq!(
+            route("lux/ctl/user/me-1/setup/s-1/state", me),
+            Route::State { setup_id: "s-1" }
+        );
 
         // A guest is never granted receive on these, and must not act on one
         // if a future policy change ever delivered it.
-        assert_eq!(guest_route("lux/ctl/user/owner-9/setup/s-1/frame", me), None);
+        assert_eq!(
+            guest_route("lux/ctl/user/owner-9/setup/s-1/frame", me),
+            None
+        );
         assert_eq!(guest_route("lux/ctl/user/owner-9/presence/me-1", me), None);
 
         // Malformed or foreign topics are not guessed at.

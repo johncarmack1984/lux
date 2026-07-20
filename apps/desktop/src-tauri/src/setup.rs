@@ -464,7 +464,10 @@ impl LuxSetups {
     /// makes every subsequent push a guaranteed conflict).
     pub fn mark_settings_pushed(&self, pushed: UserSettings, updated_at: i64) {
         let mut store = self.store.lock_or_recover();
-        if store.settings_updated_at.is_none_or(|base| updated_at > base) {
+        if store
+            .settings_updated_at
+            .is_none_or(|base| updated_at > base)
+        {
             store.settings_updated_at = Some(updated_at);
         }
         if store.settings == pushed {
@@ -919,13 +922,19 @@ mod tests {
         let fixture_id = setups.active_fixtures()[0].id;
         let ghost = uuid::Uuid::new_v4(); // never a real fixture
 
-        assert_eq!(setups.set_fixture_collapsed(fixture_id, true), vec![fixture_id]);
+        assert_eq!(
+            setups.set_fixture_collapsed(fixture_id, true),
+            vec![fixture_id]
+        );
         // A stale id (deleted fixture) is dropped on the next write.
         {
             let mut store = setups.store.lock_or_recover();
             store.collapsed_fixture_ids.push(ghost);
         }
-        assert_eq!(setups.set_fixture_collapsed(fixture_id, true), vec![fixture_id]);
+        assert_eq!(
+            setups.set_fixture_collapsed(fixture_id, true),
+            vec![fixture_id]
+        );
 
         // Expanding removes it; the store round-trips through JSON.
         assert!(setups.set_fixture_collapsed(fixture_id, false).is_empty());

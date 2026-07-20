@@ -176,8 +176,12 @@ pub trait CmdMethods {
     // Guest control writes. These publish to the *owner's* frame topic and
     // never touch this device's own buffer — a guest moving a fader on someone
     // else's desk must not move their own fixtures.
-    fn set_shared_channel(&self, app_handle: AppHandle, channel_number: u16, value: u8)
-        -> Result<(), String>;
+    fn set_shared_channel(
+        &self,
+        app_handle: AppHandle,
+        channel_number: u16,
+        value: u8,
+    ) -> Result<(), String>;
     fn set_shared_buffer(&self, app_handle: AppHandle, buffer: Vec<u8>) -> Result<(), String>;
     // DMX output — the in-app device picker (the only output selector on mobile,
     // where there's no tray). Mirrors the desktop tray's device menu.

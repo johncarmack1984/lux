@@ -37,7 +37,7 @@ use std::sync::Arc;
 use aws_config::BehaviorVersion;
 use lambda_http::{run, service_fn, Body, Error, Request, RequestExt, Response};
 use lux_wire::{
-    DeleteUserDataResponse, ErrorResponse, TombstoneResponse, UpsertSetupBody, UpsertSettingsBody,
+    DeleteUserDataResponse, ErrorResponse, TombstoneResponse, UpsertSettingsBody, UpsertSetupBody,
     WriteResponse,
 };
 use serde::{Deserialize, Serialize};
@@ -158,7 +158,9 @@ async fn handle(ctx: Arc<Ctx>, req: Request) -> Result<Response<Body>, Error> {
         {
             shares::claim(&ctx, &sub, email.as_deref(), &req).await
         }
-        ("GET", [seg]) if *seg == lux_wire::shares::SHARES_SEGMENT => shares::list(&ctx, &sub).await,
+        ("GET", [seg]) if *seg == lux_wire::shares::SHARES_SEGMENT => {
+            shares::list(&ctx, &sub).await
+        }
         ("DELETE", [seg, kind, contact_sub, setup_id])
             if *seg == lux_wire::shares::SHARES_SEGMENT
                 && *kind == lux_wire::shares::GRANTED_SEGMENT =>

@@ -232,7 +232,10 @@ mod tests {
     #[test]
     fn presets_have_expected_shapes() {
         let p = presets();
-        assert_eq!(p.iter().find(|p| p.key == "rgbaw").unwrap().channels.len(), 6);
+        assert_eq!(
+            p.iter().find(|p| p.key == "rgbaw").unwrap().channels.len(),
+            6
+        );
         assert!(p.iter().any(|p| p.key == "dimmer"));
     }
 
@@ -276,7 +279,14 @@ mod tests {
         let f = add(&mut fixtures, "Left".into(), 1, six()).unwrap();
         update(&mut fixtures, f.id, "Left".into(), 2, six()).unwrap(); // overlaps old self only — ok
         assert_eq!(fixtures[0].address, 2);
-        assert!(update(&mut fixtures, uuid::Uuid::new_v4(), "ghost".into(), 1, six()).is_err());
+        assert!(update(
+            &mut fixtures,
+            uuid::Uuid::new_v4(),
+            "ghost".into(),
+            1,
+            six()
+        )
+        .is_err());
     }
 
     #[test]

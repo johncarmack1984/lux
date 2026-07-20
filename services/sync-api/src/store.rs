@@ -13,7 +13,7 @@ use aws_sdk_dynamodb::error::SdkError;
 use aws_sdk_dynamodb::types::{AttributeValue, ReturnValue};
 use aws_sdk_dynamodb::Client;
 use lux_wire::{
-    ListSetupsResponse, SettingsRecord, SetupRecord, UpsertSetupBody, UpsertSettingsBody,
+    ListSetupsResponse, SettingsRecord, SetupRecord, UpsertSettingsBody, UpsertSetupBody,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -204,9 +204,9 @@ pub async fn upsert_settings(
         // has no last-writer-wins authority (and `list` hides it), so any
         // client's claim may overwrite it; without this arm it would 409
         // every claim forever.
-        None => req.condition_expression(
-            "attribute_not_exists(pk) OR attribute_not_exists(#updatedAt)",
-        ),
+        None => {
+            req.condition_expression("attribute_not_exists(pk) OR attribute_not_exists(#updatedAt)")
+        }
     };
 
     let out = req.send().await.map_err(conflict_or_internal)?;

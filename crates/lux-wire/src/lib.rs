@@ -1098,10 +1098,9 @@ mod tests {
         );
 
         // A body without the optional fields at all still parses.
-        let bare: apple::SignInRequest = serde_json::from_str(
-            r#"{"identityToken":"t","authorizationCode":"c","rawNonce":"n"}"#,
-        )
-        .unwrap();
+        let bare: apple::SignInRequest =
+            serde_json::from_str(r#"{"identityToken":"t","authorizationCode":"c","rawNonce":"n"}"#)
+                .unwrap();
         assert!(bare.email.is_none() && bare.full_name.is_none());
     }
 
@@ -1142,11 +1141,7 @@ mod tests {
     #[test]
     fn apple_segments() {
         assert_eq!(
-            format!(
-                "/{}/{}",
-                apple::AUTH_SEGMENT,
-                apple::APPLE_SEGMENT
-            ),
+            format!("/{}/{}", apple::AUTH_SEGMENT, apple::APPLE_SEGMENT),
             "/auth/apple"
         );
         assert_eq!(apple::LINK_SEGMENT, "link");
