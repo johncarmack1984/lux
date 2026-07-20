@@ -44,6 +44,11 @@ use crate::{error, now_millis, nudge, parse_body, reply, Ctx};
 /// `LUX` prefix unambiguous to strip on the way back in.
 const CODE_ALPHABET: &[u8] = b"23456789CDFGHJKMNPQRTVWXZ";
 
+/// Longest invite note the owner may attach. Their own label for their own
+/// list — never shown to the contact — so this is hygiene rather than a trust
+/// boundary: it stops one field from being an unbounded write into three rows.
+const MAX_LABEL_CHARS: usize = 120;
+
 /// Code body length. 25^10 ≈ 2^46 — a claim is bearer-authorized but reaching
 /// it still requires a signed-in account, a live 48-hour window, and surviving
 /// single use, so this is a very large multiple of what the exposure needs.
@@ -174,6 +179,13 @@ pub async fn invite(
     // no existing setup stops syncing over this.
     if !is_shareable_id(&body.setup_id) {
         return reply(400, error("that setup cannot be shared"));
+    }
+    if body
+        .label
+        .as_deref()
+        .is_some_and(|l| l.chars().count() > MAX_LABEL_CHARS)
+    {
+        return reply(400, error("that note is too long"));
     }
 
     // Only over a setup the caller actually owns and hasn't deleted. This is
@@ -644,7 +656,7 @@ pub async fn cleanup_for_deleted_user(ctx: &Ctx, sub: &str) -> Result<(), String
                 .filter(|id| !id.is_empty())
                 .map(str::to_owned)
         }) {
-            clear_retained_config(ctx, sub, &setup_id).await;
+            clear_retained_config(ctx, sub, &setup_id).await?;
         }
     }
 
@@ -666,21 +678,28 @@ fn mirror_sk_of_owned(item: &HashMap<String, AttributeValue>, owner_sub: &str) -
 }
 
 /// Publish an empty retained payload to a setup's config topic, deleting the
-/// retained message. Best-effort like every other publish on this path.
-async fn clear_retained_config(ctx: &Ctx, sub: &str, setup_id: &str) {
-    let Some(iot) = &ctx.iot else { return };
+/// retained message.
+///
+/// Fallible, unlike the nudges on this path — and for the same reason the item
+/// deletes are: nothing retries it. Deletion proceeds, no actor ever runs the
+/// sweep again, and a warning in a log is not a cleanup. A compiled setup
+/// carries the setup's name and every channel label, so a failure here is
+/// exactly the remanence this step exists to prevent.
+///
+/// No IoT client configured is a skip, not a failure: there is no retained
+/// message to clear on a stack that never had a broker.
+async fn clear_retained_config(ctx: &Ctx, sub: &str, setup_id: &str) -> Result<(), String> {
+    let Some(iot) = &ctx.iot else { return Ok(()) };
     let topic = lux_wire::ctl::config_topic(sub, setup_id);
-    if let Err(e) = iot
-        .publish()
+    iot.publish()
         .topic(&topic)
         .qos(0)
         .retain(true)
         .payload(aws_sdk_iotdataplane::primitives::Blob::new(Vec::new()))
         .send()
         .await
-    {
-        tracing::warn!("retained config clear on {topic} failed: {e}");
-    }
+        .map_err(|e| format!("retained config clear on {topic} failed: {e}"))?;
+    Ok(())
 }
 
 // --- store helpers ----------------------------------------------------------

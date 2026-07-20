@@ -116,6 +116,104 @@ Clearing retained config is done **server-side**, not by the app before it signs
 
 The delete-account confirm shows both directions before it happens, alongside the setup and paired-device counts.
 
+## Verifying it end to end
+
+There is no UI for any of this in phase 1, so the proof is a runbook. It creates two throwaway accounts through the normal sign-up path, walks invite → claim → policy, and deletes them again. Run it against a stack after the backend deploys there.
+
+```bash
+SYNC=$(aws lambda get-function-url-config --function-name lux-sync-api --query FunctionUrl --output text)
+POOL=us-west-1_jV7esPwmi
+CLIENT=2t2l4fn537ttb3vul39olt3of3
+REGION=us-west-1
+OWNER_EMAIL=you+shareowner@example.com
+CONTACT_EMAIL=you+sharecontact@example.com
+PW='Runbook123'
+
+# 1. Two throwaway accounts (public API, no AWS credentials). Cognito emails
+#    each a 6-digit code; confirm both before continuing.
+for e in "$OWNER_EMAIL" "$CONTACT_EMAIL"; do
+  aws cognito-idp sign-up --region $REGION --client-id $CLIENT \
+    --username "$e" --password "$PW" --user-attributes Name=email,Value="$e"
+done
+aws cognito-idp confirm-sign-up --region $REGION --client-id $CLIENT \
+  --username "$OWNER_EMAIL" --confirmation-code <code from email>
+aws cognito-idp confirm-sign-up --region $REGION --client-id $CLIENT \
+  --username "$CONTACT_EMAIL" --confirmation-code <code from email>
+
+# 2. ID tokens. ADMIN_USER_PASSWORD_AUTH exists for exactly this (accounts.tf).
+mint() {
+  aws cognito-idp admin-initiate-auth --region $REGION --user-pool-id $POOL \
+    --client-id $CLIENT --auth-flow ADMIN_USER_PASSWORD_AUTH \
+    --auth-parameters USERNAME="$1",PASSWORD="$PW" \
+    --query 'AuthenticationResult.IdToken' --output text
+}
+OWNER=$(mint "$OWNER_EMAIL"); CONTACT=$(mint "$CONTACT_EMAIL")
+sub() { cut -d. -f2 <<<"$1" | base64 -d 2>/dev/null | jq -r .sub; }
+OWNER_SUB=$(sub "$OWNER"); CONTACT_SUB=$(sub "$CONTACT")
+
+# 3. A setup to share.
+SETUP=$(uuidgen | tr 'A-Z' 'a-z')
+curl -s -X PUT "$SYNC/setups/$SETUP" -H "authorization: Bearer $OWNER" \
+  -H 'content-type: application/json' \
+  -d '{"name":"Runbook","universe":1,"fixtures":[],"baseUpdatedAt":null}'; echo
+
+# 4. Mint an invite  → {"code":"LUX-XXXXX-XXXXX","codeRef":"…","expiresAt":…}
+CODE=$(curl -s -X POST "$SYNC/shares/invite" -H "authorization: Bearer $OWNER" \
+  -H 'content-type: application/json' \
+  -d "{\"setupId\":\"$SETUP\",\"label\":\"Runbook contact\"}" | jq -r .code)
+echo "code: $CODE"
+
+# 5. Claim it  → {"ownerSub":…,"ownerLabel":…,"setupId":…,"setupName":"Runbook"}
+curl -s -X POST "$SYNC/shares/claim" -H "authorization: Bearer $CONTACT" \
+  -H 'content-type: application/json' -d "{\"code\":\"$CODE\"}" | jq
+
+# …and single use: the replay must 404, in any spelling.
+curl -s -o /dev/null -w 'replay: %{http_code}\n' -X POST "$SYNC/shares/claim" \
+  -H "authorization: Bearer $CONTACT" -H 'content-type: application/json' \
+  -d "{\"code\":\"$(tr 'A-Z' 'a-z' <<<"$CODE" | tr -d -)\"}"
+
+# 6. Both lists agree.
+curl -s "$SYNC/shares" -H "authorization: Bearer $OWNER"   | jq '{granted,pending}'
+curl -s "$SYNC/shares" -H "authorization: Bearer $CONTACT" | jq '.received'
+
+# 7. THE PROOF — the contact's connect-time policy now reaches the owner's setup.
+#    No --token-signature: the authorizer is registered signing_disabled.
+policy() {
+  aws iot test-invoke-authorizer --region $REGION --authorizer-name lux-sync-auth \
+    --token "$1" --query 'policyDocuments' --output text
+}
+policy "$CONTACT" | jq
+```
+
+Step 7 must return exactly two documents: the contact's own space unchanged, plus one granting
+
+- publish `lux/ctl/user/$OWNER_SUB/setup/$SETUP/frame` and `lux/ctl/user/$OWNER_SUB/presence/$CONTACT_SUB`
+- retain-publish `lux/ctl/user/$OWNER_SUB/presence/$CONTACT_SUB` — that topic and nothing else
+- subscribe/receive `lux/ctl/user/$OWNER_SUB/setup/$SETUP/{state,config}`
+
+The presence resource is an exact topic with no trailing wildcard; a `*` anywhere in it is a bug, not a formatting difference. Worth grepping for what must be absent:
+
+```bash
+policy "$CONTACT" | grep -E "user/$OWNER_SUB/\*|sync/user/$OWNER_SUB|presence/\*|presence/$CONTACT_SUB-" \
+  && echo "LEAK" || echo "clean"
+
+# 8. Leave from the contact's end; the second document disappears.
+curl -s -X DELETE "$SYNC/shares/received/$OWNER_SUB/$SETUP" \
+  -H "authorization: Bearer $CONTACT" | jq
+policy "$CONTACT" | jq 'length'   # → 1
+
+# 9. Deletion cleanup: re-claim with a fresh code, then delete the OWNER and
+#    confirm the grant is gone from the contact's side too.
+curl -s -X DELETE "$SYNC/user" -H "authorization: Bearer $OWNER" | jq
+curl -s "$SYNC/shares" -H "authorization: Bearer $CONTACT" | jq '.received'  # → []
+policy "$CONTACT" | jq 'length'   # → 1
+
+# 10. Tear down.
+for e in "$OWNER_EMAIL" "$CONTACT_EMAIL"; do
+  aws cognito-idp admin-delete-user --region $REGION --user-pool-id $POOL --username "$e"
+done
+```
+
 ## Accepted limits
 
 - **Presence can go stale.** A connection has exactly one Last Will and it targets the guest's own presence topic, so a guest's card in the owner's space is explicit-publish/explicit-clear. An ungraceful drop can leave a card up until the guest reconnects or signs out. Cards carry a timestamp so surfaces can render staleness.
