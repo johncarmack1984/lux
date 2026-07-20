@@ -55,6 +55,10 @@ pub async fn authorize(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error>
     if pub_ip.is_empty() {
         return reply(400, &error("no source address"));
     }
+    // Store the same-egress *network* key, not the raw address: IPv6 gives every
+    // device its own /128, so a box and the owner's phone on one LAN only ever
+    // share their /64 (see [`rendezvous_key`]).
+    let egress = rendezvous_key(pub_ip);
 
     let device_code = match random_hex::<32>() {
         Ok(c) => c,
@@ -80,7 +84,7 @@ pub async fn authorize(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error>
         &req.mac_tail,
         &req.version,
         &req.arch,
-        pub_ip,
+        &egress,
         EXPIRES_SECS as i64,
     )
     .await
@@ -249,7 +253,7 @@ pub async fn pending(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
     if caller(ctx, event).is_none() {
         return reply(401, &error("invalid or missing token"));
     }
-    let rows = match store::list_pending(ctx, event.source_ip()).await {
+    let rows = match store::list_pending(ctx, &rendezvous_key(event.source_ip())).await {
         Ok(r) => r,
         Err(e) => {
             tracing::error!("pending list failed: {e}");
@@ -303,7 +307,8 @@ pub async fn approve(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
     if pair.status != "pending" || pair.expired() {
         return reply(409, &error("device is no longer pending"));
     }
-    if pair.pub_ip != event.source_ip() {
+    // The stored `pub_ip` is already the network key; compare like-for-like.
+    if pair.pub_ip != rendezvous_key(event.source_ip()) {
         tracing::warn!("approve egress mismatch");
         return reply(403, &error("approve from the device's network"));
     }
@@ -366,6 +371,34 @@ pub async fn answer_is_correct(ctx: &Ctx, answer: &str, user_sub: &str) -> bool 
 /// touches the table.
 fn pair_ref(device_code: &str) -> String {
     hex(&Sha256::digest(device_code.as_bytes()))
+}
+
+/// The same-egress rendezvous key — what "on the same network" means for the
+/// NAT-proximity pairing check.
+///
+/// IPv4 hosts behind a home NAT share one public address, so the address itself
+/// is the key. IPv6 hosts each get a globally-unique /128 (no NAT), so a box and
+/// the owner's phone on one LAN never match on the exact address — but a
+/// household is delegated a single routing prefix, so the /64 network is the
+/// shared identity. Matching the /64 keeps the exact same-household posture the
+/// IPv4 path has (a home ISP delegates one /64 per subscriber). Without this,
+/// dual-stack clients silently never pair: the box registers over IPv6 and the
+/// app's pending list, keyed on a different /128, is always empty. A value that
+/// isn't an IP (shouldn't reach here behind the Function URL) falls back to
+/// itself, so it can only ever match an identical string.
+fn rendezvous_key(source_ip: &str) -> String {
+    match source_ip.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => v4.to_string(),
+        Ok(std::net::IpAddr::V6(v6)) => match v6.to_ipv4_mapped() {
+            // ::ffff:a.b.c.d — really an IPv4 client; key it as IPv4.
+            Some(v4) => v4.to_string(),
+            None => {
+                let s = v6.segments();
+                format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
+            }
+        },
+        Err(_) => source_ip.to_owned(),
+    }
 }
 
 /// `LUX-XXXX` from the confusion-free alphabet. Display-only (never typed, is
@@ -433,6 +466,31 @@ mod tests {
         let tail = &code["LUX-".len()..];
         assert_eq!(tail.len(), USER_CODE_LEN);
         assert!(tail.bytes().all(|b| USER_CODE_ALPHABET.contains(&b)));
+    }
+
+    #[test]
+    fn rendezvous_key_matches_by_household_network() {
+        // IPv4: the address is the household's shared NAT identity.
+        assert_eq!(rendezvous_key("76.33.40.136"), "76.33.40.136");
+
+        // IPv6: two distinct /128s on one /64 (box + phone on the same LAN)
+        // collapse to a single key — the bug this fixes.
+        let box_ip = "2603:8003:1cf0:88a0:df9a:fd79:d5ee:ffa7";
+        let phone_ip = "2603:8003:1cf0:88a0:1111:2222:3333:4444";
+        assert_eq!(rendezvous_key(box_ip), "2603:8003:1cf0:88a0::/64");
+        assert_eq!(rendezvous_key(box_ip), rendezvous_key(phone_ip));
+
+        // A different /64 (another household) must not match.
+        assert_ne!(
+            rendezvous_key(box_ip),
+            rendezvous_key("2603:8003:1cf0:9999:df9a:fd79:d5ee:ffa7")
+        );
+
+        // Cross-family never matches; an IPv4-mapped v6 keys as its IPv4; a
+        // non-IP falls back to itself.
+        assert_ne!(rendezvous_key(box_ip), rendezvous_key("76.33.40.136"));
+        assert_eq!(rendezvous_key("::ffff:76.33.40.136"), "76.33.40.136");
+        assert_eq!(rendezvous_key("garbage"), "garbage");
     }
 
     #[test]
