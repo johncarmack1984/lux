@@ -109,6 +109,16 @@ Plex/Spotify-Connect NAT-proximity trick: shared egress establishes proximity,
 and the human confirms identity by matching the short code / MAC tail on the
 box's label.
 
+**Dual-stack / IPv6 note:** the rendezvous key is the source *network*, not the
+raw address. IPv4 hosts behind a home NAT share one public address, so that
+address is the key. IPv6 has no NAT — every device gets its own /128 — so a box
+and the owner's phone on one LAN would never share a key on the exact address;
+the key is the **/64 network** instead (a home ISP delegates one /64 per
+subscriber, so /64 == household, matching the IPv4 posture). Without this,
+dual-stack clients silently never pair: the box registers over IPv6 and the
+app's pending list, keyed on a different /128, is always empty. Implemented as
+`rendezvous_key` in `services/apple-auth/src/device.rs`.
+
 ## Proposed flow
 
 Three legs — **register** (box), **approve** (app), **redeem** (box) — RFC 8628
