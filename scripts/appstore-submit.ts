@@ -106,12 +106,15 @@ console.log(`app ${appId} (${bundleId}), submitting ${version}`);
 
 // --- wait for both builds to process -------------------------------------
 
-// Builds carry no platform attribute — join through preReleaseVersion.
+// Builds carry no platform attribute — join through preReleaseVersion, which
+// must stay listed in `fields[builds]`: a sparse fieldset of only attributes
+// omits the relationship, so the join would silently resolve nothing and the
+// poll would spin until it timed out.
 async function processedBuilds(): Promise<Map<Platform, string>> {
   const r = expect<any>(
     await asc(
       `/v1/builds?filter[app]=${appId}&filter[version]=${version}` +
-        `&fields[builds]=version,processingState&include=preReleaseVersion` +
+        `&fields[builds]=version,processingState,preReleaseVersion&include=preReleaseVersion` +
         `&fields[preReleaseVersions]=platform`
     ),
     "build list"
