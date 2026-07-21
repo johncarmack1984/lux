@@ -27,6 +27,10 @@ unwrap_used = "deny"
 panic = "warn"
 todo = "warn"
 unimplemented = "warn"
+unreachable = "warn"
+# Also fail a Result-returning fn that hides a panic-macro or assert! behind its
+# Result — those paths should return an Err, not abort the process.
+panic_in_result_fn = "warn"
 # Numeric-cast hardening. This app is u8 channel values and usize buffer indices
 # crossing into the u16/u32 DMX, wire, and DynamoDB types, so a silent truncation
 # is a real defect. Every `as` that could lose data must become a checked
