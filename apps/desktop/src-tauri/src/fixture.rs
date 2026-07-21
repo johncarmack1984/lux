@@ -41,7 +41,10 @@ pub struct Fixture {
 impl Fixture {
     /// Last DMX slot this fixture occupies (1-based, inclusive).
     fn end(&self) -> u16 {
-        self.address + self.channels.len() as u16 - 1
+        // A validated fixture spans ≤512 consecutive slots, so its channel count
+        // fits u16; saturate rather than wrap if that invariant is ever violated.
+        let count = u16::try_from(self.channels.len()).unwrap_or(u16::MAX);
+        self.address.saturating_add(count).saturating_sub(1)
     }
 }
 
@@ -143,7 +146,8 @@ fn validate_placement(address: u16, len: usize, others: &[Fixture]) -> Result<()
             "fixture spans slots {address}..={end}, past the {UNIVERSE_SIZE}-channel universe"
         ));
     }
-    let end = end as u16;
+    // `end <= UNIVERSE_SIZE` (checked just above), so it fits u16.
+    let end = u16::try_from(end).expect("fixture end within universe bounds fits u16");
     for other in others {
         // Inclusive ranges [address, end] and [other.address, other.end()] overlap.
         if address <= other.end() && other.address <= end {

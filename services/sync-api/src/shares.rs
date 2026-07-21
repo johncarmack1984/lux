@@ -62,12 +62,12 @@ const CODE_LEN: usize = 10;
 /// 10%, costing roughly a bit — immaterial against a single-use 48-hour code,
 /// but the property is free to keep.)
 fn mint_code() -> Result<String, String> {
-    let span = CODE_ALPHABET.len() as u16;
+    let span = CODE_ALPHABET.len();
     let ceiling = (256 / span) * span; // largest whole multiple of the alphabet
     let mut body = String::with_capacity(CODE_LEN);
     while body.len() < CODE_LEN {
         for b in random::<CODE_LEN>()? {
-            if (b as u16) < ceiling {
+            if (b as usize) < ceiling {
                 body.push(CODE_ALPHABET[b as usize % CODE_ALPHABET.len()] as char);
                 if body.len() == CODE_LEN {
                     break;

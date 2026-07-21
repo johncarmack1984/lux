@@ -74,13 +74,15 @@ impl Setup {
             fixtures.push(lux_wire::ctl::ConfigFixture {
                 name: fixture.name.clone(),
                 address: fixture.address,
-                count: fixture.channels.len() as u16,
+                count: u16::try_from(fixture.channels.len()).unwrap_or(u16::MAX),
             });
             for (offset, channel) in fixture.channels.iter().enumerate() {
                 channels.push(lux_wire::ctl::ConfigChannel {
                     // 1-based DMX slot, matching `Frame::Channel`'s `ch` — the
                     // number a guest will publish back.
-                    n: fixture.address.saturating_add(offset as u16),
+                    n: fixture
+                        .address
+                        .saturating_add(u16::try_from(offset).unwrap_or(u16::MAX)),
                     name: channel.label.clone(),
                     // The variant name, which is exactly how the role rides
                     // every other wire in this app. A consumer matches what it
@@ -222,7 +224,7 @@ impl SetupStore {
                 id: s.id,
                 name: s.name.clone(),
                 universe: s.universe,
-                fixture_count: s.fixtures.len() as u32,
+                fixture_count: u32::try_from(s.fixtures.len()).unwrap_or(u32::MAX),
                 active: s.id == self.active_setup_id,
             })
             .collect()
@@ -287,7 +289,7 @@ impl LuxSetups {
             id: active.id,
             name: active.name.clone(),
             universe: active.universe,
-            fixture_count: active.fixtures.len() as u32,
+            fixture_count: u32::try_from(active.fixtures.len()).unwrap_or(u32::MAX),
             active: true,
         }
     }

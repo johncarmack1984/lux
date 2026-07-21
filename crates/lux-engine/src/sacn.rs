@@ -111,17 +111,19 @@ fn build_packet(
     sequence: u8,
 ) -> [u8; PACKET_LEN] {
     let mut p = [0u8; PACKET_LEN];
+    // PACKET_LEN (638) fits u16; the E1.31 PDU flags-and-length fields are u16.
+    let packet_len = u16::try_from(PACKET_LEN).expect("PACKET_LEN (638) fits u16");
 
     // ---- Root layer (ACN root, 38 bytes) ----
     p[0..2].copy_from_slice(&0x0010u16.to_be_bytes()); // preamble size
                                                        // [2..4] post-amble size = 0
     p[4..16].copy_from_slice(b"ASC-E1.17\0\0\0"); // ACN packet identifier
-    p[16..18].copy_from_slice(&(0x7000u16 | (PACKET_LEN as u16 - 16)).to_be_bytes()); // flags+length
+    p[16..18].copy_from_slice(&(0x7000u16 | (packet_len - 16)).to_be_bytes()); // flags+length
     p[18..22].copy_from_slice(&4u32.to_be_bytes()); // VECTOR_ROOT_E131_DATA
     p[22..38].copy_from_slice(cid);
 
     // ---- Framing layer (77 bytes) ----
-    p[38..40].copy_from_slice(&(0x7000u16 | (PACKET_LEN as u16 - 38)).to_be_bytes()); // flags+length
+    p[38..40].copy_from_slice(&(0x7000u16 | (packet_len - 38)).to_be_bytes()); // flags+length
     p[40..44].copy_from_slice(&2u32.to_be_bytes()); // VECTOR_E131_DATA_PACKET
     let name = source_name.as_bytes();
     let n = name.len().min(63); // 64-byte field, null-terminated
@@ -133,7 +135,7 @@ fn build_packet(
     p[113..115].copy_from_slice(&universe.to_be_bytes());
 
     // ---- DMP layer (523 bytes) ----
-    p[115..117].copy_from_slice(&(0x7000u16 | (PACKET_LEN as u16 - 115)).to_be_bytes()); // flags+length
+    p[115..117].copy_from_slice(&(0x7000u16 | (packet_len - 115)).to_be_bytes()); // flags+length
     p[117] = 0x02; // VECTOR_DMP_SET_PROPERTY
     p[118] = 0xa1; // address type & data type
                    // [119..121] first property address = 0

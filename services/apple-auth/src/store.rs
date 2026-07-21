@@ -187,7 +187,7 @@ fn now_millis() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
+        .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
         .unwrap_or(0)
 }
 
@@ -349,7 +349,7 @@ pub async fn get_pair(ctx: &Ctx, pair_ref: &str) -> Result<Option<Pair>, String>
         bound_username: opt_s("boundUsername"),
         bound_sub: opt_s("boundSub"),
         setup_id: opt_s("setupId"),
-        universe: opt_n("universe").map(|v| v as u16),
+        universe: opt_n("universe").and_then(|v| u16::try_from(v).ok()),
         created_at: num("createdAt")?,
         expires_at: num("expiresAt")?,
         redeemed_at: opt_n("redeemedAt"),
@@ -436,7 +436,7 @@ pub async fn approve_pair(
         .expression_attribute_values(":u", s(username))
         .expression_attribute_values(":sub", s(sub))
         .expression_attribute_values(":setup", s(setup_id))
-        .expression_attribute_values(":uni", n(universe as i64))
+        .expression_attribute_values(":uni", n(i64::from(universe)))
         .expression_attribute_values(":name", s(device_name))
         .expression_attribute_values(":now", n(now))
         .build()
@@ -455,7 +455,7 @@ pub async fn approve_pair(
         ("name".into(), s(device_name)),
         ("hostname".into(), s(&pair.hostname)),
         ("setupId".into(), s(setup_id)),
-        ("universe".into(), n(universe as i64)),
+        ("universe".into(), n(i64::from(universe))),
         ("pairedAt".into(), n(now)),
     ]);
     let put_registry = Put::builder()

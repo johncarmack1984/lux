@@ -35,7 +35,7 @@ pub struct ArtNetNode {
 impl ArtNetNode {
     /// 15-bit Art-Net Port-Address of output port A.
     pub fn port_address(&self) -> u16 {
-        ((self.net as u16) << 8) | ((self.sub as u16) << 4) | self.sw_out as u16
+        (u16::from(self.net) << 8) | (u16::from(self.sub) << 4) | u16::from(self.sw_out)
     }
 
     /// sACN/E1.31 universe of output port A. DMXKing maps sACN universe N to

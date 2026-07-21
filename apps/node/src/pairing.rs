@@ -114,8 +114,8 @@ pub async fn pair_wait(
         };
         announce(&auth);
 
-        let deadline = Instant::now() + Duration::from_secs(auth.expires_in as u64);
-        let mut interval = (auth.interval.max(1) as u64).min(MAX_INTERVAL_SECS);
+        let deadline = Instant::now() + Duration::from_secs(u64::from(auth.expires_in));
+        let mut interval = u64::from(auth.interval.max(1)).min(MAX_INTERVAL_SECS);
 
         loop {
             tokio::time::sleep(Duration::from_secs(interval)).await;

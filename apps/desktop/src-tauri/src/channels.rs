@@ -66,7 +66,8 @@ impl Default for LuxChannels {
             ("White", LuxLabelColor::White),
             ("Brightness", LuxLabelColor::Brightness),
         ];
-        let channels: Vec<Channel> = (1..=UNIVERSE_SIZE as u32)
+        let universe_end = u32::try_from(UNIVERSE_SIZE).expect("UNIVERSE_SIZE (512) fits u32");
+        let channels: Vec<Channel> = (1..=universe_end)
             .map(|channel_number| {
                 let (label, label_color) = rgbaw
                     .get((channel_number - 1) as usize)
