@@ -12,6 +12,12 @@
 //! universe. Packet offsets follow Art-Net 4 and are validated against a real
 //! eDMX1 PRO (see the Python prototype this was ported from).
 
+// Parse-path hardening: this module reads attacker-shaped UDP packets, so raw
+// slice indexing is denied here (the first step of the incremental
+// `indexing_slicing` rollout). Every offset below indexes a fixed-size array
+// proven long enough, or goes through `.get()`.
+#![warn(clippy::indexing_slicing)]
+
 use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
 use std::time::{Duration, Instant};
 
@@ -56,23 +62,30 @@ fn build_artpoll() -> [u8; 14] {
 
 /// Parse an `ArtPollReply`. Returns `None` for anything that isn't one.
 fn parse_reply(data: &[u8]) -> Option<ArtNetNode> {
-    if data.len() < 200 || &data[0..8] != b"Art-Net\0" {
+    // Pin the read window to a compile-time length: every offset below then
+    // indexes a known-200-byte array rather than an attacker-sized slice, so a
+    // short or truncated packet is rejected here instead of panicking. SwOut[0]
+    // at offset 190 is the last field read.
+    let data: &[u8; 200] = data.get(..200)?.try_into().ok()?;
+    if !data.starts_with(b"Art-Net\0") {
         return None;
     }
     if u16::from_le_bytes([data[8], data[9]]) != 0x2100 {
         return None;
     }
     let cstr = |b: &[u8]| {
-        let end = b.iter().position(|&c| c == 0).unwrap_or(b.len());
-        String::from_utf8_lossy(&b[..end]).into_owned()
+        // Bytes up to the first NUL (or all of them if unterminated) — the
+        // first `split` segment, which is always present.
+        let name = b.split(|&c| c == 0).next().unwrap_or(b);
+        String::from_utf8_lossy(name).into_owned()
     };
     Some(ArtNetNode {
         ip: Ipv4Addr::new(data[10], data[11], data[12], data[13]),
         firmware: (data[16], data[17]),
         net: data[18] & 0x7f,
         sub: data[19] & 0x0f,
-        short_name: cstr(&data[26..44]),
-        long_name: cstr(&data[44..108]),
+        short_name: cstr(data.get(26..44)?),
+        long_name: cstr(data.get(44..108)?),
         output: data[174] & 0x80 != 0, // PortTypes[0] bit7 = "can output from network"
         sw_out: data[190] & 0x0f,      // SwOut[0] low nibble
     })
@@ -118,7 +131,7 @@ pub fn discover(timeout: Duration) -> Vec<ArtNetNode> {
             last_poll = Instant::now();
         }
         if let Ok((n, _)) = socket.recv_from(&mut buf) {
-            if let Some(node) = parse_reply(&buf[..n]) {
+            if let Some(node) = buf.get(..n).and_then(parse_reply) {
                 if !nodes.iter().any(|x| x.ip == node.ip) {
                     nodes.push(node);
                     last_new = Instant::now();
