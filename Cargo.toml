@@ -39,6 +39,12 @@ cast_possible_truncation = "warn"
 cast_sign_loss = "warn"
 cast_possible_wrap = "warn"
 cast_lossless = "warn"
+# Float-equality hardening. The fixture engine mixes RGBAW as f32 (role-aware
+# blending, master scaling), where `==`/`!=` on the results is a classic bug —
+# rounding makes two "equal" colours compare unequal. Compare with a tolerance
+# instead. Zero sites today; this keeps it that way.
+float_cmp = "warn"
+float_cmp_const = "warn"
 
 # Dependencies shared across the desktop app and/or the Lambda services. Declared
 # once here; members opt in with `<dep>.workspace = true` (adding features as
