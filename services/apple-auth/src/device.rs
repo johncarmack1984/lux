@@ -85,7 +85,7 @@ pub async fn authorize(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error>
         &req.version,
         &req.arch,
         &egress,
-        EXPIRES_SECS as i64,
+        i64::from(EXPIRES_SECS),
     )
     .await
     {
@@ -214,7 +214,7 @@ pub async fn list(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
                 name: s("name")?,
                 hostname: s("hostname")?,
                 setup_id: s("setupId")?,
-                universe: n("universe")? as u16,
+                universe: u16::try_from(n("universe")?).ok()?,
                 paired_at: n("pairedAt")?,
             })
         })
@@ -437,7 +437,7 @@ fn now_millis() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
+        .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
         .unwrap_or(0)
 }
 

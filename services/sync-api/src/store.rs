@@ -101,7 +101,9 @@ pub async fn list(ddb: &Client, table: &str, sub: &str) -> Result<ListSetupsResp
         setups.push(SetupRecord {
             id: id.to_owned(),
             name: s(item, "name").unwrap_or_default(),
-            universe: n(item, "universe").unwrap_or(1) as u16,
+            universe: n(item, "universe")
+                .and_then(|v| u16::try_from(v).ok())
+                .unwrap_or(1),
             fixtures: s(item, "fixtures")
                 .and_then(|raw| serde_json::from_str(&raw).ok())
                 .unwrap_or(Value::Array(vec![])),

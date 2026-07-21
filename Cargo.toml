@@ -27,6 +27,18 @@ unwrap_used = "deny"
 panic = "warn"
 todo = "warn"
 unimplemented = "warn"
+# Numeric-cast hardening. This app is u8 channel values and usize buffer indices
+# crossing into the u16/u32 DMX, wire, and DynamoDB types, so a silent truncation
+# is a real defect. Every `as` that could lose data must become a checked
+# `try_from`, an infallible `From`/`into` widening, or a locally proven `expect` —
+# never an `#[allow]`. `-D warnings` in CI makes these blocking. (`cast_precision_loss`
+# is deliberately not enabled yet: its only sites are i64 epoch-millis widened to
+# the `f64` the TS bindings require by design, so clearing it means changing the
+# timestamp representation, not the cast.)
+cast_possible_truncation = "warn"
+cast_sign_loss = "warn"
+cast_possible_wrap = "warn"
+cast_lossless = "warn"
 
 # Dependencies shared across the desktop app and/or the Lambda services. Declared
 # once here; members opt in with `<dep>.workspace = true` (adding features as
