@@ -54,8 +54,13 @@ resource "aws_iam_role_policy" "lux_apple_auth_ddb" {
         "ForAllValues:StringLike" = {
           # APPLE#/APPLELINK# = Sign in with Apple links; PAIR#/PAIRIP#/DEVICE#
           # = device-pairing records (docs/claim-code-pairing.md — this service
-          # grows the /auth/device/* routes).
-          "dynamodb:LeadingKeys" = ["APPLE#*", "APPLELINK#*", "PAIR#*", "PAIRIP#*", "DEVICE#*"]
+          # grows the /auth/device/* routes); APPLEWEB#/APPLEWEBOTC# = the web
+          # (browser) sign-in's in-flight state + one-time codes (self-expiring,
+          # single-use — .claude/specs/sign-in-with-apple-web.md).
+          "dynamodb:LeadingKeys" = [
+            "APPLE#*", "APPLELINK#*", "PAIR#*", "PAIRIP#*", "DEVICE#*",
+            "APPLEWEB#*", "APPLEWEBOTC#*",
+          ]
         }
       }
     }]
@@ -146,6 +151,17 @@ resource "aws_lambda_function" "lux_apple_auth" {
       APPLE_BUNDLE_ID = "com.johncarmack.lux"
       # By-name reference to the hand-created secret (see the header comment).
       SIWA_SECRET_ID = "lux/siwa-key"
+      # Web (browser) Sign in with Apple — the .dmg/dev fallback. Both are
+      # product identity, not secrets: the Services ID is the web client_id/
+      # audience, the callback is its registered Return URL (served via the
+      # CloudFront domain in apple-auth-web.tf). Present ⇒ the /auth/apple/web/*
+      # routes light up (.claude/specs/sign-in-with-apple-web.md).
+      APPLE_SERVICES_ID      = "com.johncarmack.lux.signin"
+      APPLE_WEB_CALLBACK_URL = "https://${local.apple_auth_domain}/auth/apple/web/callback"
+      # Apple's domain-verification file, served at /.well-known/... by the
+      # handler. A committed placeholder until John pastes the portal-issued
+      # token in; empty ⇒ the well-known route 404s.
+      APPLE_DOMAIN_ASSOCIATION = trimspace(file("${path.module}/apple-developer-domain-association.txt"))
     }
   }
 }

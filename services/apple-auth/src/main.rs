@@ -31,6 +31,7 @@ mod device;
 mod http;
 mod store;
 mod triggers;
+mod web;
 
 use std::sync::Arc;
 
@@ -54,6 +55,14 @@ pub(crate) struct Ctx {
     pub device_client_id: Option<String>,
     pub table: String,
     pub siwa_secret_id: String,
+    /// The web-flow redirect URI registered on the Services ID (the Apple
+    /// `/web/callback`). Absent — like the Services ID on `apple` — leaves the
+    /// web routes dark (`/web/start` 404s), so the `.dmg` button stays off.
+    pub apple_web_callback_url: Option<String>,
+    /// Apple's domain-verification token, served at
+    /// `/.well-known/apple-developer-domain-association.txt`. Absent ⇒ that
+    /// route 404s.
+    pub apple_domain_association: Option<String>,
 }
 
 impl Ctx {
@@ -99,6 +108,17 @@ async fn main() -> Result<(), Error> {
     let table = env("DYNAMODB_TABLE")?;
     let bundle_id = env("APPLE_BUNDLE_ID")?;
     let siwa_secret_id = env("SIWA_SECRET_ID")?;
+    // Web (browser) Sign in with Apple — the `.dmg`/dev fallback. Both must be
+    // present for the web routes to light up; either absent keeps them dark.
+    let services_id = std::env::var("APPLE_SERVICES_ID")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let apple_web_callback_url = std::env::var("APPLE_WEB_CALLBACK_URL")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let apple_domain_association = std::env::var("APPLE_DOMAIN_ASSOCIATION")
+        .ok()
+        .filter(|s| !s.is_empty());
 
     let verifier = lux_auth::Verifier::new(&region, &pool_id, &client_id)
         .await
@@ -114,13 +134,15 @@ async fn main() -> Result<(), Error> {
         ddb: aws_sdk_dynamodb::Client::new(&conf),
         secrets: aws_sdk_secretsmanager::Client::new(&conf),
         verifier,
-        apple: apple::AppleAuth::new(bundle_id),
+        apple: apple::AppleAuth::new(bundle_id, services_id),
         siwa_key: tokio::sync::OnceCell::new(),
         pool_id,
         client_id,
         device_client_id,
         table,
         siwa_secret_id,
+        apple_web_callback_url,
+        apple_domain_association,
     });
 
     run(service_fn(move |event: LambdaEvent<Value>| {
