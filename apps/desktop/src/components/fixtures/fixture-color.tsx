@@ -8,7 +8,7 @@ import ColorTrigger from "@/components/color-picker/color-trigger";
 import useThrottle from "@/hooks/useThrottle";
 import { setChannelValue } from "@/lib/actions";
 import { emittersToRgb, mixToEmitters } from "@/lib/color-mix";
-import { togglePreset, useActivePresetId } from "@/lib/preset-toggle";
+import { togglePreset, useIsPresetActive } from "@/lib/preset-toggle";
 
 /**
  * Reading light: tungsten/amber at full, master at 40%. Expressed as a picker
@@ -96,13 +96,16 @@ export default function FixtureColor({
   // wheel path) so the toggle store can track exactly what it set; the swatch
   // and wheel follow via the buffer round-trip like any out-of-band change.
   const presetId = `reading-light-${fixture.id}`;
-  const readingLightActive = useActivePresetId() === presetId;
+  const readingLightActive = useIsPresetActive(presetId);
   const onReadingLight = () => {
     const writes = new Map<number, number>();
     for (const [addr, value] of emitterWrites(READING_LIGHT)) {
       if (addr) writes.set(addr, value);
     }
-    togglePreset(presetId, writes).catch(() => {});
+    togglePreset(presetId, writes, {
+      kind: "fixture",
+      fixtureId: fixture.id,
+    }).catch(() => {});
   };
 
   // Glow tracks the dimmer when present, else the brightest color channel.
