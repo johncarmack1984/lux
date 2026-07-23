@@ -22,6 +22,7 @@ jq -Sn \
   --arg syncUrl               "$(out lux_sync_url)" \
   --arg nudgeEndpoint         "$(out iot_endpoint)" \
   --arg appleAuthUrl          "$(out apple_auth_url)" \
+  --argjson appleWebEnabled   "$(out apple_web_enabled)" \
   '{
     cognitoRegion:         $cognitoRegion,
     cognitoUserPoolId:     $cognitoUserPoolId,
@@ -29,7 +30,8 @@ jq -Sn \
     cognitoDeviceClientId: $cognitoDeviceClientId,
     syncUrl:               $syncUrl,
     nudgeEndpoint:         $nudgeEndpoint,
-    appleAuthUrl:          $appleAuthUrl
+    appleAuthUrl:          $appleAuthUrl,
+    appleWebEnabled:       $appleWebEnabled
   }' > apps/desktop/src-tauri/endpoints.prod.json
 
 echo "wrote apps/desktop/src-tauri/endpoints.prod.json:"

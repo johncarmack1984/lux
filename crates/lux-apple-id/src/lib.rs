@@ -38,6 +38,26 @@ pub fn authorize(_hashed_nonce: &str, on_done: OnDone) {
     ));
 }
 
+/// A completed web-auth session's outcome: the `lux://` callback URL the session
+/// captured, or an error (`CANCELED` on user dismissal).
+pub type OnDoneUrl = Box<dyn FnOnce(Result<String, String>) + Send>;
+
+/// The web (browser) Sign in with Apple fallback, for builds where the native
+/// sheet is impossible — the Developer ID `.dmg` and dev (Apple forbids the
+/// entitlement off the Mac App Store). Opens `url` in an
+/// `ASWebAuthenticationSession` and hands back the `callback_scheme://` URL it
+/// captured — whose query carries a one-time code + state, never a token. macOS
+/// only; iOS/MAS use the native sheet. Main-thread only, like [`authorize`].
+#[cfg(target_os = "macos")]
+pub use platform_web::authorize_web;
+
+#[cfg(not(target_os = "macos"))]
+pub fn authorize_web(_url: &str, _callback_scheme: &str, on_done: OnDoneUrl) {
+    on_done(Err(
+        "web sign in with apple is only available on macOS".into()
+    ));
+}
+
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod platform {
     use std::cell::RefCell;
@@ -234,6 +254,141 @@ mod platform {
                 let responder = Retained::into_super(window);
                 Retained::into_super(responder)
             }
+            None => NSObject::new(),
+        }
+    }
+}
+
+/// The web (browser) Sign in with Apple fallback (`ASWebAuthenticationSession`),
+/// macOS only — see [`crate::authorize_web`].
+#[cfg(target_os = "macos")]
+mod platform_web {
+    use std::cell::RefCell;
+
+    use block2::RcBlock;
+    use objc2::rc::Retained;
+    use objc2::runtime::ProtocolObject;
+    use objc2::{define_class, msg_send, AnyThread, MainThreadMarker, MainThreadOnly};
+    use objc2_authentication_services::{
+        ASPresentationAnchor, ASWebAuthenticationPresentationContextProviding,
+        ASWebAuthenticationSession, ASWebAuthenticationSessionErrorCode,
+    };
+    use objc2_foundation::{NSError, NSObject, NSObjectProtocol, NSString, NSURL};
+
+    use super::{OnDoneUrl, CANCELED};
+
+    // Keeps the in-flight (provider, session) pair alive until the completion
+    // handler fires: a session with no strong reference is deallocated (which
+    // cancels the flow), and its presentationContextProvider property is WEAK.
+    // Replaced (and released) on the next call; main thread only.
+    thread_local! {
+        static IN_FLIGHT: RefCell<
+            Option<(Retained<AnchorProvider>, Retained<ASWebAuthenticationSession>)>,
+        > = const { RefCell::new(None) };
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "LuxWebAuthAnchorProvider"]
+        #[ivars = ()]
+        struct AnchorProvider;
+
+        unsafe impl NSObjectProtocol for AnchorProvider {}
+
+        unsafe impl ASWebAuthenticationPresentationContextProviding for AnchorProvider {
+            #[unsafe(method_id(presentationAnchorForWebAuthenticationSession:))]
+            fn presentation_anchor(
+                &self,
+                _session: &ASWebAuthenticationSession,
+            ) -> Retained<ASPresentationAnchor> {
+                anchor_window()
+            }
+        }
+    );
+
+    impl AnchorProvider {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(());
+            // SAFETY: plain NSObject init on a freshly allocated instance.
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    pub fn authorize_web(url: &str, callback_scheme: &str, on_done: OnDoneUrl) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            on_done(Err("authorize_web must be called on the main thread".into()));
+            return;
+        };
+        // URLWithString returns null for a malformed URL.
+        let Some(nsurl) = NSURL::URLWithString(&NSString::from_str(url)) else {
+            on_done(Err("invalid authorize url".into()));
+            return;
+        };
+
+        // The session's completion handler is a `Fn` block, but our callback is
+        // a `FnOnce` — fire it at most once through this slot.
+        let slot: RefCell<Option<OnDoneUrl>> = RefCell::new(Some(on_done));
+        let handler = RcBlock::new(move |callback_url: *mut NSURL, error: *mut NSError| {
+            let Some(on_done) = slot.borrow_mut().take() else {
+                return;
+            };
+            // SAFETY: the session passes borrowed, possibly-null pointers.
+            let result = unsafe {
+                if let Some(url) = callback_url.as_ref() {
+                    url.absoluteString()
+                        .map(|s| s.to_string())
+                        .ok_or_else(|| "callback url had no string form".to_owned())
+                } else if let Some(error) = error.as_ref() {
+                    if error.code() == ASWebAuthenticationSessionErrorCode::CanceledLogin.0 {
+                        Err(CANCELED.to_owned())
+                    } else {
+                        Err(format!(
+                            "web sign-in failed ({}): {}",
+                            error.code(),
+                            error.localizedDescription()
+                        ))
+                    }
+                } else {
+                    Err("web sign-in completed with neither url nor error".to_owned())
+                }
+            };
+            on_done(result);
+        });
+
+        let provider = AnchorProvider::new(mtm);
+        // SAFETY: all main-thread; the session copies the completion block, and
+        // both provider and session live in IN_FLIGHT until the callback fires.
+        unsafe {
+            // The scheme-based init is deprecated for `initWithURL:callback:…`,
+            // but that replacement needs macOS 14.4; this one works back to the
+            // 10.15 where ASWebAuthenticationSession first shipped.
+            #[allow(deprecated)]
+            let session =
+                ASWebAuthenticationSession::initWithURL_callbackURLScheme_completionHandler(
+                    ASWebAuthenticationSession::alloc(),
+                    &nsurl,
+                    Some(&NSString::from_str(callback_scheme)),
+                    RcBlock::as_ptr(&handler),
+                );
+            session.setPresentationContextProvider(Some(ProtocolObject::from_ref(&*provider)));
+            // Reuse an existing Apple web session where one exists (smoother UX).
+            session.setPrefersEphemeralWebBrowserSession(false);
+            session.start();
+            IN_FLIGHT.with(|slot| *slot.borrow_mut() = Some((provider, session)));
+        }
+    }
+
+    /// The window the sheet attaches to (`ASPresentationAnchor` is `NSObject`):
+    /// the key window, else the main window, else a bare object (the sheet then
+    /// fails visibly rather than never calling back).
+    fn anchor_window() -> Retained<NSObject> {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return NSObject::new();
+        };
+        let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+        match app.keyWindow().or_else(|| app.mainWindow()) {
+            Some(window) => Retained::into_super(Retained::into_super(window)),
             None => NSObject::new(),
         }
     }

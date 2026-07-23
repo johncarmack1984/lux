@@ -130,6 +130,11 @@ export const cmd = {
   },
 
   /** @throws {string} */
+  sign_in_with_apple_web(): Promise<AuthStatus> {
+    return invoke("cmd.sign_in_with_apple_web");
+  },
+
+  /** @throws {string} */
   sign_out(): Promise<AuthStatus> {
     return invoke("cmd.sign_out");
   },
@@ -322,6 +327,12 @@ export type AuthStatus = {
 	 *  carries the entitlement AND the backend URL is configured).
 	 */
 	apple: boolean,
+	/**
+	 *  Whether the web (browser) Sign in with Apple fallback is available — the
+	 *  Developer ID `.dmg` and dev, where the native sheet is impossible. The
+	 *  UI shows one Apple button and dispatches on whichever is true.
+	 */
+	appleWeb: boolean,
 };
 
 export type Channel = {

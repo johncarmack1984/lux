@@ -214,7 +214,11 @@ export default function AccountMenu() {
   const signInWithApple = async () => {
     setPending(true);
     try {
-      await cmd().sign_in_with_apple();
+      // Native sheet where entitled (iOS/MAS); the browser fallback on the
+      // Developer ID .dmg and dev, where the native sheet is impossible.
+      await (status.apple
+        ? cmd().sign_in_with_apple()
+        : cmd().sign_in_with_apple_web());
       await refreshAuth();
       setOpen(false);
     } catch (err) {
@@ -325,7 +329,7 @@ export default function AccountMenu() {
           </Button>
         </form>
 
-        {status.apple && mode !== "confirm" ? (
+        {(status.apple || status.appleWeb) && mode !== "confirm" ? (
           <>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <div className="h-px flex-1 bg-border" />
