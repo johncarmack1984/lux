@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.0](https://github.com/johncarmack1984/lux/compare/v1.10.0...v1.11.0) (2026-07-23)
+
+
+### Features
+
+* **desktop:** web Sign in with Apple client ([#252](https://github.com/johncarmack1984/lux/issues/252)) ([cdd6955](https://github.com/johncarmack1984/lux/commit/cdd69557a677613a6204c99a534aae1b1361a5c5))
+
 ## [1.10.0](https://github.com/johncarmack1984/lux/compare/v1.9.2...v1.10.0) (2026-07-23)
 
 
