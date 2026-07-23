@@ -1,15 +1,14 @@
-# auth.lux.johncarmack.com — the verified domain the web (browser) Sign in with
+# auth.lux.johncarmack.com — the custom domain the web (browser) Sign in with
 # Apple flow needs (.claude/specs/sign-in-with-apple-web.md).
 #
-# Apple requires the Services ID's Return URL to sit on a domain you own and
-# verify; a raw *.lambda-url.on.aws host can't be verified, so this fronts the
-# lux-apple-auth Function URL with a CloudFront distribution on a custom domain
-# (the same cert→CloudFront→Route53 shape as the site in site.tf). Only two
-# paths are ever hit through here — Apple's `POST /auth/apple/web/callback` and
-# the `GET /.well-known/apple-developer-domain-association.txt` verification
-# file (served by the handler from a committed token). The app itself calls
-# `/web/start` and `/web/exchange` straight on the Function URL (apple_auth_url);
-# they never need the custom domain.
+# Apple requires the Services ID's Return URL to sit on a domain you control; a
+# raw *.lambda-url.on.aws host isn't accepted, so this fronts the lux-apple-auth
+# Function URL with a CloudFront distribution on a custom domain (the same
+# cert→CloudFront→Route53 shape as the site in site.tf). The only path ever hit
+# through here is Apple's `POST /auth/apple/web/callback`; the app calls
+# `/web/start` and `/web/exchange` straight on the Function URL (apple_auth_url).
+# (Apple no longer requires a `.well-known` domain-verification file for web
+# auth — registering the domain + return URL on the Services ID is enough.)
 
 locals {
   apple_auth_domain = "auth.lux.johncarmack.com"

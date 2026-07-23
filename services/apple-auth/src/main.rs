@@ -45,8 +45,12 @@ pub(crate) struct Ctx {
     pub secrets: aws_sdk_secretsmanager::Client,
     pub verifier: lux_auth::Verifier,
     pub apple: apple::AppleAuth,
-    /// The Apple-side signing key, loaded from Secrets Manager on first use.
+    /// The Apple-side signing keys (native + web), loaded from Secrets Manager
+    /// on first use. Any team Sign in with Apple key signs client secrets for
+    /// any of the team's client_ids, so the split is organizational (each flow
+    /// owns its own key for independent rotation), not a correctness need.
     pub siwa_key: tokio::sync::OnceCell<apple::SiwaKey>,
+    pub siwa_web_key: tokio::sync::OnceCell<apple::SiwaKey>,
     pub pool_id: String,
     pub client_id: String,
     /// The device app client (`lux-node-device`) the pairing grant mints on.
@@ -55,38 +59,56 @@ pub(crate) struct Ctx {
     pub device_client_id: Option<String>,
     pub table: String,
     pub siwa_secret_id: String,
+    /// The web-flow signing secret (the Services ID's Sign in with Apple key).
+    /// Absent falls back to `siwa_secret_id` — any team key works for any of the
+    /// team's client_ids.
+    pub siwa_web_secret_id: Option<String>,
     /// The web-flow redirect URI registered on the Services ID (the Apple
     /// `/web/callback`). Absent — like the Services ID on `apple` — leaves the
     /// web routes dark (`/web/start` 404s), so the `.dmg` button stays off.
     pub apple_web_callback_url: Option<String>,
-    /// Apple's domain-verification token, served at
-    /// `/.well-known/apple-developer-domain-association.txt`. Absent ⇒ that
-    /// route 404s.
-    pub apple_domain_association: Option<String>,
 }
 
 impl Ctx {
-    /// The Apple-side private key, fetched once per warm container. An unseeded
+    /// The native-flow signing key, fetched once per warm container. An unseeded
     /// or malformed secret is a runtime error on the routes that talk to Apple,
     /// never a startup crash — verification-only paths must keep working.
     pub async fn siwa_key(&self) -> Result<&apple::SiwaKey, String> {
         self.siwa_key
-            .get_or_try_init(|| async {
-                let out = self
-                    .secrets
-                    .get_secret_value()
-                    .secret_id(&self.siwa_secret_id)
-                    .send()
-                    .await
-                    .map_err(|e| format!("siwa key secret read failed: {e}"))?;
-                let raw = out
-                    .secret_string()
-                    .ok_or("siwa key secret has no string value")?;
-                serde_json::from_str::<apple::SiwaKey>(raw)
-                    .map_err(|e| format!("siwa key secret is malformed: {e}"))
-            })
+            .get_or_try_init(|| load_siwa(&self.secrets, &self.siwa_secret_id))
             .await
     }
+
+    /// The web-flow signing key — its own secret when configured, else the
+    /// native key (both are team keys, valid for any team client_id).
+    pub async fn siwa_web_key(&self) -> Result<&apple::SiwaKey, String> {
+        match &self.siwa_web_secret_id {
+            Some(id) => {
+                self.siwa_web_key
+                    .get_or_try_init(|| load_siwa(&self.secrets, id))
+                    .await
+            }
+            None => self.siwa_key().await,
+        }
+    }
+}
+
+/// Read and parse a `{key_id, team_id, private_key}` Sign in with Apple secret.
+async fn load_siwa(
+    secrets: &aws_sdk_secretsmanager::Client,
+    secret_id: &str,
+) -> Result<apple::SiwaKey, String> {
+    let out = secrets
+        .get_secret_value()
+        .secret_id(secret_id)
+        .send()
+        .await
+        .map_err(|e| format!("siwa key secret read failed: {e}"))?;
+    let raw = out
+        .secret_string()
+        .ok_or("siwa key secret has no string value")?;
+    serde_json::from_str::<apple::SiwaKey>(raw)
+        .map_err(|e| format!("siwa key secret is malformed: {e}"))
 }
 
 #[tokio::main]
@@ -108,15 +130,17 @@ async fn main() -> Result<(), Error> {
     let table = env("DYNAMODB_TABLE")?;
     let bundle_id = env("APPLE_BUNDLE_ID")?;
     let siwa_secret_id = env("SIWA_SECRET_ID")?;
-    // Web (browser) Sign in with Apple — the `.dmg`/dev fallback. Both must be
-    // present for the web routes to light up; either absent keeps them dark.
+    // Web (browser) Sign in with Apple — the `.dmg`/dev fallback. The Services
+    // ID + its callback must both be present for the web routes to light up;
+    // either absent keeps them dark. The web signing secret is optional (falls
+    // back to the native key).
     let services_id = std::env::var("APPLE_SERVICES_ID")
         .ok()
         .filter(|s| !s.is_empty());
     let apple_web_callback_url = std::env::var("APPLE_WEB_CALLBACK_URL")
         .ok()
         .filter(|s| !s.is_empty());
-    let apple_domain_association = std::env::var("APPLE_DOMAIN_ASSOCIATION")
+    let siwa_web_secret_id = std::env::var("SIWA_WEB_SECRET_ID")
         .ok()
         .filter(|s| !s.is_empty());
 
@@ -136,13 +160,14 @@ async fn main() -> Result<(), Error> {
         verifier,
         apple: apple::AppleAuth::new(bundle_id, services_id),
         siwa_key: tokio::sync::OnceCell::new(),
+        siwa_web_key: tokio::sync::OnceCell::new(),
         pool_id,
         client_id,
         device_client_id,
         table,
         siwa_secret_id,
+        siwa_web_secret_id,
         apple_web_callback_url,
-        apple_domain_association,
     });
 
     run(service_fn(move |event: LambdaEvent<Value>| {
