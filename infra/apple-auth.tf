@@ -158,10 +158,10 @@ resource "aws_lambda_function" "lux_apple_auth" {
       # routes light up (.claude/specs/sign-in-with-apple-web.md).
       APPLE_SERVICES_ID      = "com.johncarmack.lux.signin"
       APPLE_WEB_CALLBACK_URL = "https://${local.apple_auth_domain}/auth/apple/web/callback"
-      # Apple's domain-verification file, served at /.well-known/... by the
-      # handler. A committed placeholder until John pastes the portal-issued
-      # token in; empty ⇒ the well-known route 404s.
-      APPLE_DOMAIN_ASSOCIATION = trimspace(file("${path.module}/apple-developer-domain-association.txt"))
+      # The web flow signs its client secret with the Services ID's own Sign in
+      # with Apple key (hand-created secret, like lux/siwa-key). The role's
+      # secrets policy already covers `lux/siwa-key*`, which includes this.
+      SIWA_WEB_SECRET_ID = "lux/siwa-key-web"
     }
   }
 }

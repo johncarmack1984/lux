@@ -102,14 +102,6 @@ pub async fn handle(ctx: &Arc<Ctx>, payload: Value) -> Result<Value, Error> {
         {
             crate::web::exchange(ctx, &event).await
         }
-        // Apple's domain-verification file for the web callback's custom domain
-        // (served through the CloudFront distribution in apple-auth-web.tf).
-        ("GET", [".well-known", "apple-developer-domain-association.txt"]) => {
-            match ctx.apple_domain_association.as_deref() {
-                Some(body) => reply_text(200, "text/plain", body),
-                None => reply(404, &error("not found")),
-            }
-        }
         ("POST", [a, b, c])
             if *a == AUTH_SEGMENT && *b == DEVICE_SEGMENT && *c == AUTHORIZE_SEGMENT =>
         {
@@ -435,19 +427,25 @@ async fn revoke(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
         }
     };
 
-    let key = match ctx.siwa_key().await {
+    // Revoke with the client that minted the stored token (bundle id for links
+    // predating the field — those are all native) and the key that flow signs
+    // with (native → siwa_key, web → siwa_web_key).
+    let client_id = link
+        .apple_client_id
+        .as_deref()
+        .unwrap_or_else(|| ctx.apple.bundle_id());
+    let key = if client_id == ctx.apple.bundle_id() {
+        ctx.siwa_key().await
+    } else {
+        ctx.siwa_web_key().await
+    };
+    let key = match key {
         Ok(k) => k,
         Err(e) => {
             tracing::error!("{e}");
             return reply(500, &error("apple signing key unavailable"));
         }
     };
-    // Revoke with the client that minted the stored token (bundle id for links
-    // predating the field — those are all native).
-    let client_id = link
-        .apple_client_id
-        .as_deref()
-        .unwrap_or_else(|| ctx.apple.bundle_id());
     if let Err(e) = ctx
         .apple
         .revoke(key, &link.apple_refresh_token, client_id)
@@ -478,11 +476,12 @@ pub(crate) async fn exchange_code(
     code: &str,
     client_id: &str,
 ) -> Result<String, String> {
-    let key = ctx.siwa_key().await?;
     if client_id == ctx.apple.bundle_id() {
-        ctx.apple.exchange_code(key, code).await
+        ctx.apple.exchange_code(ctx.siwa_key().await?, code).await
     } else {
-        ctx.apple.exchange_code_web(key, code).await
+        ctx.apple
+            .exchange_code_web(ctx.siwa_web_key().await?, code)
+            .await
     }
 }
 
@@ -539,15 +538,6 @@ pub(crate) fn reply<T: serde::Serialize>(status: u16, body: &T) -> Result<Value,
         "statusCode": status,
         "headers": { "content-type": "application/json" },
         "body": serde_json::to_string(body)?,
-    }))
-}
-
-/// A plain-body (non-JSON) Function URL response — the domain-verification file.
-pub(crate) fn reply_text(status: u16, content_type: &str, body: &str) -> Result<Value, Error> {
-    Ok(json!({
-        "statusCode": status,
-        "headers": { "content-type": content_type },
-        "body": body,
     }))
 }
 
