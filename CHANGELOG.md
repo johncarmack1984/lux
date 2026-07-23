@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.10.0](https://github.com/johncarmack1984/lux/compare/v1.9.2...v1.10.0) (2026-07-23)
+
+
+### Features
+
+* **apple-auth:** web Sign in with Apple — backend + domain (dark) ([#248](https://github.com/johncarmack1984/lux/issues/248)) ([d49c407](https://github.com/johncarmack1984/lux/commit/d49c40797b872251295ecae8df65e8c36626e0cf))
+
+
+### Bug Fixes
+
+* **apple-auth:** install the crypto provider before building test clients ([#251](https://github.com/johncarmack1984/lux/issues/251)) ([7f651ec](https://github.com/johncarmack1984/lux/commit/7f651ec95c498fc48449a515bbd1f72225402434))
+* **presets:** scope preset activation per fixture ([#250](https://github.com/johncarmack1984/lux/issues/250)) ([354a36c](https://github.com/johncarmack1984/lux/commit/354a36c6d32bd27a3e6bcd54b095bcdd879c0fe9))
+
 ## [1.9.2](https://github.com/johncarmack1984/lux/compare/v1.9.1...v1.9.2) (2026-07-20)
 
 
