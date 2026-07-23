@@ -68,9 +68,11 @@ struct Jwk {
 }
 
 pub struct AppleAuth {
-    /// Expected token audience: the app's bundle id (native flows use it as
-    /// the Apple `client_id` too).
-    audience: String,
+    /// The app's bundle id — the native sheet's Apple `client_id` and audience.
+    bundle_id: String,
+    /// The web (browser) flow's Services ID — its `client_id`/audience — when
+    /// configured. Absent leaves the web routes dark.
+    services_id: Option<String>,
     http: reqwest::Client,
     /// Apple's signing keys by `kid`. Fetched lazily, replaced wholesale on a
     /// `kid` miss (Apple rotates keys); one forced refetch, then fail.
@@ -78,12 +80,36 @@ pub struct AppleAuth {
 }
 
 impl AppleAuth {
-    pub fn new(audience: String) -> Self {
+    pub fn new(bundle_id: String, services_id: Option<String>) -> Self {
         Self {
-            audience,
+            bundle_id,
+            services_id,
             http: reqwest::Client::new(),
             keys: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// The native Apple `client_id` (bundle id).
+    pub fn bundle_id(&self) -> &str {
+        &self.bundle_id
+    }
+
+    /// The web `client_id` (Services ID), if the web flow is configured.
+    pub fn services_id(&self) -> Option<&str> {
+        self.services_id.as_deref()
+    }
+
+    /// Every audience a token from us may legitimately carry: the native bundle
+    /// id, plus the web Services ID when configured. Both are our own
+    /// `client_id`s under our team, so a token for either is ours to trust — and
+    /// the CUSTOM_AUTH verify trigger accepts either, since it re-checks the
+    /// Apple `sub`↔user link regardless.
+    fn audiences(&self) -> Vec<&str> {
+        let mut v = vec![self.bundle_id.as_str()];
+        if let Some(s) = &self.services_id {
+            v.push(s.as_str());
+        }
+        v
     }
 
     /// Full verification for tokens arriving with their sheet context: claims
@@ -102,6 +128,23 @@ impl AppleAuth {
             return Err("nonce mismatch".into());
         }
         Ok(identity(view))
+    }
+
+    /// Web-flow verification: full token verification plus a *direct* nonce
+    /// match. The web authorize request carries a server-chosen opaque nonce
+    /// that Apple echoes verbatim — unlike the native sheet, where the client
+    /// sends the SHA-256 of a raw nonce.
+    pub async fn verify_identity_web(
+        &self,
+        token: &str,
+        expected_nonce: &str,
+    ) -> Result<AppleIdentity, String> {
+        let view = self.verify_token(token).await?;
+        match view.0.nonce.as_deref() {
+            Some(n) if n == expected_nonce => Ok(identity(view)),
+            Some(_) => Err("nonce mismatch".into()),
+            None => Err("token has no nonce claim".into()),
+        }
     }
 
     /// Signature/issuer/audience/expiry verification alone — the
@@ -133,7 +176,7 @@ impl AppleAuth {
         };
         let mut validation = Validation::new(Algorithm::RS256);
         validation.set_issuer(&[APPLE_ISSUER]);
-        validation.set_audience(&[&self.audience]);
+        validation.set_audience(&self.audiences());
         let data = decode::<AppleClaims>(token, key, &validation)
             .map_err(|e| format!("invalid token: {e}"))?;
         Ok(Some(AppleClaimsView(data.claims)))
@@ -165,21 +208,40 @@ impl AppleAuth {
         Ok(())
     }
 
-    /// Exchange the sheet's single-use authorization code for Apple's token
-    /// set; returns the refresh token (the revocable credential account
-    /// deletion is required to revoke).
+    /// Exchange the native sheet's single-use authorization code for Apple's
+    /// token set; returns the refresh token (the revocable credential account
+    /// deletion is required to revoke). Authenticates as the bundle id.
     pub async fn exchange_code(&self, key: &SiwaKey, code: &str) -> Result<String, String> {
+        self.exchange_code_as(key, code, &self.bundle_id).await
+    }
+
+    /// The web-flow variant: authenticates as the Services ID (the `client_id`
+    /// the browser authorize request used), so Apple accepts the code.
+    pub async fn exchange_code_web(&self, key: &SiwaKey, code: &str) -> Result<String, String> {
+        let client_id = self
+            .services_id
+            .as_deref()
+            .ok_or("web sign-in not configured")?;
+        self.exchange_code_as(key, code, client_id).await
+    }
+
+    async fn exchange_code_as(
+        &self,
+        key: &SiwaKey,
+        code: &str,
+        client_id: &str,
+    ) -> Result<String, String> {
         #[derive(Deserialize)]
         struct TokenResponse {
             refresh_token: Option<String>,
         }
-        let secret = self.client_secret(key)?;
+        let secret = self.client_secret_for(key, client_id)?;
         let resp = self
             .http
             .post(APPLE_TOKEN_URL)
             .header("content-type", "application/x-www-form-urlencoded")
             .body(form_body(&[
-                ("client_id", self.audience.as_str()),
+                ("client_id", client_id),
                 ("client_secret", secret.as_str()),
                 ("code", code),
                 ("grant_type", "authorization_code"),
@@ -204,14 +266,21 @@ impl AppleAuth {
     }
 
     /// Revoke a stored Apple refresh token (account deletion's Apple-side duty).
-    pub async fn revoke(&self, key: &SiwaKey, refresh_token: &str) -> Result<(), String> {
-        let secret = self.client_secret(key)?;
+    /// `client_id` must be the one that minted the token (recorded on the link),
+    /// since Apple ties a refresh token to the `client_id` that issued it.
+    pub async fn revoke(
+        &self,
+        key: &SiwaKey,
+        refresh_token: &str,
+        client_id: &str,
+    ) -> Result<(), String> {
+        let secret = self.client_secret_for(key, client_id)?;
         let resp = self
             .http
             .post(APPLE_REVOKE_URL)
             .header("content-type", "application/x-www-form-urlencoded")
             .body(form_body(&[
-                ("client_id", self.audience.as_str()),
+                ("client_id", client_id),
                 ("client_secret", secret.as_str()),
                 ("token", refresh_token),
                 ("token_type_hint", "refresh_token"),
@@ -228,8 +297,9 @@ impl AppleAuth {
     }
 
     /// The client secret Apple's `/auth/token` and `/auth/revoke` require: a
-    /// short-lived ES256 JWT signed with the portal-minted `.p8` key.
-    fn client_secret(&self, key: &SiwaKey) -> Result<String, String> {
+    /// short-lived ES256 JWT signed with the portal-minted `.p8` key, whose
+    /// `sub` is the `client_id` it authenticates.
+    fn client_secret_for(&self, key: &SiwaKey, client_id: &str) -> Result<String, String> {
         #[derive(Serialize)]
         struct SecretClaims<'a> {
             iss: &'a str,
@@ -246,7 +316,7 @@ impl AppleAuth {
             iat: now,
             exp: now + 300,
             aud: APPLE_ISSUER,
-            sub: &self.audience,
+            sub: client_id,
         };
         let signer = EncodingKey::from_ec_pem(key.private_key.as_bytes())
             .map_err(|e| format!("siwa private key unusable: {e}"))?;
@@ -419,10 +489,19 @@ PaNjgYD9H87aiu72kVM4feGqzpehRANCAAQE52G8sprGOcAIUFXU8WtoNLLD3Q80
         .expect("test token signs")
     }
 
+    const SERVICES_ID: &str = "com.johncarmack.lux.signin";
+
     async fn auth() -> AppleAuth {
+        seeded(AppleAuth::new(AUDIENCE.into(), None)).await
+    }
+
+    async fn auth_web() -> AppleAuth {
+        seeded(AppleAuth::new(AUDIENCE.into(), Some(SERVICES_ID.into()))).await
+    }
+
+    async fn seeded(auth: AppleAuth) -> AppleAuth {
         // Prod installs ring in main() before any client exists; tests mirror it.
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let auth = AppleAuth::new(AUDIENCE.into());
         auth.seed_key(
             KID,
             DecodingKey::from_rsa_pem(PUBLIC_PEM).expect("test key parses"),
@@ -523,16 +602,66 @@ PaNjgYD9H87aiu72kVM4feGqzpehRANCAAQE52G8sprGOcAIUFXU8WtoNLLD3Q80
     #[test]
     fn client_secret_is_a_signed_es256_jwt() {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let auth = AppleAuth::new(AUDIENCE.into());
+        let auth = AppleAuth::new(AUDIENCE.into(), None);
         let key = SiwaKey {
             key_id: "ABC123DEFG".into(),
             team_id: "T3UN6N5K6Z".into(),
             private_key: EC_PRIVATE_PEM.into(),
         };
-        let secret = auth.client_secret(&key).expect("mints");
+        let secret = auth.client_secret_for(&key, AUDIENCE).expect("mints");
         assert_eq!(secret.split('.').count(), 3, "compact JWT");
         let header = decode_header(&secret).expect("header parses");
         assert_eq!(header.alg, Algorithm::ES256);
         assert_eq!(header.kid.as_deref(), Some("ABC123DEFG"));
+    }
+
+    #[tokio::test]
+    async fn web_flow_accepts_the_services_id_audience() {
+        // A token minted for the Services ID (the browser flow) verifies when
+        // the web flow is configured …
+        let claims = TestClaims {
+            aud: SERVICES_ID.into(),
+            nonce: Some("opaque-web-nonce".into()),
+            ..TestClaims::default()
+        };
+        let identity = auth_web()
+            .await
+            .verify_identity_web(&sign(&claims), "opaque-web-nonce")
+            .await
+            .expect("web verifies");
+        assert_eq!(identity.sub, "001234.abcdef.5678");
+
+        // … and is rejected where the web flow is unconfigured (native only).
+        assert!(auth().await.verify_token(&sign(&claims)).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn web_nonce_is_matched_directly_not_hashed() {
+        // The web nonce is echoed verbatim by Apple — a raw match, no SHA-256.
+        let claims = TestClaims {
+            aud: SERVICES_ID.into(),
+            nonce: Some(sha256_hex("raw")), // a hash value the client did NOT expect raw
+            ..TestClaims::default()
+        };
+        let auth = auth_web().await;
+        assert!(auth
+            .verify_identity_web(&sign(&claims), "raw")
+            .await
+            .is_err());
+        assert!(auth
+            .verify_identity_web(&sign(&claims), &sha256_hex("raw"))
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn native_bundle_audience_still_verifies_with_web_configured() {
+        // Adding the Services ID audience must not break the native path.
+        let auth = auth_web().await;
+        let identity = auth
+            .verify_identity(&sign(&TestClaims::default()), "raw-nonce")
+            .await
+            .expect("native still verifies");
+        assert_eq!(identity.email.as_deref(), Some("user@example.com"));
     }
 }

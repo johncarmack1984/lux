@@ -221,6 +221,63 @@ pub mod apple {
     pub struct RevokeResponse {
         pub revoked: bool,
     }
+
+    // --- Web (browser) sign-in ---------------------------------------------
+    //
+    // The desktop fallback where the native sheet is impossible — the Developer
+    // ID `.dmg` and dev builds (Apple forbids the applesignin entitlement off
+    // the Mac App Store). A Services ID + browser OAuth instead of
+    // `ASAuthorizationController`. Design: `.claude/specs/sign-in-with-apple-web.md`.
+    //
+    // Routes (on the service's Function URL):
+    // - `POST /auth/apple/web/start`    — app: get the Apple authorize URL
+    // - `POST /auth/apple/web/callback` — Apple's form_post target (not JSON)
+    // - `POST /auth/apple/web/exchange` — app: trade the one-time code for tokens
+
+    /// Path segments under `/auth/apple/web/{start|callback|exchange}`.
+    pub const WEB_SEGMENT: &str = "web";
+    pub const START_SEGMENT: &str = "start";
+    pub const CALLBACK_SEGMENT: &str = "callback";
+    pub const EXCHANGE_SEGMENT: &str = "exchange";
+
+    /// The custom-scheme redirect `/web/callback` finally sends the browser to;
+    /// the desktop's `ASWebAuthenticationSession` captures it in-process (so no
+    /// globally-registered scheme, and no other app can grab it). Only an opaque
+    /// one-time code + the flow's `state` ride on it — never a token.
+    pub const WEB_REDIRECT_SCHEME: &str = "lux";
+    pub const WEB_REDIRECT_URL: &str = "lux://auth/apple/callback";
+
+    /// Body for `POST /auth/apple/web/start`.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct WebStartRequest {
+        /// PKCE challenge: `base64url(SHA-256(code_verifier))`. Binds the
+        /// eventual one-time-code exchange to this app instance — a rogue app
+        /// that grabs the `lux://` redirect still can't exchange the code
+        /// without the verifier this instance kept.
+        pub code_challenge: String,
+    }
+
+    /// Response to `POST /auth/apple/web/start`: the Apple authorize URL the app
+    /// opens in the browser. The service owns all Apple config (Services ID,
+    /// redirect, nonce), so the client hardcodes none of it.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct WebStartResponse {
+        pub authorize_url: String,
+    }
+
+    /// Body for `POST /auth/apple/web/exchange` — the app trades the one-time
+    /// code from the `lux://` redirect (plus its PKCE verifier) for the same
+    /// [`SignInResponse`] the native and SRP paths return.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct WebExchangeRequest {
+        /// The opaque one-time code from the redirect's `code` param.
+        pub code: String,
+        /// The PKCE verifier whose challenge was sent to `/start`.
+        pub code_verifier: String,
+    }
 }
 
 pub mod device {
@@ -1549,5 +1606,45 @@ mod tests {
         )
         .unwrap();
         assert_eq!(parsed, card);
+    }
+
+    #[test]
+    fn apple_web_wire_shapes() {
+        assert_eq!(
+            serde_json::to_string(&apple::WebStartRequest {
+                code_challenge: "abc".into(),
+            })
+            .unwrap(),
+            r#"{"codeChallenge":"abc"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&apple::WebStartResponse {
+                authorize_url: "https://appleid.apple.com/auth/authorize?x=1".into(),
+            })
+            .unwrap(),
+            r#"{"authorizeUrl":"https://appleid.apple.com/auth/authorize?x=1"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&apple::WebExchangeRequest {
+                code: "otc".into(),
+                code_verifier: "ver".into(),
+            })
+            .unwrap(),
+            r#"{"code":"otc","codeVerifier":"ver"}"#
+        );
+        // The exchange returns the same SignInResponse the native path does.
+        assert_eq!(
+            serde_json::to_string(&apple::SignInResponse {
+                id_token: "i".into(),
+                access_token: "a".into(),
+                refresh_token: "r".into(),
+                expires_in: 3600,
+                created: true,
+            })
+            .unwrap(),
+            r#"{"idToken":"i","accessToken":"a","refreshToken":"r","expiresIn":3600,"created":true}"#
+        );
+        // The redirect the app parses is a fixed, tokenless custom-scheme URL.
+        assert_eq!(apple::WEB_REDIRECT_URL, "lux://auth/apple/callback");
     }
 }

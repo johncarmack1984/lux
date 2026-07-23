@@ -10,7 +10,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use lambda_runtime::Error;
 use lux_wire::apple::{
     LinkResponse, RevokeResponse, SignInRequest, SignInResponse, APPLE_SEGMENT, AUTH_SEGMENT,
-    LINK_SEGMENT, REVOKE_SEGMENT,
+    CALLBACK_SEGMENT, EXCHANGE_SEGMENT, LINK_SEGMENT, REVOKE_SEGMENT, START_SEGMENT, WEB_SEGMENT,
 };
 use lux_wire::ErrorResponse;
 use serde::Deserialize;
@@ -78,6 +78,30 @@ pub async fn handle(ctx: &Arc<Ctx>, payload: Value) -> Result<Value, Error> {
         {
             revoke(ctx, &event).await
         }
+        ("POST", [a, b, c, d])
+            if *a == AUTH_SEGMENT
+                && *b == APPLE_SEGMENT
+                && *c == WEB_SEGMENT
+                && *d == START_SEGMENT =>
+        {
+            crate::web::start(ctx, &event).await
+        }
+        ("POST", [a, b, c, d])
+            if *a == AUTH_SEGMENT
+                && *b == APPLE_SEGMENT
+                && *c == WEB_SEGMENT
+                && *d == CALLBACK_SEGMENT =>
+        {
+            crate::web::callback(ctx, &event).await
+        }
+        ("POST", [a, b, c, d])
+            if *a == AUTH_SEGMENT
+                && *b == APPLE_SEGMENT
+                && *c == WEB_SEGMENT
+                && *d == EXCHANGE_SEGMENT =>
+        {
+            crate::web::exchange(ctx, &event).await
+        }
         ("POST", [a, b, c])
             if *a == AUTH_SEGMENT && *b == DEVICE_SEGMENT && *c == AUTHORIZE_SEGMENT =>
         {
@@ -142,13 +166,20 @@ async fn sign_in(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
             // Known Apple user. Refresh the stored (revocable) Apple token
             // best-effort — the sign-in itself must not depend on Apple's
             // token endpoint being reachable once a link exists.
-            match refresh_apple_token(ctx, &identity.sub, &req.authorization_code).await {
+            match refresh_apple_token(
+                ctx,
+                &identity.sub,
+                &req.authorization_code,
+                ctx.apple.bundle_id(),
+            )
+            .await
+            {
                 Ok(()) => {}
                 Err(e) => tracing::warn!("apple refresh-token update skipped: {e}"),
             }
             (link.username.clone(), false)
         }
-        None => match first_sign_in(ctx, &identity, &req).await {
+        None => match first_link_native(ctx, &identity, &req).await {
             Ok(x) => x,
             Err(e) => return Ok(e),
         },
@@ -165,7 +196,7 @@ async fn sign_in(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
             tracing::error!("stale link cleanup failed: {e}");
             return reply(500, &error("internal"));
         }
-        (username, created) = match first_sign_in(ctx, &identity, &req).await {
+        (username, created) = match first_link_native(ctx, &identity, &req).await {
             Ok(x) => x,
             Err(e) => return Ok(e),
         };
@@ -191,28 +222,55 @@ async fn sign_in(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
     )
 }
 
-/// First use of this Apple credential: attach it to the account whose verified
-/// email matches, or create a fresh account (relay emails land here by
-/// construction). Returns the Function URL error reply on failure.
-async fn first_sign_in(
+/// The native sheet's first-use adapter over [`first_link`], turning its typed
+/// error into a Function URL reply.
+async fn first_link_native(
     ctx: &Arc<Ctx>,
     identity: &apple::AppleIdentity,
     req: &SignInRequest,
 ) -> Result<(String, bool), Value> {
+    first_link(
+        ctx,
+        identity,
+        &req.authorization_code,
+        req.email.as_deref(),
+        req.full_name.as_deref(),
+        ctx.apple.bundle_id(),
+    )
+    .await
+    .map_err(|(status, message)| fail(status, &message))
+}
+
+/// First use of this Apple credential: attach it to the account whose verified
+/// email matches, or create a fresh account (relay emails land here by
+/// construction), exchange the authorization code for the revocable Apple
+/// refresh token, and write the link. Shared by the native and web flows —
+/// `apple_client_id` records which one minted the code (drives the exchange and
+/// is stored for revoke). Returns the Function URL error reply on failure.
+pub(crate) async fn first_link(
+    ctx: &Arc<Ctx>,
+    identity: &apple::AppleIdentity,
+    authorization_code: &str,
+    email_seen: Option<&str>,
+    name_seen: Option<&str>,
+    apple_client_id: &str,
+) -> Result<(String, bool), (u16, String)> {
+    let internal = || (500u16, "internal".to_owned());
     let Some(email) = identity.email.as_deref() else {
         // No verified email in the token and no existing link: the only path
         // here is a stale prior grant. The user resets it in Settings → Sign
         // in with Apple; the client surfaces this text.
-        return Err(fail(
+        return Err((
             400,
-            "apple grant has no email; remove lux under Settings > Sign in with Apple and retry",
+            "apple grant has no email; remove lux under Settings > Sign in with Apple and retry"
+                .to_owned(),
         ));
     };
 
     let (user, created) = match cognito::find_user_by_email(ctx, email).await {
         Err(e) => {
             tracing::error!("user lookup failed: {e}");
-            return Err(fail(500, "internal"));
+            return Err(internal());
         }
         Ok(Some(user)) => {
             // A self-signup that never entered its confirmation code: Apple
@@ -220,7 +278,7 @@ async fn first_sign_in(
             if user.unconfirmed {
                 if let Err(e) = cognito::confirm_user(ctx, &user.username).await {
                     tracing::error!("user confirm failed: {e}");
-                    return Err(fail(500, "internal"));
+                    return Err(internal());
                 }
             }
             (user, false)
@@ -229,19 +287,19 @@ async fn first_sign_in(
             Ok(u) => (u, true),
             Err(e) => {
                 tracing::error!("user create failed: {e}");
-                return Err(fail(500, "internal"));
+                return Err(internal());
             }
         },
     };
 
     // The code exchange is required on first link: a mapping without a
     // revocable Apple token could never honor account deletion's revocation
-    // duty, so fail loud instead (the sheet mints a fresh code on retry).
-    let apple_refresh = match exchange_code(ctx, &req.authorization_code).await {
+    // duty, so fail loud instead (the client mints a fresh code on retry).
+    let apple_refresh = match exchange_code(ctx, authorization_code, apple_client_id).await {
         Ok(t) => t,
         Err(e) => {
             tracing::error!("apple code exchange failed: {e}");
-            return Err(fail(502, "apple token exchange failed"));
+            return Err((502, "apple token exchange failed".to_owned()));
         }
     };
 
@@ -251,13 +309,14 @@ async fn first_sign_in(
         &user.username,
         &user.sub,
         &apple_refresh,
-        req.email.as_deref().or(Some(email)),
-        req.full_name.as_deref(),
+        apple_client_id,
+        email_seen.or(Some(email)),
+        name_seen,
     )
     .await
     {
         tracing::error!("link write failed: {e}");
-        return Err(fail(500, "internal"));
+        return Err(internal());
     }
 
     Ok((user.username, created))
@@ -315,13 +374,14 @@ async fn link(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
         }
     };
 
-    let apple_refresh = match exchange_code(ctx, &req.authorization_code).await {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::error!("apple code exchange failed: {e}");
-            return reply(502, &error("apple token exchange failed"));
-        }
-    };
+    let apple_refresh =
+        match exchange_code(ctx, &req.authorization_code, ctx.apple.bundle_id()).await {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::error!("apple code exchange failed: {e}");
+                return reply(502, &error("apple token exchange failed"));
+            }
+        };
 
     if let Err(e) = store::put_link(
         ctx,
@@ -329,6 +389,7 @@ async fn link(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
         &user.username,
         &user.sub,
         &apple_refresh,
+        ctx.apple.bundle_id(),
         identity.email.as_deref(),
         req.full_name.as_deref(),
     )
@@ -373,7 +434,17 @@ async fn revoke(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
             return reply(500, &error("apple signing key unavailable"));
         }
     };
-    if let Err(e) = ctx.apple.revoke(key, &link.apple_refresh_token).await {
+    // Revoke with the client that minted the stored token (bundle id for links
+    // predating the field — those are all native).
+    let client_id = link
+        .apple_client_id
+        .as_deref()
+        .unwrap_or_else(|| ctx.apple.bundle_id());
+    if let Err(e) = ctx
+        .apple
+        .revoke(key, &link.apple_refresh_token, client_id)
+        .await
+    {
         tracing::error!("apple revoke failed: {e}");
         return reply(502, &error("apple revoke failed"));
     }
@@ -390,17 +461,33 @@ async fn revoke(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
 
 // --- shared steps -------------------------------------------------------------
 
-/// Exchange the sheet's single-use authorization code for Apple's revocable
-/// refresh token (needs the Apple-side signing key).
-async fn exchange_code(ctx: &Arc<Ctx>, code: &str) -> Result<String, String> {
+/// Exchange a single-use authorization code for Apple's revocable refresh token
+/// (needs the Apple-side signing key). `client_id` picks the flow that minted
+/// the code — the bundle id for the native sheet, the Services ID for the web
+/// flow — since Apple ties the code to the `client_id` that authorized it.
+pub(crate) async fn exchange_code(
+    ctx: &Arc<Ctx>,
+    code: &str,
+    client_id: &str,
+) -> Result<String, String> {
     let key = ctx.siwa_key().await?;
-    ctx.apple.exchange_code(key, code).await
+    if client_id == ctx.apple.bundle_id() {
+        ctx.apple.exchange_code(key, code).await
+    } else {
+        ctx.apple.exchange_code_web(key, code).await
+    }
 }
 
-/// Best-effort on re-auth: keep the stored revocable token fresh.
-async fn refresh_apple_token(ctx: &Arc<Ctx>, apple_sub: &str, code: &str) -> Result<(), String> {
-    let token = exchange_code(ctx, code).await?;
-    store::set_refresh_token(ctx, apple_sub, &token).await
+/// Best-effort on re-auth: keep the stored revocable token (and the `client_id`
+/// that minted it) fresh.
+async fn refresh_apple_token(
+    ctx: &Arc<Ctx>,
+    apple_sub: &str,
+    code: &str,
+    client_id: &str,
+) -> Result<(), String> {
+    let token = exchange_code(ctx, code, client_id).await?;
+    store::set_refresh_token(ctx, apple_sub, &token, client_id).await
 }
 
 // --- request/response helpers -------------------------------------------------
@@ -414,16 +501,22 @@ pub(crate) fn caller(ctx: &Ctx, event: &UrlEvent) -> Option<String> {
     ctx.verifier.verify(token).ok().map(|c| c.sub)
 }
 
-pub(crate) fn parse_body<T: for<'de> Deserialize<'de>>(event: &UrlEvent) -> Result<T, String> {
+/// The request body, base64-decoded if the Function URL flagged it (binary
+/// bodies — and Apple's `application/x-www-form-urlencoded` callback POST —
+/// arrive base64-encoded).
+pub(crate) fn body_bytes(event: &UrlEvent) -> Result<Vec<u8>, String> {
     let raw = event.body.as_deref().unwrap_or_default();
-    let bytes = if event.is_base64_encoded {
+    if event.is_base64_encoded {
         BASE64
             .decode(raw)
-            .map_err(|e| format!("bad body encoding: {e}"))?
+            .map_err(|e| format!("bad body encoding: {e}"))
     } else {
-        raw.as_bytes().to_vec()
-    };
-    serde_json::from_slice(&bytes).map_err(|e| format!("bad body: {e}"))
+        Ok(raw.as_bytes().to_vec())
+    }
+}
+
+pub(crate) fn parse_body<T: for<'de> Deserialize<'de>>(event: &UrlEvent) -> Result<T, String> {
+    serde_json::from_slice(&body_bytes(event)?).map_err(|e| format!("bad body: {e}"))
 }
 
 pub(crate) fn error(message: &str) -> ErrorResponse {
@@ -438,6 +531,17 @@ pub(crate) fn reply<T: serde::Serialize>(status: u16, body: &T) -> Result<Value,
         "statusCode": status,
         "headers": { "content-type": "application/json" },
         "body": serde_json::to_string(body)?,
+    }))
+}
+
+/// A 302 redirect (the web callback's only response shape — it sends the
+/// browser back to the app's `lux://` scheme, carrying a one-time code or an
+/// error, never a token).
+pub(crate) fn redirect(location: &str) -> Result<Value, Error> {
+    Ok(json!({
+        "statusCode": 302,
+        "headers": { "location": location },
+        "body": "",
     }))
 }
 

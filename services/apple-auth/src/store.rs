@@ -24,6 +24,10 @@ pub struct Link {
     pub username: String,
     pub sub: String,
     pub apple_refresh_token: String,
+    /// The Apple `client_id` (bundle id for the native sheet, Services ID for
+    /// the web flow) that minted the stored refresh token — revoke must use it.
+    /// `None` on links written before this field existed (all native → bundle).
+    pub apple_client_id: Option<String>,
 }
 
 fn forward_pk(apple_sub: &str) -> String {
@@ -55,10 +59,12 @@ pub async fn get_link(ctx: &Ctx, apple_sub: &str) -> Result<Option<Link>, String
             .cloned()
             .ok_or_else(|| format!("link item missing {k}"))
     };
+    let opt_s = |k: &str| item.get(k).and_then(|v| v.as_s().ok()).cloned();
     Ok(Some(Link {
         username: s("username")?,
         sub: s("sub")?,
         apple_refresh_token: s("appleRefreshToken")?,
+        apple_client_id: opt_s("appleClientId"),
     }))
 }
 
@@ -86,6 +92,7 @@ pub async fn put_link(
     username: &str,
     sub: &str,
     apple_refresh_token: &str,
+    apple_client_id: &str,
     email_seen: Option<&str>,
     name_seen: Option<&str>,
 ) -> Result<(), String> {
@@ -97,6 +104,10 @@ pub async fn put_link(
         (
             "appleRefreshToken".into(),
             AttributeValue::S(apple_refresh_token.into()),
+        ),
+        (
+            "appleClientId".into(),
+            AttributeValue::S(apple_client_id.into()),
         ),
         (
             "createdAt".into(),
@@ -140,14 +151,22 @@ pub async fn put_link(
 }
 
 /// Update the stored revocable Apple token on a re-auth (best-effort caller).
-pub async fn set_refresh_token(ctx: &Ctx, apple_sub: &str, token: &str) -> Result<(), String> {
+/// Records the `client_id` that minted it too, so revoke stays correct even
+/// when a link created on one flow is later refreshed on the other.
+pub async fn set_refresh_token(
+    ctx: &Ctx,
+    apple_sub: &str,
+    token: &str,
+    apple_client_id: &str,
+) -> Result<(), String> {
     ctx.ddb
         .update_item()
         .table_name(&ctx.table)
         .key("pk", AttributeValue::S(forward_pk(apple_sub)))
         .key("sk", AttributeValue::S(LINK_SK.into()))
-        .update_expression("SET appleRefreshToken = :t")
+        .update_expression("SET appleRefreshToken = :t, appleClientId = :c")
         .expression_attribute_values(":t", AttributeValue::S(token.into()))
+        .expression_attribute_values(":c", AttributeValue::S(apple_client_id.into()))
         .condition_expression("attribute_exists(pk)")
         .send()
         .await
@@ -189,6 +208,175 @@ fn now_millis() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
         .unwrap_or(0)
+}
+
+fn now_secs() -> i64 {
+    now_millis() / 1000
+}
+
+// --- Web (browser) sign-in state (.claude/specs/sign-in-with-apple-web.md) -----
+//
+// Two more disjoint, self-expiring partitions, same LeadingKeys discipline:
+// - `pk = APPLEWEB#<state>,    sk = WEB` — the in-flight authorize request
+//   (server-chosen nonce + the app's PKCE challenge), keyed by the opaque state
+//   Apple round-trips. Consumed once at the callback.
+// - `pk = APPLEWEBOTC#<otc>,   sk = WEB` — the one-time code the callback hands
+//   back over the `lux://` redirect, holding just enough to mint tokens at
+//   `/exchange`. Consumed once there.
+// Both carry `ttl` (epoch seconds) and self-expire; both are read-and-delete
+// (ReturnValue::AllOld), so a replay finds nothing.
+
+use aws_sdk_dynamodb::types::ReturnValue;
+
+const WEB_SK: &str = "WEB";
+
+fn web_state_pk(state: &str) -> String {
+    format!("APPLEWEB#{state}")
+}
+
+fn web_otc_pk(otc: &str) -> String {
+    format!("APPLEWEBOTC#{otc}")
+}
+
+/// One in-flight web authorize request, as consumed at the callback.
+#[derive(Debug)]
+pub struct WebState {
+    pub nonce: String,
+    pub code_challenge: String,
+}
+
+/// Register an in-flight authorize request. `ttl_secs` is the browser-auth
+/// window (a few minutes).
+pub async fn put_web_state(
+    ctx: &Ctx,
+    state: &str,
+    nonce: &str,
+    code_challenge: &str,
+    ttl_secs: i64,
+) -> Result<(), String> {
+    let s = |v: &str| AttributeValue::S(v.into());
+    let item: HashMap<String, AttributeValue> = HashMap::from([
+        ("pk".into(), s(&web_state_pk(state))),
+        ("sk".into(), s(WEB_SK)),
+        ("nonce".into(), s(nonce)),
+        ("codeChallenge".into(), s(code_challenge)),
+        (
+            "ttl".into(),
+            AttributeValue::N((now_secs() + ttl_secs).to_string()),
+        ),
+    ]);
+    ctx.ddb
+        .put_item()
+        .table_name(&ctx.table)
+        .set_item(Some(item))
+        .send()
+        .await
+        .map_err(|e| format!("web state write failed: {e}"))?;
+    Ok(())
+}
+
+/// Consume the state (single-use): deletes and returns it, or `None` if it was
+/// never there / already used / expired-and-swept.
+pub async fn take_web_state(ctx: &Ctx, state: &str) -> Result<Option<WebState>, String> {
+    let out = ctx
+        .ddb
+        .delete_item()
+        .table_name(&ctx.table)
+        .key("pk", AttributeValue::S(web_state_pk(state)))
+        .key("sk", AttributeValue::S(WEB_SK.into()))
+        .return_values(ReturnValue::AllOld)
+        .send()
+        .await
+        .map_err(|e| format!("web state take failed: {e}"))?;
+    let Some(item) = out.attributes else {
+        return Ok(None);
+    };
+    let s = |k: &str| item.get(k).and_then(|v| v.as_s().ok()).cloned();
+    // A live item (TTL sweeps are only best-effort) still carries its fields; a
+    // torn one is treated as absent.
+    match (s("nonce"), s("codeChallenge")) {
+        (Some(nonce), Some(code_challenge)) => Ok(Some(WebState {
+            nonce,
+            code_challenge,
+        })),
+        _ => Ok(None),
+    }
+}
+
+/// One redeemable one-time code, as consumed at `/exchange`.
+#[derive(Debug)]
+pub struct WebOtc {
+    pub username: String,
+    /// The verified Apple id_token — the CUSTOM_AUTH challenge answer.
+    pub id_token: String,
+    pub created: bool,
+    pub code_challenge: String,
+}
+
+/// Stash the one-time code the callback hands back. `ttl_secs` is short — the
+/// app exchanges within seconds of the redirect.
+pub async fn put_web_otc(
+    ctx: &Ctx,
+    otc: &str,
+    username: &str,
+    id_token: &str,
+    created: bool,
+    code_challenge: &str,
+    ttl_secs: i64,
+) -> Result<(), String> {
+    let s = |v: &str| AttributeValue::S(v.into());
+    let item: HashMap<String, AttributeValue> = HashMap::from([
+        ("pk".into(), s(&web_otc_pk(otc))),
+        ("sk".into(), s(WEB_SK)),
+        ("username".into(), s(username)),
+        ("idToken".into(), s(id_token)),
+        ("created".into(), AttributeValue::Bool(created)),
+        ("codeChallenge".into(), s(code_challenge)),
+        (
+            "ttl".into(),
+            AttributeValue::N((now_secs() + ttl_secs).to_string()),
+        ),
+    ]);
+    ctx.ddb
+        .put_item()
+        .table_name(&ctx.table)
+        .set_item(Some(item))
+        .send()
+        .await
+        .map_err(|e| format!("web otc write failed: {e}"))?;
+    Ok(())
+}
+
+/// Consume the one-time code (single-use): deletes and returns it, or `None`.
+pub async fn take_web_otc(ctx: &Ctx, otc: &str) -> Result<Option<WebOtc>, String> {
+    let out = ctx
+        .ddb
+        .delete_item()
+        .table_name(&ctx.table)
+        .key("pk", AttributeValue::S(web_otc_pk(otc)))
+        .key("sk", AttributeValue::S(WEB_SK.into()))
+        .return_values(ReturnValue::AllOld)
+        .send()
+        .await
+        .map_err(|e| format!("web otc take failed: {e}"))?;
+    let Some(item) = out.attributes else {
+        return Ok(None);
+    };
+    let s = |k: &str| item.get(k).and_then(|v| v.as_s().ok()).cloned();
+    let created = item
+        .get("created")
+        .and_then(|v| v.as_bool().ok())
+        .copied()
+        .unwrap_or(false);
+    match (s("username"), s("idToken"), s("codeChallenge")) {
+        (Some(username), Some(id_token), Some(code_challenge)) => Ok(Some(WebOtc {
+            username,
+            id_token,
+            created,
+            code_challenge,
+        })),
+        _ => Ok(None),
+    }
 }
 
 // --- Device pairing (docs/claim-code-pairing.md) -------------------------------
