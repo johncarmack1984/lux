@@ -93,6 +93,11 @@ pub struct LuxAccount {
     /// Base URL of the lux-apple-auth Function URL; `None` keeps Sign in with
     /// Apple dark (endpoints field absent/empty).
     apple_auth_url: Option<String>,
+    /// Whether the backend advertises the web (browser) Sign in with Apple flow
+    /// — the `.dmg`/dev fallback where the native sheet is impossible. Set from
+    /// the `appleWebEnabled` endpoints field (true once the Services ID + its
+    /// domain are provisioned).
+    apple_web_enabled: bool,
     session: Arc<Mutex<Session>>,
 }
 
@@ -109,6 +114,10 @@ pub struct AuthStatus {
     /// Whether native Sign in with Apple is available in this build (platform
     /// carries the entitlement AND the backend URL is configured).
     pub apple: bool,
+    /// Whether the web (browser) Sign in with Apple fallback is available — the
+    /// Developer ID `.dmg` and dev, where the native sheet is impossible. The
+    /// UI shows one Apple button and dispatches on whichever is true.
+    pub apple_web: bool,
 }
 
 /// Tokens returned by a Cognito auth flow. `refresh` is `None` on a refresh
@@ -148,6 +157,7 @@ impl LuxAccount {
             config,
             sync_url: base_url(&endpoints.sync_url),
             apple_auth_url: base_url(&endpoints.apple_auth_url),
+            apple_web_enabled: endpoints.apple_web_enabled,
             session: Arc::new(Mutex::new(Session::default())),
         }
     }
@@ -196,18 +206,33 @@ impl LuxAccount {
             email: session.email.clone(),
             provider: session.signed_in().then_some(session.provider),
             apple: self.apple_sign_in_available(),
+            apple_web: self.apple_web_sign_in_available(),
         }
     }
 
     /// Native Sign in with Apple, on THIS build: the backend must be
     /// configured, accounts must be configured, and the binary must carry the
-    /// applesignin entitlement — iOS and the Mac App Store flavor today. The
-    /// Developer ID .dmg stays dark until it embeds a provisioning profile
-    /// with the entitlement.
+    /// applesignin entitlement — iOS and the Mac App Store flavor only. Native
+    /// is impossible off the App Store (Apple forbids the entitlement for
+    /// Developer ID), so the `.dmg`/dev use the web fallback below instead.
     fn apple_sign_in_available(&self) -> bool {
         let entitled =
             cfg!(target_os = "ios") || (cfg!(target_os = "macos") && cfg!(feature = "mas"));
         entitled && self.config.is_some() && self.apple_auth_url.is_some()
+    }
+
+    /// The web (browser) Sign in with Apple fallback: no entitlement needed, so
+    /// it's offered exactly where the native sheet can't run — macOS builds
+    /// without the entitlement (the Developer ID `.dmg`, and dev) — when the
+    /// backend advertises it. iOS/MAS always prefer the native sheet.
+    fn apple_web_sign_in_available(&self) -> bool {
+        let native_entitled =
+            cfg!(target_os = "ios") || (cfg!(target_os = "macos") && cfg!(feature = "mas"));
+        cfg!(target_os = "macos")
+            && !native_entitled
+            && self.apple_web_enabled
+            && self.config.is_some()
+            && self.apple_auth_url.is_some()
     }
 
     fn config(&self) -> Result<Config, String> {
@@ -310,6 +335,93 @@ impl LuxAccount {
 
         // The session's email (the local store's cloud-binding key) comes from
         // our own id token — the sheet only carries one on first authorization.
+        let email =
+            email_from_id_token(&tokens.id_token).ok_or("sign-in response carried no email")?;
+        save_session(&StoredSession {
+            refresh_token: tokens.refresh_token.clone(),
+            email: email.clone(),
+            provider: Provider::Apple,
+        });
+        self.apply(
+            Tokens {
+                id: tokens.id_token,
+                access: tokens.access_token,
+                refresh: Some(tokens.refresh_token),
+            },
+            Some(email),
+            Some(Provider::Apple),
+        );
+        Ok(self.status())
+    }
+
+    /// The web (browser) Sign in with Apple fallback, for builds where the
+    /// native sheet is impossible (the Developer ID `.dmg`, and dev). Runs the
+    /// OAuth flow through `ASWebAuthenticationSession` + the lux-apple-auth web
+    /// routes: `/start` mints the authorize URL, the sheet returns a one-time
+    /// code over the `lux://` redirect, `/exchange` trades it (with the PKCE
+    /// verifier) for the same session the native and SRP paths produce. Async
+    /// for the same reason as the native path — the sheet is user-paced and its
+    /// callback lands on the main thread, which must stay unblocked.
+    pub async fn sign_in_with_apple_web(&self, app: &AppHandle) -> Result<AuthStatus, String> {
+        use lux_wire::apple::{
+            APPLE_SEGMENT, AUTH_SEGMENT, EXCHANGE_SEGMENT, START_SEGMENT, WEB_SEGMENT,
+        };
+        if !self.apple_web_sign_in_available() {
+            return Err("web sign in with apple is not available in this build".into());
+        }
+        let base = self
+            .apple_auth_url
+            .clone()
+            .ok_or("sign in with apple is not configured")?;
+
+        // PKCE: keep the verifier; send only its challenge to `/start`. Only
+        // this app instance can then redeem the one-time code the redirect
+        // carries, even if another app grabbed the `lux://` URL.
+        let verifier = format!(
+            "{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        );
+        let http = reqwest::Client::new();
+        let start: lux_wire::apple::WebStartResponse = post_json(
+            &http,
+            &format!("{base}/{AUTH_SEGMENT}/{APPLE_SEGMENT}/{WEB_SEGMENT}/{START_SEGMENT}"),
+            &lux_wire::apple::WebStartRequest {
+                code_challenge: pkce_challenge(&verifier),
+            },
+        )
+        .await?;
+
+        // Open the browser sheet; it hands back the `lux://` callback URL.
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let authorize_url = start.authorize_url;
+        app.run_on_main_thread(move || {
+            lux_apple_id::authorize_web(
+                &authorize_url,
+                lux_wire::apple::WEB_REDIRECT_SCHEME,
+                Box::new(move |result| {
+                    let _ = tx.send(result);
+                }),
+            );
+        })
+        .map_err(|e| format!("could not present the sign-in sheet: {e}"))?;
+        let callback_url = rx
+            .await
+            .map_err(|_| "the sign-in sheet never completed".to_string())??;
+
+        // A one-time code (or a relayed error) rides on the redirect's query.
+        let code = callback_code(&callback_url)?;
+
+        let tokens: lux_wire::apple::SignInResponse = post_json(
+            &http,
+            &format!("{base}/{AUTH_SEGMENT}/{APPLE_SEGMENT}/{WEB_SEGMENT}/{EXCHANGE_SEGMENT}"),
+            &lux_wire::apple::WebExchangeRequest {
+                code,
+                code_verifier: verifier,
+            },
+        )
+        .await?;
+
         let email =
             email_from_id_token(&tokens.id_token).ok_or("sign-in response carried no email")?;
         save_session(&StoredSession {
@@ -750,6 +862,95 @@ async fn do_refresh(cfg: Config, refresh_token: String) -> Result<Tokens, String
         .await
         .map_err(sdk_err)?;
     tokens_from(out.authentication_result())
+}
+
+/// PKCE `S256` challenge: `base64url(SHA-256(verifier))`, no padding (RFC 7636).
+fn pkce_challenge(verifier: &str) -> String {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    use sha2::{Digest, Sha256};
+    URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
+}
+
+/// POST `body` as JSON and decode the JSON reply, mapping a non-2xx into the
+/// service's error text (the shared shape for the two web-auth calls).
+async fn post_json<B: Serialize, R: serde::de::DeserializeOwned>(
+    http: &reqwest::Client,
+    url: &str,
+    body: &B,
+) -> Result<R, String> {
+    let response = http
+        .post(url)
+        .json(body)
+        .send()
+        .await
+        .map_err(|e| format!("could not reach the sign-in service: {e}"))?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let message = response
+            .json::<lux_wire::ErrorResponse>()
+            .await
+            .map(|body| body.error)
+            .unwrap_or_else(|_| format!("sign-in service answered {status}"));
+        return Err(message);
+    }
+    response
+        .json()
+        .await
+        .map_err(|e| format!("malformed sign-in response: {e}"))
+}
+
+/// Pull the one-time `code` out of the `lux://…?code=…&state=…` redirect, or
+/// surface a relayed `error=…`.
+fn callback_code(callback_url: &str) -> Result<String, String> {
+    let query = callback_url.split_once('?').map_or("", |(_, q)| q);
+    let mut code = None;
+    for pair in query.split('&').filter(|p| !p.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        match key {
+            "code" => code = Some(percent_decode(value)),
+            "error" => return Err(percent_decode(value)),
+            _ => {}
+        }
+    }
+    code.filter(|c| !c.is_empty())
+        .ok_or_else(|| "sign-in redirect carried no code".to_string())
+}
+
+/// Minimal percent-decode for a redirect query value (`+`→space, `%XX`→byte);
+/// invalid escapes pass through literally.
+fn percent_decode(s: &str) -> String {
+    let hex = |b: u8| match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    };
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b'%' if i + 2 < bytes.len() => match (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+                (Some(h), Some(l)) => {
+                    out.push(h * 16 + l);
+                    i += 3;
+                }
+                _ => {
+                    out.push(b'%');
+                    i += 1;
+                }
+            },
+            b => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 fn tokens_from(

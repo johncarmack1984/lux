@@ -114,6 +114,11 @@ pub trait CmdMethods {
     /// run (and block) exactly there. Rejects with "canceled" (verbatim) when
     /// the user dismisses the sheet.
     async fn sign_in_with_apple(&self, app_handle: AppHandle) -> Result<AuthStatus, String>;
+    /// The web (browser) Sign in with Apple fallback, for builds where the
+    /// native sheet is impossible (the Developer ID `.dmg`, and dev). Async and
+    /// "canceled"-on-dismissal like the native path; the browser sheet is
+    /// `ASWebAuthenticationSession`.
+    async fn sign_in_with_apple_web(&self, app_handle: AppHandle) -> Result<AuthStatus, String>;
     fn sign_out(&self, app_handle: AppHandle) -> Result<AuthStatus, String>;
     fn delete_account(&self, app_handle: AppHandle) -> Result<AuthStatus, String>;
     // Cloud sync — current status for the indicator, and a manual pull (fired on
@@ -605,6 +610,17 @@ impl CmdMethods for CmdEndpoint {
         emit_auth_changed(&app_handle, status.clone())?;
         // Same post-sign-in tail as the SRP path: pull the account's setups,
         // then listen for change nudges from their other devices.
+        crate::cloud::schedule_sync(&app_handle);
+        crate::nudge::start(&app_handle);
+        Ok(status)
+    }
+
+    async fn sign_in_with_apple_web(&self, app_handle: AppHandle) -> Result<AuthStatus, String> {
+        let status = app_handle
+            .state::<LuxAccount>()
+            .sign_in_with_apple_web(&app_handle)
+            .await?;
+        emit_auth_changed(&app_handle, status.clone())?;
         crate::cloud::schedule_sync(&app_handle);
         crate::nudge::start(&app_handle);
         Ok(status)

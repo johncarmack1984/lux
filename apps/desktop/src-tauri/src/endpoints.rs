@@ -40,6 +40,11 @@ pub struct Endpoints {
     /// the endpoints file only carries outputs that exist in applied state —
     /// and empty means the feature stays dark.
     pub apple_auth_url: String,
+    /// Whether the web (browser) Sign in with Apple flow is provisioned — the
+    /// `.dmg`/dev fallback. True once the Services ID + its verified domain are
+    /// live; the desktop lights its web Apple button on it. Default-false so a
+    /// file that predates the field keeps the feature dark.
+    pub apple_web_enabled: bool,
     /// Dev-machine remote control (device identity + mTLS material); only ever
     /// present in `endpoints.local.json` — the generated prod file never
     /// carries it, so plain installs have no remote-control surface.
