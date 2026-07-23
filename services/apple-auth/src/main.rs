@@ -59,6 +59,10 @@ pub(crate) struct Ctx {
     /// `/web/callback`). Absent — like the Services ID on `apple` — leaves the
     /// web routes dark (`/web/start` 404s), so the `.dmg` button stays off.
     pub apple_web_callback_url: Option<String>,
+    /// Apple's domain-verification token, served at
+    /// `/.well-known/apple-developer-domain-association.txt`. Absent ⇒ that
+    /// route 404s.
+    pub apple_domain_association: Option<String>,
 }
 
 impl Ctx {
@@ -112,6 +116,9 @@ async fn main() -> Result<(), Error> {
     let apple_web_callback_url = std::env::var("APPLE_WEB_CALLBACK_URL")
         .ok()
         .filter(|s| !s.is_empty());
+    let apple_domain_association = std::env::var("APPLE_DOMAIN_ASSOCIATION")
+        .ok()
+        .filter(|s| !s.is_empty());
 
     let verifier = lux_auth::Verifier::new(&region, &pool_id, &client_id)
         .await
@@ -135,6 +142,7 @@ async fn main() -> Result<(), Error> {
         table,
         siwa_secret_id,
         apple_web_callback_url,
+        apple_domain_association,
     });
 
     run(service_fn(move |event: LambdaEvent<Value>| {

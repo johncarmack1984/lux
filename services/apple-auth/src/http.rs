@@ -102,6 +102,14 @@ pub async fn handle(ctx: &Arc<Ctx>, payload: Value) -> Result<Value, Error> {
         {
             crate::web::exchange(ctx, &event).await
         }
+        // Apple's domain-verification file for the web callback's custom domain
+        // (served through the CloudFront distribution in apple-auth-web.tf).
+        ("GET", [".well-known", "apple-developer-domain-association.txt"]) => {
+            match ctx.apple_domain_association.as_deref() {
+                Some(body) => reply_text(200, "text/plain", body),
+                None => reply(404, &error("not found")),
+            }
+        }
         ("POST", [a, b, c])
             if *a == AUTH_SEGMENT && *b == DEVICE_SEGMENT && *c == AUTHORIZE_SEGMENT =>
         {
@@ -531,6 +539,15 @@ pub(crate) fn reply<T: serde::Serialize>(status: u16, body: &T) -> Result<Value,
         "statusCode": status,
         "headers": { "content-type": "application/json" },
         "body": serde_json::to_string(body)?,
+    }))
+}
+
+/// A plain-body (non-JSON) Function URL response — the domain-verification file.
+pub(crate) fn reply_text(status: u16, content_type: &str, body: &str) -> Result<Value, Error> {
+    Ok(json!({
+        "statusCode": status,
+        "headers": { "content-type": content_type },
+        "body": body,
     }))
 }
 
