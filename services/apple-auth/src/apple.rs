@@ -492,16 +492,25 @@ PaNjgYD9H87aiu72kVM4feGqzpehRANCAAQE52G8sprGOcAIUFXU8WtoNLLD3Q80
     const SERVICES_ID: &str = "com.johncarmack.lux.signin";
 
     async fn auth() -> AppleAuth {
+        install_ring();
         seeded(AppleAuth::new(AUDIENCE.into(), None)).await
     }
 
     async fn auth_web() -> AppleAuth {
+        install_ring();
         seeded(AppleAuth::new(AUDIENCE.into(), Some(SERVICES_ID.into()))).await
     }
 
-    async fn seeded(auth: AppleAuth) -> AppleAuth {
-        // Prod installs ring in main() before any client exists; tests mirror it.
+    /// Prod installs ring in `main()` before any client exists; tests mirror
+    /// it — and MUST call this *before* `AppleAuth::new`, which builds a reqwest
+    /// client that panics without a process crypto provider. (This is a global
+    /// one-shot; ordering across parallel tests is why it can't hide inside a
+    /// helper that runs after construction.)
+    fn install_ring() {
         let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+
+    async fn seeded(auth: AppleAuth) -> AppleAuth {
         auth.seed_key(
             KID,
             DecodingKey::from_rsa_pem(PUBLIC_PEM).expect("test key parses"),
@@ -601,7 +610,7 @@ PaNjgYD9H87aiu72kVM4feGqzpehRANCAAQE52G8sprGOcAIUFXU8WtoNLLD3Q80
 
     #[test]
     fn client_secret_is_a_signed_es256_jwt() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
+        install_ring();
         let auth = AppleAuth::new(AUDIENCE.into(), None);
         let key = SiwaKey {
             key_id: "ABC123DEFG".into(),

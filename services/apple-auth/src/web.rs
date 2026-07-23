@@ -376,11 +376,15 @@ mod tests {
 
     #[test]
     fn authorize_url_has_form_post_and_encoded_params() {
+        // Use a real generated nonce, not a literal: the test only checks the
+        // URL's structure/encoding (never the nonce value), and a hard-coded
+        // crypto value trips CodeQL for no reason.
+        let nonce = rand_token().expect("randomness");
         let url = authorize_url(
             "com.johncarmack.lux.signin",
             "https://auth.lux.johncarmack.com/auth/apple/web/callback",
             "st ate",
-            "nonce1",
+            &nonce,
         );
         assert!(url.starts_with("https://appleid.apple.com/auth/authorize?"));
         assert!(url.contains("client_id=com.johncarmack.lux.signin"));
