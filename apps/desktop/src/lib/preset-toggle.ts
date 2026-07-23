@@ -2,29 +2,27 @@ import { useEffect, useSyncExternalStore } from "react";
 import { createTauRPCProxy } from "@/bindings";
 import { queryClient } from "@/lib/query-client";
 import { BUFFER_QUERY_KEY } from "@/hooks/useBuffer";
+import {
+  planToggle,
+  reconcile,
+  isPresetActive,
+  type ActiveMap,
+  type PresetScope,
+} from "@/lib/preset-engine";
 
 /**
- * Presets are momentary looks, not destinations: engaging one remembers the
- * channels it replaces, and toggling it off puts them back. The active preset
- * is a UI-side notion — the backend only ever sees buffer writes — so the
- * store also watches the live buffer and quietly drops the active state when
- * anything else (a fader, the wheel, a remote command) moves a channel the
- * preset set, rather than offering a restore that would clobber it.
+ * The React + Tauri adapter around the pure preset engine (`preset-engine.ts`):
+ * it holds the live active set, drives it from real buffer reads/writes, and
+ * exposes the store hooks the UI subscribes to. All the scoping and layering
+ * rules — why a fixture preset never disturbs another fixture, why a full-setup
+ * marker survives a layered fixture — live in the engine and its tests; this
+ * file only does I/O.
  *
- * Snapshots are sparse (only the addresses the preset wrote) and every toggle
- * starts from a fresh backend read, so concurrent changes to unrelated
- * channels — another surface, the Discord bot — survive both engage and
- * restore.
+ * The active set is UI-side; the backend only ever sees buffer writes. Every
+ * toggle starts from a fresh backend read so concurrent changes to unrelated
+ * channels — another surface, the Discord bot — survive both engage and restore.
  */
-type ActivePreset = {
-  id: string;
-  /** Prior value of each address the preset wrote (restore target). */
-  snapshot: Map<number, number>;
-  /** What the preset wrote (1-based address → value); divergence deactivates. */
-  expected: Map<number, number>;
-};
-
-let active: ActivePreset | null = null;
+let active: ActiveMap = new Map();
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -50,56 +48,42 @@ async function applyBuffer(frame: number[]) {
 }
 
 /**
- * Engage the preset `id`, or toggle it off if it is already the active one.
- *
- * Either way the outgoing preset (if any) is undone first, so switching
- * directly between presets composes undo + engage into a single frame:
- * toggling off always returns to a state the user actually set, never to
- * another preset's output. The active mark is only set once the backend
+ * Engage the preset `id` in `scope`, or toggle it off if it is already the one
+ * engaged in that lane. The active mark is only advanced once the backend
  * commits, so a failed write leaves both the lights and the toggle untouched.
  */
-export async function togglePreset(id: string, writes: Map<number, number>) {
-  const previous = active;
+export async function togglePreset(
+  id: string,
+  writes: Map<number, number>,
+  scope: PresetScope,
+) {
   const base = (await createTauRPCProxy().sync.sync_buffer()).buffer.slice();
-  for (const [address, value] of previous?.snapshot ?? []) {
-    base[address - 1] = value;
-  }
-  if (previous?.id === id) {
-    active = null;
-    notify();
-    await applyBuffer(base);
-    return;
-  }
-  const snapshot = new Map<number, number>();
-  for (const address of writes.keys()) {
-    snapshot.set(address, base[address - 1] ?? 0);
-  }
-  const frame = base.slice();
-  for (const [address, value] of writes) frame[address - 1] = value;
+  const { frame, next } = planToggle(active, id, writes, scope, base);
   await applyBuffer(frame);
-  active = { id, snapshot, expected: writes };
+  // Reconcile against the frame we just wrote so any preset this one changed —
+  // e.g. Blackout when a fixture preset is engaged over it — drops its marker
+  // in the same update, not a tick later when the buffer read lands.
+  active = reconcile(next, frame);
   notify();
 }
 
-/** The id of the engaged preset, or null. Re-renders on engage/clear. */
-export function useActivePresetId(): string | null {
-  return useSyncExternalStore(subscribe, () => active?.id ?? null);
+/** Whether a preset with this `id` is engaged. Re-renders on any change. */
+export function useIsPresetActive(id: string): boolean {
+  return useSyncExternalStore(subscribe, () => isPresetActive(active, id));
 }
 
 /**
- * Drop the active preset when the live buffer no longer matches what it
- * wrote. Mount next to a `useBuffer()` read (ButtonRow does, on both
+ * Drop any active preset whose look the live buffer no longer shows (see
+ * `reconcile`). Mount next to a `useBuffer()` read (ButtonRow does, on both
  * surfaces) — running it from several components is harmless.
  */
 export function usePresetReconcile(buffer: number[] | null) {
   useEffect(() => {
-    if (!active || !buffer) return;
-    for (const [address, value] of active.expected) {
-      if (buffer[address - 1] !== value) {
-        active = null;
-        notify();
-        return;
-      }
+    if (!buffer) return;
+    const next = reconcile(active, buffer);
+    if (next !== active) {
+      active = next;
+      notify();
     }
   }, [buffer]);
 }

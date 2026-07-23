@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import useBuffer from "@/hooks/useBuffer";
 import {
   togglePreset,
-  useActivePresetId,
+  useIsPresetActive,
   usePresetReconcile,
 } from "@/lib/preset-toggle";
 
@@ -27,6 +27,38 @@ const presets = [
   },
 ];
 
+/** Both built-in presets write the whole universe, so they share one lane. */
+const SETUP_SCOPE = { kind: "setup" } as const;
+
+/**
+ * One preset button. Its own `useIsPresetActive` subscription keeps the pressed
+ * state per-preset (and a hook out of the parent's render loop).
+ */
+function PresetButton({
+  id,
+  children,
+  writes,
+  disabled,
+}: (typeof presets)[number] & { disabled: boolean }) {
+  const active = useIsPresetActive(id);
+  return (
+    <Button
+      variant={active ? "secondary" : "link"}
+      size="sm"
+      aria-pressed={active}
+      disabled={disabled}
+      onClick={() => {
+        trace(`frontend toggling ${children}`);
+        togglePreset(id, writes(), SETUP_SCOPE).catch((e) =>
+          toast.error(String(e)),
+        );
+      }}
+    >
+      {children}
+    </Button>
+  );
+}
+
 /**
  * The preset row, shown on both control surfaces (fixtures + universe).
  * Presets toggle: engaging one remembers the frame it replaced, pressing it
@@ -35,27 +67,11 @@ const presets = [
 function ButtonRow() {
   const buffer = useBuffer();
   usePresetReconcile(buffer);
-  const activeId = useActivePresetId();
   return (
     <div className="flex shrink-0 justify-center gap-2 py-2">
-      {presets.map(({ id, children, writes }) => {
-        const active = activeId === id;
-        return (
-          <Button
-            key={id}
-            variant={active ? "secondary" : "link"}
-            size="sm"
-            aria-pressed={active}
-            disabled={!buffer}
-            onClick={() => {
-              trace(`frontend toggling ${children}`);
-              togglePreset(id, writes()).catch((e) => toast.error(String(e)));
-            }}
-          >
-            {children}
-          </Button>
-        );
-      })}
+      {presets.map((preset) => (
+        <PresetButton key={preset.id} {...preset} disabled={!buffer} />
+      ))}
     </div>
   );
 }

@@ -6,7 +6,8 @@ name: desktop
 # surfaces. Catching it on the PR (a few minutes) closes that gap:
 #   - tauri-versions: @tauri-apps/* JS packages must share their minor with their
 #     Rust crate counterparts (the drift that broke the 0.8.0 release).
-#   - frontend: production build (also generates routeTree.gen.ts) + typecheck + lint.
+#   - frontend: production build (also generates routeTree.gen.ts) + typecheck +
+#     lint + `bun test` front-end unit tests (e.g. the preset engine).
 #   - rust-test: cargo test across the workspace, including tests/bindings.rs — the
 #     drift guard that fails when src/bindings.ts is stale.
 #   - rust-clippy: the workspace lint gate at -D warnings.
@@ -180,6 +181,10 @@ jobs:
       - run: bun run typecheck
 
       - run: bun run lint
+
+      # Front-end unit tests (the preset engine, and whatever joins it). Pure
+      # logic, no browser — bun's own runner, no extra dependency.
+      - run: bun test
 
   # Build the three Lambda services exactly as the release deploy job will
   # (static musl, release profile, same package names) — so a broken link, a
