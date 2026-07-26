@@ -72,7 +72,7 @@ lux-engine = { path = "../../../crates/lux-engine" }
 lux-wire = { path = "../../../crates/lux-wire" }
 # base64url payload decode of our own Cognito ID token (topic addressing only —
 # verification stays server-side in the IoT authorizer / sync-api).
-base64 = "0.22"
+base64 = "0.23"
 # `websocket` for the change-nudge channel: MQTT over WebSocket to IoT Core
 # (remote control keeps using native MQTT + mutual TLS below).
 rumqttc = { version = "0.25", features = ["websocket"] }
