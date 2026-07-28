@@ -119,6 +119,28 @@ jobs:
           done
           exit "$fail"
 
+  unused-deps:
+    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RUSTC_WRAPPER: ""
+      SCCACHE_GHA_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: apps/desktop/package.json
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch
+      - run: bun install --frozen-lockfile
+      - run: cargo install cargo-machete
+      - name: Unused JS dependencies (knip)
+        run: bunx knip --dependencies
+      - name: Unused Rust dependencies (cargo-machete)
+        run: cargo machete
+
   deny:
     if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest

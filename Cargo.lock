@@ -3722,7 +3722,6 @@ dependencies = [
  "lambda_http",
  "lux-auth",
  "lux-wire",
- "reqwest",
  "rustls",
  "serde",
  "serde_json",

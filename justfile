@@ -18,9 +18,14 @@ device := env_var_or_default("LUX_IOS_DEVICE", ```
 default:
     @just --list
 
-# Front-end gate: production build, typecheck, lint, unit tests (matches the PR gate).
-check:
+# Front-end gate: production build, typecheck, lint, unused-dep check, unit tests (matches the PR gate).
+check: unused-deps
     cd apps/desktop && bun run build && bun run typecheck && bun run lint && bun test
+
+# Unused-dependency check (JS via knip, Rust via cargo-machete).
+unused-deps:
+    bunx knip --dependencies
+    cargo machete
 
 # Run the desktop app in dev.
 dev:

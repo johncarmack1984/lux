@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "rules": {
+    "binaries": "off",
+    "unresolved": "off"
+  },
+  "workspaces": {
+    ".": {},
+    "apps/desktop": {
+      "entry": ["src/routes/**/*.tsx"]
+    },
+    "apps/site": {},
+    "packages/ui": {}
+  }
+}
