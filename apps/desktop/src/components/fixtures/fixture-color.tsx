@@ -21,6 +21,7 @@ const FIXTURE_PRESETS: ReadonlyArray<{
   { id: "lavender", label: "Lavender", color: { r: 150, g: 120, b: 255, a: 0.4 } },
   { id: "cobalt", label: "Cobalt", color: { r: 0, g: 70, b: 200, a: 0.4 } },
   { id: "teal", label: "Teal", color: { r: 0, g: 200, b: 180, a: 0.4 } },
+  { id: "steel", label: "Steel", color: { r: 140, g: 160, b: 190, a: 0.4 } },
 ];
 
 /** First DMX address (1-based) within the fixture carrying `role`, or null. */
