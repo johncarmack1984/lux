@@ -17,13 +17,10 @@ const FIXTURE_PRESETS: ReadonlyArray<{
   { id: "reading-light", label: "Reading Light", color: { r: 255, g: 128, b: 0, a: 0.4 } },
   { id: "daylight", label: "Daylight", color: { r: 255, g: 255, b: 255, a: 0.4 } },
   { id: "fire", label: "Fire", color: { r: 255, g: 80, b: 0, a: 0.4 } },
-  { id: "red", label: "Red", color: { r: 255, g: 0, b: 0, a: 0.4 } },
   { id: "rose", label: "Rose", color: { r: 255, g: 80, b: 120, a: 0.4 } },
   { id: "lavender", label: "Lavender", color: { r: 150, g: 120, b: 255, a: 0.4 } },
-  { id: "deep-blue", label: "Deep Blue", color: { r: 0, g: 0, b: 255, a: 0.4 } },
   { id: "cobalt", label: "Cobalt", color: { r: 0, g: 70, b: 200, a: 0.4 } },
   { id: "teal", label: "Teal", color: { r: 0, g: 200, b: 180, a: 0.4 } },
-  { id: "green", label: "Green", color: { r: 0, g: 255, b: 0, a: 0.4 } },
 ];
 
 /** First DMX address (1-based) within the fixture carrying `role`, or null. */
