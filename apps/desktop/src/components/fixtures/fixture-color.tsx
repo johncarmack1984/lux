@@ -20,7 +20,7 @@ const FIXTURE_PRESETS: ReadonlyArray<{
   { id: "rose", label: "Rose", color: { r: 255, g: 80, b: 120, a: 0.4 } },
   { id: "lavender", label: "Lavender", color: { r: 150, g: 120, b: 255, a: 0.4 } },
   { id: "cobalt", label: "Cobalt", color: { r: 0, g: 70, b: 200, a: 0.4 } },
-  { id: "teal", label: "Teal", color: { r: 0, g: 200, b: 180, a: 0.4 } },
+  { id: "slate", label: "Slate", color: { r: 70, g: 110, b: 190, a: 0.4 } },
   { id: "steel", label: "Steel", color: { r: 140, g: 160, b: 190, a: 0.4 } },
 ];
 
