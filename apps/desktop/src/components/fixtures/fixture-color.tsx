@@ -171,8 +171,7 @@ export default function FixtureColor({
       />
       <PopoverContent align="start">
         <RgbaColorPicker className="mx-auto" color={color} onChange={onChange} />
-        <p className="-mt-0.5 text-right text-[10px] text-muted-foreground">Brightness</p>
-        <div className="mt-2 grid grid-cols-2 gap-1.5">
+        <div className="mt-3 grid grid-cols-2 gap-1.5">
           {FIXTURE_PRESETS.map((preset) => (
             <FixturePresetButton
               key={preset.id}
