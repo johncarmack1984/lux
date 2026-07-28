@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { RgbaColorPicker, type RgbaColor } from "react-colorful";
-import { LampDesk } from "lucide-react";
 import { type Fixture, type LuxLabelColor } from "@/bindings";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent } from "@/components/ui/popover";
@@ -10,19 +9,85 @@ import { setChannelValue } from "@/lib/actions";
 import { emittersToRgb, mixToEmitters } from "@/lib/color-mix";
 import { togglePreset, useIsPresetActive } from "@/lib/preset-toggle";
 
-/**
- * Reading light: tungsten/amber at full, master at 40%. Expressed as a picker
- * color so it flows through the same role-aware mix as the wheel — on an
- * amber-equipped fixture the warm content lands on the Amber emitter (≈255),
- * an RGB-only fixture renders the same look with its own emitters, and the
- * alpha drives the Brightness channel where one exists.
- */
-const READING_LIGHT: RgbaColor = { r: 255, g: 128, b: 0, a: 0.4 };
+const FIXTURE_PRESETS: ReadonlyArray<{
+  id: string;
+  label: string;
+  color: RgbaColor;
+}> = [
+  { id: "reading-light", label: "Reading Light", color: { r: 255, g: 128, b: 0, a: 0.4 } },
+  { id: "daylight", label: "Daylight", color: { r: 255, g: 255, b: 255, a: 0.4 } },
+  { id: "fire", label: "Fire", color: { r: 255, g: 80, b: 0, a: 0.4 } },
+  { id: "rose", label: "Rose", color: { r: 255, g: 80, b: 120, a: 0.4 } },
+  { id: "lavender", label: "Lavender", color: { r: 150, g: 120, b: 255, a: 0.4 } },
+  { id: "cobalt", label: "Cobalt", color: { r: 0, g: 70, b: 200, a: 0.4 } },
+  { id: "steel", label: "Steel", color: { r: 140, g: 160, b: 190, a: 0.4 } },
+  { id: "dusk", label: "Dusk", color: { r: 190, g: 155, b: 140, a: 0.4 } },
+];
 
 /** First DMX address (1-based) within the fixture carrying `role`, or null. */
 function roleAddress(fixture: Fixture, role: LuxLabelColor): number | null {
   const i = fixture.channels.findIndex((c) => c.role === role);
   return i < 0 ? null : fixture.address + i;
+}
+
+function FixturePresetButton({
+  preset,
+  fixture,
+  disabled,
+}: {
+  preset: (typeof FIXTURE_PRESETS)[number];
+  fixture: Fixture;
+  disabled: boolean;
+}) {
+  const presetId = `${preset.id}-${fixture.id}`;
+  const active = useIsPresetActive(presetId);
+
+  const onClick = () => {
+    const r = roleAddress(fixture, "Red");
+    const g = roleAddress(fixture, "Green");
+    const b = roleAddress(fixture, "Blue");
+    const amber = roleAddress(fixture, "Amber");
+    const white = roleAddress(fixture, "White");
+    const dimmer = roleAddress(fixture, "Brightness");
+    const mix = mixToEmitters(preset.color.r, preset.color.g, preset.color.b, {
+      amber: amber !== null,
+      white: white !== null,
+    });
+    const writes = new Map<number, number>();
+    for (const [addr, value] of [
+      [r, mix.r],
+      [g, mix.g],
+      [b, mix.b],
+      [amber, mix.a],
+      [white, mix.w],
+      [dimmer, Math.round(preset.color.a * 255)],
+    ] as Array<[number | null, number]>) {
+      if (addr !== null) writes.set(addr, value);
+    }
+    togglePreset(presetId, writes, {
+      kind: "fixture",
+      fixtureId: fixture.id,
+    }).catch(() => {});
+  };
+
+  return (
+    <Button
+      variant={active ? "default" : "outline"}
+      size="sm"
+      className="h-7 gap-1.5 px-2 text-xs"
+      aria-pressed={active}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <span
+        className="size-2.5 shrink-0 rounded-full border border-foreground/20"
+        style={{
+          backgroundColor: `rgb(${preset.color.r}, ${preset.color.g}, ${preset.color.b})`,
+        }}
+      />
+      {preset.label}
+    </Button>
+  );
 }
 
 /**
@@ -91,23 +156,6 @@ export default function FixtureColor({
     send(next);
   };
 
-  // Reading light toggles: engaging snapshots the frame it replaces, pressing
-  // again restores it. Applied as one buffer write (not through the throttled
-  // wheel path) so the toggle store can track exactly what it set; the swatch
-  // and wheel follow via the buffer round-trip like any out-of-band change.
-  const presetId = `reading-light-${fixture.id}`;
-  const readingLightActive = useIsPresetActive(presetId);
-  const onReadingLight = () => {
-    const writes = new Map<number, number>();
-    for (const [addr, value] of emitterWrites(READING_LIGHT)) {
-      if (addr) writes.set(addr, value);
-    }
-    togglePreset(presetId, writes, {
-      kind: "fixture",
-      fixtureId: fixture.id,
-    }).catch(() => {});
-  };
-
   // Glow tracks the dimmer when present, else the brightest color channel.
   const luminance = dimmer ? color.a : Math.max(color.r, color.g, color.b) / 255;
 
@@ -123,17 +171,15 @@ export default function FixtureColor({
       />
       <PopoverContent align="start">
         <RgbaColorPicker className="mx-auto" color={color} onChange={onChange} />
-        <div className="mt-3">
-          <Button
-            variant={readingLightActive ? "default" : "outline"}
-            size="sm"
-            className="w-full gap-2"
-            aria-pressed={readingLightActive}
-            disabled={!buffer}
-            onClick={onReadingLight}
-          >
-            <LampDesk className="size-4" /> Reading light
-          </Button>
+        <div className="mt-3 grid grid-cols-2 gap-1.5">
+          {FIXTURE_PRESETS.map((preset) => (
+            <FixturePresetButton
+              key={preset.id}
+              preset={preset}
+              fixture={fixture}
+              disabled={!buffer}
+            />
+          ))}
         </div>
       </PopoverContent>
     </Popover>
