@@ -21,6 +21,8 @@ const FIXTURE_PRESETS: ReadonlyArray<{
   { id: "rose", label: "Rose", color: { r: 255, g: 80, b: 120, a: 0.4 } },
   { id: "lavender", label: "Lavender", color: { r: 150, g: 120, b: 255, a: 0.4 } },
   { id: "deep-blue", label: "Deep Blue", color: { r: 0, g: 0, b: 255, a: 0.4 } },
+  { id: "cobalt", label: "Cobalt", color: { r: 0, g: 70, b: 200, a: 0.4 } },
+  { id: "teal", label: "Teal", color: { r: 0, g: 200, b: 180, a: 0.4 } },
   { id: "green", label: "Green", color: { r: 0, g: 255, b: 0, a: 0.4 } },
 ];
 
