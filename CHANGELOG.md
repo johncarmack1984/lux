@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.0](https://github.com/johncarmack1984/lux/compare/v1.11.0...v1.12.0) (2026-07-28)
+
+
+### Features
+
+* **desktop:** fixture color presets ([#257](https://github.com/johncarmack1984/lux/issues/257)) ([f0d5285](https://github.com/johncarmack1984/lux/commit/f0d5285ea591ec9575b49d1713e376aafb92d056))
+
 ## [1.11.0](https://github.com/johncarmack1984/lux/compare/v1.10.0...v1.11.0) (2026-07-26)
 
 
