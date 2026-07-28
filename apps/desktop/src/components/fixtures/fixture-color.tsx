@@ -20,8 +20,8 @@ const FIXTURE_PRESETS: ReadonlyArray<{
   { id: "rose", label: "Rose", color: { r: 255, g: 80, b: 120, a: 0.4 } },
   { id: "lavender", label: "Lavender", color: { r: 150, g: 120, b: 255, a: 0.4 } },
   { id: "cobalt", label: "Cobalt", color: { r: 0, g: 70, b: 200, a: 0.4 } },
-  { id: "gold", label: "Gold", color: { r: 255, g: 180, b: 0, a: 0.4 } },
   { id: "steel", label: "Steel", color: { r: 140, g: 160, b: 190, a: 0.4 } },
+  { id: "ember", label: "Ember", color: { r: 210, g: 140, b: 80, a: 0.4 } },
 ];
 
 /** First DMX address (1-based) within the fixture carrying `role`, or null. */
