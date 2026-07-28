@@ -85,6 +85,15 @@
   }
 }
 
+/* Restyle the react-colorful alpha slider as a brightness/dimmer slider:
+   black background instead of the checkerboard pattern makes the gradient
+   read as dark→bright rather than transparent→opaque. */
+.react-colorful__alpha,
+.react-colorful__alpha-pointer {
+  background-color: #000;
+  background-image: none;
+}
+
 /* Chrome, Safari, Edge, Opera */
 input::-webkit-outer-spin-button,
 input::-webkit-inner-spin-button {
