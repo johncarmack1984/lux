@@ -20,4 +20,4 @@ log = "^0.4.33"
 uuid = { version = "1.23.4", features = ["v4"] }
 base64 = "0.23"
 webpki-root-certs = "1"
-pem = "3"
+pem = "4"
