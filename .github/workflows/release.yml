@@ -329,7 +329,7 @@ jobs:
       # rust-cache: it still hits across a Cargo.lock bump for the universal
       # build's per-arch dependency compilation, though the final fat-LTO link
       # itself isn't cacheable.
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
 
       # Cache the compiled dependency tree. ~90% of this build is dependencies
       # compiled from scratch, twice (once per arch), under the deliberately
@@ -652,7 +652,7 @@ jobs:
       # Same caching pair as the desktop test gate: sccache owns per-crate
       # compilation (content-addressed, survives lockfile bumps), rust-cache
       # keeps the registry/index warm without caching target/.
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
@@ -1027,7 +1027,7 @@ jobs:
 
       # Same caching pair as build-macos: this flavor is a plain cargo build
       # driven by the tauri CLI (no Xcode in the loop), so sccache applies.
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
@@ -1208,7 +1208,7 @@ jobs:
       - name: Install musl-gcc
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
