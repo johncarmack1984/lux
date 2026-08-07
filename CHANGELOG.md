@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.13.0](https://github.com/johncarmack1984/lux/compare/v1.12.0...v1.13.0) (2026-08-07)
+
+
+### Features
+
+* **bridge:** read Planning Center plans and follow them live ([#264](https://github.com/johncarmack1984/lux/issues/264)) ([0229c0c](https://github.com/johncarmack1984/lux/commit/0229c0cbd39665e6cd68c7a73ebb97d8796f719b))
+* **scenes:** save a look and recall it with a fade ([#262](https://github.com/johncarmack1984/lux/issues/262)) ([51589b8](https://github.com/johncarmack1984/lux/commit/51589b8260f3e4941824ea80abc87b1b78af506e))
+
 ## [1.12.0](https://github.com/johncarmack1984/lux/compare/v1.11.0...v1.12.0) (2026-07-28)
 
 
