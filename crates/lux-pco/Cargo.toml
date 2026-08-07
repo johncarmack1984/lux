@@ -1,0 +1,26 @@
+[package]
+name = "lux-pco"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# The Planning Center Services API client: OAuth 2 token custody plus typed,
+# READ-ONLY reads of service types, plans, plan items and the Live vertex.
+#
+# Server-side only, like lux-auth — it is the half of the bridge that holds the
+# one client secret, so the desktop and the phone must never depend on it. What
+# they need (cue maps, the follow-live decisions) lives in lux-cue, which has no
+# network in it at all.
+
+[lints]
+workspace = true
+
+[dependencies]
+lux-cue = { path = "../lux-cue" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+
+[dev-dependencies]
+lux-wire = { path = "../lux-wire" }
+tokio = { workspace = true, features = ["macros", "rt"] }

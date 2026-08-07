@@ -1,0 +1,45 @@
+{
+  "links": {
+    "self": "https://api.planningcenteronline.com/services/v2/service_types?per_page=100"
+  },
+  "data": [
+    {
+      "type": "ServiceType",
+      "id": "1109432",
+      "attributes": {
+        "archived_at": null,
+        "created_at": "2019-02-11T15:04:22Z",
+        "deleted_at": null,
+        "frequency": "Weekly",
+        "name": "Sunday 9:00",
+        "permissions": "editor",
+        "sequence": 1,
+        "updated_at": "2026-07-30T18:11:03Z"
+      },
+      "relationships": { "parent": { "data": null } },
+      "links": { "self": "https://api.planningcenteronline.com/services/v2/service_types/1109432" }
+    },
+    {
+      "type": "ServiceType",
+      "id": "1109433",
+      "attributes": {
+        "archived_at": "2022-01-04T17:22:10Z",
+        "created_at": "2021-11-02T19:40:00Z",
+        "deleted_at": null,
+        "frequency": "Never",
+        "name": "Christmas Eve (2021)",
+        "permissions": "editor",
+        "sequence": 9,
+        "updated_at": "2022-01-04T17:22:10Z"
+      },
+      "relationships": { "parent": { "data": null } }
+    }
+  ],
+  "included": [],
+  "meta": {
+    "total_count": 2,
+    "count": 2,
+    "can_order_by": ["name", "sequence"],
+    "parent": { "id": "212121", "type": "Organization" }
+  }
+}

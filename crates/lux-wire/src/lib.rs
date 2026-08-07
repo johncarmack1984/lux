@@ -968,6 +968,153 @@ pub mod ctl {
     }
 }
 
+pub mod plan {
+    //! The service-plan bridge: which Planning Center service type a setup
+    //! follows, and which scene each plan item calls for.
+    //!
+    //! Two shapes, both additive — a client that predates them ignores them,
+    //! exactly as it ignores an absent `settings`:
+    //!
+    //! - [`PlanBinding`] — "this setup follows that service type, in that
+    //!   organization". One binding per setup.
+    //! - [`CueMap`] — the rules that turn a plan's items into scene recalls.
+    //!   **It hangs off the service type, never off a plan**, which is the
+    //!   whole product: next week's plan is a different plan, inherits the same
+    //!   map, and needs no work.
+    //!
+    //! The map is authoring data, so it names scenes by id and items by the
+    //! things that survive a new plan — a song from the library, a title, an
+    //! item type. It deliberately cannot name a plan item by id: those are
+    //! minted fresh for every plan, so a map built out of them would be a map
+    //! that expires every Sunday.
+    //!
+    //! Resolution (which rule wins, and how a title is matched) lives in
+    //! `lux-cue` alongside the follow engine, not here — these are the shapes
+    //! the desktop, the bridge, and the surface agree on, nothing more.
+
+    use serde::{Deserialize, Serialize};
+
+    /// Current plan-bridge payload version, stamped by the constructors.
+    /// Readers drop payloads with any other version, like [`super::ctl`].
+    pub const VERSION: u32 = 1;
+
+    /// Which Planning Center service type a setup follows.
+    ///
+    /// `org_id` is carried even though the connected token already implies one
+    /// organization: a church that re-connects a *different* organization must
+    /// not silently inherit the old one's cue maps, and comparing ids is how a
+    /// surface notices.
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PlanBinding {
+        pub v: u32,
+        pub org_id: String,
+        pub service_type_id: String,
+        /// The lux setup whose scenes the map's `sceneId`s refer to.
+        pub setup_id: String,
+    }
+
+    impl PlanBinding {
+        pub fn new(org_id: String, service_type_id: String, setup_id: String) -> Self {
+            Self {
+                v: VERSION,
+                org_id,
+                service_type_id,
+                setup_id,
+            }
+        }
+    }
+
+    /// The cue map for one service type: an ordered list of rules plus the
+    /// scene to use when none of them match.
+    ///
+    /// `fallback_scene_id` is optional and its absence is meaningful: no
+    /// fallback means an unmatched item changes nothing, which is the correct
+    /// behaviour for a rig whose "house look" is simply whatever is already up.
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct CueMap {
+        pub v: u32,
+        pub service_type_id: String,
+        pub rules: Vec<CueRule>,
+        #[serde(default)]
+        pub fallback_scene_id: Option<String>,
+    }
+
+    impl CueMap {
+        pub fn new(service_type_id: String, rules: Vec<CueRule>) -> Self {
+            Self {
+                v: VERSION,
+                service_type_id,
+                rules,
+                fallback_scene_id: None,
+            }
+        }
+
+        pub fn with_fallback(mut self, scene_id: String) -> Self {
+            self.fallback_scene_id = Some(scene_id);
+            self
+        }
+    }
+
+    /// One mapping rule. Flat and externally tagged on `kind` for the same
+    /// reason [`super::ctl::Config`] is flat: a fixed-size parser on a render
+    /// node must be able to read it without a JSON DOM.
+    ///
+    /// `itemType` is a plain string, not an enum, following the same
+    /// reader-drops-what-it-doesn't-know discipline as
+    /// [`super::ctl::ConfigChannel::role`]: Planning Center ships four standard
+    /// item types today and lets an organization define its own, so a closed
+    /// enum here would turn a church's custom type into a parse failure.
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(
+        tag = "kind",
+        rename_all = "camelCase",
+        rename_all_fields = "camelCase"
+    )]
+    pub enum CueRule {
+        /// "This song, whenever it is in the plan." Keyed by the *song*, which
+        /// lives in the organization's library and outlives every plan that
+        /// uses it — the one identifier a pin can safely be built from.
+        Pin { song_id: String, scene_id: String },
+        /// "Anything whose title looks like this" — the rule that carries a
+        /// header ("Sermon") or a recurring segment ("Announcements") forward.
+        Title {
+            pattern: String,
+            #[serde(default)]
+            mode: TitleMode,
+            scene_id: String,
+        },
+        /// "Every item of this type" — the broad stroke a map starts from
+        /// (`song` → Worship) before anything is pinned.
+        ItemType { item_type: String, scene_id: String },
+    }
+
+    impl CueRule {
+        /// The scene this rule calls for, whichever kind it is.
+        pub fn scene_id(&self) -> &str {
+            match self {
+                CueRule::Pin { scene_id, .. }
+                | CueRule::Title { scene_id, .. }
+                | CueRule::ItemType { scene_id, .. } => scene_id,
+            }
+        }
+    }
+
+    /// How a [`CueRule::Title`] pattern is compared. Both are case- and
+    /// whitespace-insensitive; the difference is only how much of the title has
+    /// to look like the pattern.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub enum TitleMode {
+        /// The default, because a real plan says "Sermon — Part 3", not
+        /// "Sermon".
+        #[default]
+        Contains,
+        Exact,
+    }
+}
+
 // --- golden tests: the wire's own drift gate ---------------------------------
 //
 // Each test pins the exact JSON a type produces/accepts. If one of these fails,
@@ -1661,5 +1808,91 @@ mod tests {
         );
         // The redirect the app parses is a fixed, tokenless custom-scheme URL.
         assert_eq!(apple::WEB_REDIRECT_URL, "lux://auth/apple/callback");
+    }
+
+    #[test]
+    fn plan_binding_shape() {
+        let binding = plan::PlanBinding::new("org-9".into(), "1109432".into(), "s-1".into());
+        assert_eq!(
+            serde_json::to_string(&binding).unwrap(),
+            r#"{"v":1,"orgId":"org-9","serviceTypeId":"1109432","setupId":"s-1"}"#
+        );
+        let parsed: plan::PlanBinding = serde_json::from_str(
+            r#"{"v":1,"orgId":"org-9","serviceTypeId":"1109432","setupId":"s-1"}"#,
+        )
+        .unwrap();
+        assert_eq!(parsed, binding);
+    }
+
+    #[test]
+    fn cue_map_shape() {
+        let map = plan::CueMap::new(
+            "1109432".into(),
+            vec![
+                plan::CueRule::Pin {
+                    song_id: "1003".into(),
+                    scene_id: "doxology".into(),
+                },
+                plan::CueRule::Title {
+                    pattern: "Sermon".into(),
+                    mode: plan::TitleMode::Contains,
+                    scene_id: "sermon".into(),
+                },
+                plan::CueRule::ItemType {
+                    item_type: "song".into(),
+                    scene_id: "worship".into(),
+                },
+            ],
+        )
+        .with_fallback("house".into());
+
+        assert_eq!(
+            serde_json::to_string(&map).unwrap(),
+            r#"{"v":1,"serviceTypeId":"1109432","rules":[{"kind":"pin","songId":"1003","sceneId":"doxology"},{"kind":"title","pattern":"Sermon","mode":"contains","sceneId":"sermon"},{"kind":"itemType","itemType":"song","sceneId":"worship"}],"fallbackSceneId":"house"}"#
+        );
+
+        let parsed: plan::CueMap = serde_json::from_str(
+            r#"{"v":1,"serviceTypeId":"1109432","rules":[{"kind":"pin","songId":"1003","sceneId":"doxology"},{"kind":"title","pattern":"Sermon","mode":"contains","sceneId":"sermon"},{"kind":"itemType","itemType":"song","sceneId":"worship"}],"fallbackSceneId":"house"}"#,
+        )
+        .unwrap();
+        assert_eq!(parsed, map);
+    }
+
+    #[test]
+    fn cue_map_tolerates_an_absent_fallback_and_title_mode() {
+        // A map authored without a fallback leaves unmatched items alone; a
+        // title rule written without a mode means "contains", so the shortest
+        // honest hand-authored rule stays valid.
+        let map: plan::CueMap = serde_json::from_str(
+            r#"{"v":1,"serviceTypeId":"1","rules":[{"kind":"title","pattern":"Sermon","sceneId":"sermon"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(map.fallback_scene_id, None);
+        assert_eq!(
+            map.rules,
+            vec![plan::CueRule::Title {
+                pattern: "Sermon".into(),
+                mode: plan::TitleMode::Contains,
+                scene_id: "sermon".into(),
+            }]
+        );
+        assert_eq!(map.rules[0].scene_id(), "sermon");
+    }
+
+    #[test]
+    fn cue_rule_item_type_is_open() {
+        // A church's custom item type must parse, not fail — the map is data,
+        // and Planning Center lets an organization invent types.
+        let map: plan::CueMap = serde_json::from_str(
+            r#"{"v":1,"serviceTypeId":"1","rules":[{"kind":"itemType","itemType":"Baptism","sceneId":"baptism"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            map.rules,
+            vec![plan::CueRule::ItemType {
+                item_type: "Baptism".into(),
+                scene_id: "baptism".into(),
+            }]
+        );
     }
 }

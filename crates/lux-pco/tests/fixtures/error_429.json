@@ -1,0 +1,9 @@
+{
+  "errors": [
+    {
+      "status": "429",
+      "title": "Too Many Requests",
+      "detail": "Rate limit exceeded: 101 of 100 requests per 20 seconds"
+    }
+  ]
+}

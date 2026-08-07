@@ -1,0 +1,56 @@
+{
+  "links": {
+    "self": "https://pco.test/services/v2/service_types/1109432/plans/77123/items?offset=5&per_page=5",
+    "prev": "https://pco.test/services/v2/service_types/1109432/plans/77123/items?per_page=5"
+  },
+  "data": [
+    {
+      "type": "Item",
+      "id": "9006",
+      "attributes": {
+        "item_type": "header",
+        "length": 1800,
+        "sequence": 6,
+        "service_position": "during",
+        "title": "Sermon — Part 3"
+      },
+      "relationships": {
+        "plan": { "data": { "type": "Plan", "id": "77123" } },
+        "song": { "data": null }
+      }
+    },
+    {
+      "type": "Item",
+      "id": "9007",
+      "attributes": {
+        "item_type": "song",
+        "key_name": "F",
+        "length": 120,
+        "sequence": 7,
+        "service_position": "during",
+        "title": "Doxology"
+      },
+      "relationships": {
+        "plan": { "data": { "type": "Plan", "id": "77123" } },
+        "song": { "data": { "type": "Song", "id": "1003" } }
+      }
+    },
+    {
+      "type": "Item",
+      "id": "9008",
+      "attributes": {
+        "item_type": "item",
+        "length": 60,
+        "sequence": 8,
+        "service_position": "post",
+        "title": "Dismissal"
+      },
+      "relationships": {
+        "plan": { "data": { "type": "Plan", "id": "77123" } },
+        "song": { "data": null }
+      }
+    }
+  ],
+  "included": [],
+  "meta": { "total_count": 8, "count": 3 }
+}
