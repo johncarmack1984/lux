@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import ButtonRow from "@/components/button-row";
 import FixturesView from "@/components/fixtures/fixtures-view";
+import ScenesPanel from "@/components/scenes/scenes-panel";
 
 export const Route = createFileRoute("/")({
   component: Home,
@@ -13,6 +14,7 @@ function Home() {
     <div className="h-full w-full overflow-y-auto">
       <div className="flex min-h-full w-full flex-col items-center">
         <ButtonRow />
+        <ScenesPanel />
         <FixturesView />
       </div>
     </div>

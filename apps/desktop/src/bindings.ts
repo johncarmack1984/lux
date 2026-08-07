@@ -55,6 +55,46 @@ export const cmd = {
   },
 
   /** @throws {string} */
+  list_scenes(): Promise<Scene[]> {
+    return invoke("cmd.list_scenes");
+  },
+
+  /** @throws {string} */
+  capture_scene(name: string): Promise<Scene[]> {
+    return invoke("cmd.capture_scene", { name });
+  },
+
+  /** @throws {string} */
+  update_scene(id: string): Promise<Scene[]> {
+    return invoke("cmd.update_scene", { id });
+  },
+
+  /** @throws {string} */
+  recall_scene(id: string): Promise<null> {
+    return invoke("cmd.recall_scene", { id });
+  },
+
+  /** @throws {string} */
+  rename_scene(id: string, name: string): Promise<Scene[]> {
+    return invoke("cmd.rename_scene", { id, name });
+  },
+
+  /** @throws {string} */
+  set_scene_fade(id: string, fadeMs: number): Promise<Scene[]> {
+    return invoke("cmd.set_scene_fade", { id, fade_ms: fadeMs });
+  },
+
+  /** @throws {string} */
+  move_scene(id: string, delta: number): Promise<Scene[]> {
+    return invoke("cmd.move_scene", { id, delta });
+  },
+
+  /** @throws {string} */
+  delete_scene(id: string): Promise<Scene[]> {
+    return invoke("cmd.delete_scene", { id });
+  },
+
+  /** @throws {string} */
   list_setups(): Promise<SetupSummary[]> {
     return invoke("cmd.list_setups");
   },
@@ -280,7 +320,7 @@ export const sync = {
   },
 };
 
-export type CmdEvent = { type: "channelDataSet"; channels: LuxChannel[] } | { type: "patchSet"; setup_id: string; fixtures: Fixture[] } | { type: "setupsChanged"; setups: SetupSummary[]; active_setup_id: string } | { type: "settingsChanged"; settings: UserSettings } | { type: "authChanged"; status: AuthStatus } | { type: "syncStatusChanged"; state: SyncState } | { type: "dmxDevicesChanged"; devices: DmxDeviceInfo[] };
+export type CmdEvent = { type: "channelDataSet"; channels: LuxChannel[] } | { type: "patchSet"; setup_id: string; fixtures: Fixture[] } | { type: "scenesSet"; setup_id: string; scenes: Scene[] } | { type: "setupsChanged"; setups: SetupSummary[]; active_setup_id: string } | { type: "settingsChanged"; settings: UserSettings } | { type: "authChanged"; status: AuthStatus } | { type: "syncStatusChanged"; state: SyncState } | { type: "dmxDevicesChanged"; devices: DmxDeviceInfo[] };
 
 export type SyncEvent = { type: "bufferSet"; buffer: number[] };
 
@@ -290,6 +330,7 @@ export const events = {
       const unlisten = await Promise.all([
         listen<{ channels: LuxChannel[] }>("cmd:channelDataSet", (event) => callback({ type: "channelDataSet", ...event.payload })),
         listen<{ setup_id: string; fixtures: Fixture[] }>("cmd:patchSet", (event) => callback({ type: "patchSet", ...event.payload })),
+        listen<{ setup_id: string; scenes: Scene[] }>("cmd:scenesSet", (event) => callback({ type: "scenesSet", ...event.payload })),
         listen<{ setups: SetupSummary[]; active_setup_id: string }>("cmd:setupsChanged", (event) => callback({ type: "setupsChanged", ...event.payload })),
         listen<{ settings: UserSettings }>("cmd:settingsChanged", (event) => callback({ type: "settingsChanged", ...event.payload })),
         listen<{ status: AuthStatus }>("cmd:authChanged", (event) => callback({ type: "authChanged", ...event.payload })),
@@ -480,6 +521,31 @@ export type RemotePeer = {
 	session: string,
 	setupId: string,
 	name: string,
+};
+
+/**
+ *  A saved look: sparse levels plus the time a recall takes to reach them.
+ * 
+ *  Order is the scene's position — scenes live in a `Vec` on the setup, so the
+ *  vector index *is* the position. There is deliberately no `position` field to
+ *  keep in step with it.
+ */
+export type Scene = {
+	id: string,
+	name: string,
+	/**  Sparse levels, sorted by slot. */
+	levels: SceneLevel[],
+	/**  Crossfade duration on recall, in milliseconds. `0` snaps. */
+	fadeMs: number,
+};
+
+/**
+ *  One slot's level inside a scene. `ch` is the 1-based DMX slot, matching
+ *  `lux_wire::ctl::Frame::Channel` — the same names the wire already uses.
+ */
+export type SceneLevel = {
+	ch: number,
+	val: number,
 };
 
 /**

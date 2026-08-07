@@ -958,6 +958,7 @@ mod tests {
             name: name.to_owned(),
             universe: 1,
             fixtures: Vec::new(),
+            scenes: Vec::new(),
             updated_at: None,
             dirty: false,
         };

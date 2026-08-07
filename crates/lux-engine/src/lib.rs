@@ -2,8 +2,9 @@
 //!
 //! Everything here is plain functions and plain types: the [`DmxSink`] trait
 //! and its sACN/E1.31 sender ([`sacn`]), the universe overlay semantics
-//! ([`universe`]), the remote-control routing and gating decisions ([`ctl`]),
-//! and the TLS/JWT glue every user-channel connection needs ([`tls`],
+//! ([`universe`]), the crossfade math behind a scene recall ([`fade`]), the
+//! remote-control routing and gating decisions ([`ctl`]), and the TLS/JWT glue
+//! every user-channel connection needs ([`tls`],
 //! [`auth`]). The desktop app wraps these in Tauri state and event plumbing;
 //! `lux-node` wraps them in a systemd-friendly binary. Nothing in this crate
 //! may depend on Tauri — that boundary is what lets lux run headless on a
@@ -11,6 +12,7 @@
 
 pub mod auth;
 pub mod ctl;
+pub mod fade;
 pub mod net;
 pub mod sacn;
 pub mod tls;
