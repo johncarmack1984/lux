@@ -1,0 +1,38 @@
+{
+  "links": {
+    "self": "https://api.planningcenteronline.com/services/v2/service_types/1109432/plans?filter=future&order=sort_date&per_page=1"
+  },
+  "data": [
+    {
+      "type": "Plan",
+      "id": "77123",
+      "attributes": {
+        "can_view_order": true,
+        "created_at": "2026-07-28T14:02:11Z",
+        "dates": "August 9, 2026",
+        "items_count": 8,
+        "last_time_at": "2026-08-09T16:15:00Z",
+        "multi_day": false,
+        "permissions": "editor",
+        "plan_notes_count": 2,
+        "planning_center_url": "https://services.planningcenteronline.com/plans/77123",
+        "public": true,
+        "rehearsable": true,
+        "series_title": "Ordinary Saints",
+        "short_dates": "Aug 9",
+        "sort_date": "2026-08-09T14:00:00Z",
+        "title": null,
+        "total_length": 4500,
+        "updated_at": "2026-08-07T02:44:19Z"
+      },
+      "relationships": {
+        "service_type": { "data": { "type": "ServiceType", "id": "1109432" } },
+        "previous_plan": { "data": { "type": "Plan", "id": "77122" } },
+        "next_plan": { "data": { "type": "Plan", "id": "77124" } },
+        "series": { "data": { "type": "Series", "id": "441" } }
+      }
+    }
+  ],
+  "included": [],
+  "meta": { "total_count": 14, "count": 1 }
+}

@@ -1,0 +1,41 @@
+{
+  "links": {
+    "self": "https://pco.test/services/v2/service_types/1109432/plans/77123/live"
+  },
+  "data": {
+    "type": "Live",
+    "id": "77123",
+    "attributes": {
+      "can_chat": false,
+      "can_control": false,
+      "can_control_video_feed": false,
+      "can_take_control": true,
+      "chat_room_channel": "services-live-77123",
+      "dates": "August 9, 2026",
+      "live_channel": "services-live-77123",
+      "series_title": "Ordinary Saints",
+      "title": null
+    },
+    "relationships": {
+      "controller": {
+        "data": {
+          "type": "Person",
+          "id": "334455"
+        }
+      },
+      "service_type": {
+        "data": {
+          "type": "ServiceType",
+          "id": "1109432"
+        }
+      },
+      "current_item_time": {
+        "data": null
+      },
+      "next_item_time": {
+        "data": null
+      }
+    }
+  },
+  "included": []
+}

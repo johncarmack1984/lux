@@ -1,0 +1,9 @@
+{
+  "errors": [
+    {
+      "status": "401",
+      "title": "Unauthorized",
+      "detail": "Access token is invalid or has expired"
+    }
+  ]
+}

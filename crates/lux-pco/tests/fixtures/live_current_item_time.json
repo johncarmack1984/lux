@@ -1,0 +1,56 @@
+{
+  "links": {
+    "self": "https://pco.test/services/v2/service_types/1109432/plans/77123/live/77123/current_item_time"
+  },
+  "data": {
+    "type": "ItemTime",
+    "id": "88002",
+    "attributes": {
+      "exclude": false,
+      "length": 280,
+      "length_offset": 0,
+      "live_start_at": "2026-08-09T14:05:12Z",
+      "live_end_at": null
+    },
+    "relationships": {
+      "item": {
+        "data": {
+          "type": "Item",
+          "id": "9002"
+        }
+      },
+      "plan": {
+        "data": {
+          "type": "Plan",
+          "id": "77123"
+        }
+      },
+      "plan_time": {
+        "data": {
+          "type": "PlanTime",
+          "id": "60011"
+        }
+      }
+    }
+  },
+  "included": [
+    {
+      "type": "Item",
+      "id": "9002",
+      "attributes": {
+        "item_type": "song",
+        "sequence": 2,
+        "title": "Great Are You Lord",
+        "length": 280
+      },
+      "relationships": {
+        "song": {
+          "data": {
+            "type": "Song",
+            "id": "1001"
+          }
+        }
+      }
+    }
+  ]
+}

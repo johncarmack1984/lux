@@ -3639,6 +3639,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lux-cue"
+version = "0.1.0"
+dependencies = [
+ "lux-wire",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "lux-discord-bot"
 version = "0.1.0"
 dependencies = [
@@ -3708,6 +3717,18 @@ dependencies = [
  "serde_json",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "lux-pco"
+version = "0.1.0"
+dependencies = [
+ "lux-cue",
+ "lux-wire",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

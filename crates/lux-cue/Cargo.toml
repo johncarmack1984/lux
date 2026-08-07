@@ -1,0 +1,24 @@
+[package]
+name = "lux-cue"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# The service-plan half of the Planning Center bridge, with no network in it:
+# resolving a plan's items to scenes through a `lux_wire::plan::CueMap`, and
+# deciding — from a polled live position — which scene to fire and when.
+#
+# Deliberately separate from `lux-pco`. That crate holds the OAuth client
+# secret and an HTTP stack, so it is server-side only; this one is pure
+# decisions, which is what lets the desktop and the phone show the same cue
+# sheet (and run manual mode) with no Planning Center connection at all.
+
+[lints]
+workspace = true
+
+[dependencies]
+lux-wire = { path = "../lux-wire" }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
