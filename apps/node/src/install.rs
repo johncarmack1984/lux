@@ -342,6 +342,7 @@ mod tests {
             name: name.into(),
             universe,
             fixtures: serde_json::json!([]),
+            scenes: serde_json::json!([]),
             rev: 0,
             updated_at: 0,
             deleted: false,

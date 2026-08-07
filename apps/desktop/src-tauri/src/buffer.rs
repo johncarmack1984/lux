@@ -89,6 +89,33 @@ impl LuxBuffer {
         self.commit(snapshot, app)
     }
 
+    /// Overlay a sparse set of 1-based slot levels in one write, then emit +
+    /// render once. This is the crossfade ticker's path (`scene::recall`): a
+    /// fade touches a handful of scattered slots forty times a second, and
+    /// looping `set_channel` would emit, persist and render once per *slot*
+    /// instead of once per frame.
+    ///
+    /// Out-of-range slots are skipped rather than rejected, matching
+    /// [`lux_engine::fade::Crossfade`]: a scene saved against a wider patch
+    /// must still recall the slots that are real.
+    pub fn apply_levels<R: Runtime>(
+        &mut self,
+        levels: &[(u16, u8)],
+        app: tauri::AppHandle<R>,
+    ) -> Result<LuxBuffer, String> {
+        let snapshot = {
+            let mut guard = self.buffer.lock_or_recover();
+            for &(channel_number, value) in levels {
+                let index = usize::from(channel_number);
+                if (1..=UNIVERSE_SIZE).contains(&index) {
+                    guard[index - 1] = value;
+                }
+            }
+            guard.clone()
+        };
+        self.commit(snapshot, app)
+    }
+
     /// Shared tail of `set`/`set_channel`: reflect the new buffer in the UI
     /// optimistically — *before* the render, which may hit the network (sACN) or
     /// have no device attached — then push it to the active DMX output. Leading

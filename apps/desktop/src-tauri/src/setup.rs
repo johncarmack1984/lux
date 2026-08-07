@@ -21,6 +21,7 @@ use specta::Type;
 use tauri::{Manager, Runtime};
 
 use crate::fixture::{self, ChannelDef, Fixture};
+use crate::scene::{self, Scene, SceneLevel};
 use crate::settings::{self, SliderOrientation, UserSettings};
 use lux_wire::SettingsRecord;
 
@@ -41,6 +42,11 @@ pub struct Setup {
     /// sACN/E1.31 universe this setup transmits on (1..=63999).
     pub universe: u16,
     pub fixtures: Vec<Fixture>,
+    /// Saved looks for this patch, in display order (the vector index *is* the
+    /// scene's position — see [`crate::scene`]). Defaults keep every
+    /// `setups.json` written before scenes existed readable.
+    #[serde(default)]
+    pub scenes: Vec<Scene>,
     /// Server timestamp (epoch millis) from the last successful push or pull —
     /// the optimistic-concurrency base for the next push. `None` until first
     /// synced (so the cloud layer treats it as a create). Cloud-sync metadata;
@@ -179,6 +185,7 @@ fn new_setup(name: impl Into<String>, universe: u16, fixtures: Vec<Fixture>) -> 
         name: name.into(),
         universe: normalize_universe(universe),
         fixtures,
+        scenes: Vec::new(),
         updated_at: None,
         dirty: false,
     }
@@ -332,6 +339,76 @@ impl LuxSetups {
         let mut store = self.store.lock_or_recover();
         let active = store.active_mut();
         fixture::remove(&mut active.fixtures, id)?;
+        active.dirty = true;
+        Ok(())
+    }
+
+    // -- scene ops on the active setup --
+    //
+    // Each one mutates the active setup's `scenes` and marks it dirty, exactly
+    // like the fixture ops above; the caller persists and pushes. Capture reads
+    // the live buffer, so the caller passes the levels in rather than this
+    // module reaching for app state.
+
+    pub fn active_scenes(&self) -> Vec<Scene> {
+        self.store.lock_or_recover().active().scenes.clone()
+    }
+
+    /// One scene from the active setup, by id — what `recall` fades toward.
+    pub fn active_scene(&self, id: uuid::Uuid) -> Option<Scene> {
+        self.store
+            .lock_or_recover()
+            .active()
+            .scenes
+            .iter()
+            .find(|s| s.id == id)
+            .cloned()
+    }
+
+    pub fn add_scene(&self, name: String, levels: Vec<SceneLevel>) -> Result<(), String> {
+        let mut store = self.store.lock_or_recover();
+        let active = store.active_mut();
+        scene::add(&mut active.scenes, name, levels)?;
+        active.dirty = true;
+        Ok(())
+    }
+
+    pub fn set_scene_levels(&self, id: uuid::Uuid, levels: Vec<SceneLevel>) -> Result<(), String> {
+        let mut store = self.store.lock_or_recover();
+        let active = store.active_mut();
+        scene::set_levels(&mut active.scenes, id, levels)?;
+        active.dirty = true;
+        Ok(())
+    }
+
+    pub fn rename_scene(&self, id: uuid::Uuid, name: String) -> Result<(), String> {
+        let mut store = self.store.lock_or_recover();
+        let active = store.active_mut();
+        scene::rename(&mut active.scenes, id, name)?;
+        active.dirty = true;
+        Ok(())
+    }
+
+    pub fn set_scene_fade(&self, id: uuid::Uuid, fade_ms: u32) -> Result<(), String> {
+        let mut store = self.store.lock_or_recover();
+        let active = store.active_mut();
+        scene::set_fade(&mut active.scenes, id, fade_ms)?;
+        active.dirty = true;
+        Ok(())
+    }
+
+    pub fn move_scene(&self, id: uuid::Uuid, delta: i32) -> Result<(), String> {
+        let mut store = self.store.lock_or_recover();
+        let active = store.active_mut();
+        scene::move_by(&mut active.scenes, id, delta)?;
+        active.dirty = true;
+        Ok(())
+    }
+
+    pub fn remove_scene(&self, id: uuid::Uuid) -> Result<(), String> {
+        let mut store = self.store.lock_or_recover();
+        let active = store.active_mut();
+        scene::remove(&mut active.scenes, id)?;
         active.dirty = true;
         Ok(())
     }
@@ -944,6 +1021,59 @@ mod tests {
         let json = serde_json::to_string(&setups.snapshot()).unwrap();
         let back = parse_store(&json).unwrap();
         assert_eq!(back.collapsed_fixture_ids, vec![fixture_id]);
+    }
+
+    // -- scenes --
+
+    #[test]
+    fn scene_ops_target_the_active_setup_and_mark_it_dirty() {
+        let setups: LuxSetups = SetupStore::default().into();
+        let levels = vec![SceneLevel { ch: 1, val: 200 }];
+
+        setups.add_scene("Worship".into(), levels.clone()).unwrap();
+        setups.add_scene("Sermon".into(), levels.clone()).unwrap();
+        assert_eq!(setups.active_scenes().len(), 2);
+        assert!(setups.dirty_for_push().iter().any(|s| s.dirty));
+
+        let worship = setups.active_scenes()[0].id;
+        setups.rename_scene(worship, "Pre-service".into()).unwrap();
+        setups.set_scene_fade(worship, 500).unwrap();
+        setups.move_scene(worship, 1).unwrap();
+        let scenes = setups.active_scenes();
+        assert_eq!(scenes[1].name, "Pre-service");
+        assert_eq!(scenes[1].fade_ms, 500);
+        assert_eq!(setups.active_scene(worship).unwrap().name, "Pre-service");
+
+        // A freshly created setup starts with no scenes of its own.
+        let work = setups.create("Work".into(), 1).unwrap();
+        setups.set_active(work).unwrap();
+        assert!(setups.active_scenes().is_empty());
+        assert!(setups.remove_scene(worship).is_err()); // not this setup's scene
+    }
+
+    #[test]
+    fn scenes_survive_the_store_and_a_pre_scenes_store_still_parses() {
+        let setups: LuxSetups = SetupStore::default().into();
+        setups
+            .add_scene("Worship".into(), vec![SceneLevel { ch: 3, val: 42 }])
+            .unwrap();
+
+        let json = serde_json::to_string(&setups.snapshot()).unwrap();
+        let back = parse_store(&json).unwrap();
+        assert_eq!(back.setups[0].scenes.len(), 1);
+        assert_eq!(back.setups[0].scenes[0].levels[0].val, 42);
+
+        // A store written before scenes existed (no `scenes` key at all) is
+        // read as a setup with no scenes, not as a parse failure — the same
+        // shipped-stores guarantee `settings` carries.
+        let stripped = {
+            let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
+            for setup in v["setups"].as_array_mut().unwrap() {
+                setup.as_object_mut().unwrap().remove("scenes");
+            }
+            v.to_string()
+        };
+        assert!(parse_store(&stripped).unwrap().setups[0].scenes.is_empty());
     }
 
     // -- user settings --

@@ -34,9 +34,9 @@ pub const SETTINGS_SEGMENT: &str = "settings";
 
 /// One setup as it crosses the wire (an element of [`ListSetupsResponse`]).
 ///
-/// `fixtures` is deliberately opaque here: the server round-trips it as JSON
-/// and only the desktop gives it a concrete type, so fixture-schema evolution
-/// never requires a server deploy.
+/// `fixtures` and `scenes` are deliberately opaque here: the server
+/// round-trips them as JSON and only the desktop gives them a concrete type, so
+/// schema evolution on either never requires a server deploy.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetupRecord {
@@ -44,6 +44,11 @@ pub struct SetupRecord {
     pub name: String,
     pub universe: u16,
     pub fixtures: Value,
+    /// The setup's saved looks (the desktop's `Vec<Scene>`). Defaulted so a
+    /// reply from a server that predates scenes still parses — clients read
+    /// that as "no scenes", exactly as they read an absent `settings`.
+    #[serde(default)]
+    pub scenes: Value,
     /// Server-side write counter. Informational on the client today; the
     /// last-writer-wins authority is `updated_at`.
     pub rev: i64,
@@ -74,6 +79,10 @@ pub struct UpsertSetupBody {
     pub universe: u16,
     /// The desktop's `Vec<Fixture>`, opaque on the wire (see [`SetupRecord`]).
     pub fixtures: Value,
+    /// The desktop's `Vec<Scene>`, opaque on the wire (see [`SetupRecord`]).
+    /// Defaulted so a body from a client that predates scenes still parses.
+    #[serde(default)]
+    pub scenes: Value,
     /// The client's last-known server `updated_at` for this setup — the
     /// optimistic-concurrency token. `None` means "create; fail if it exists".
     #[serde(default)]
@@ -977,24 +986,28 @@ mod tests {
             name: "Home".into(),
             universe: 1,
             fixtures: json!([{ "kind": "rgbaw" }]),
+            scenes: json!([{ "name": "Worship" }]),
             rev: 3,
             updated_at: 1719000000000,
             deleted: false,
         };
         assert_eq!(
             serde_json::to_string(&record).unwrap(),
-            r#"{"id":"7f0175a6-3b64-4a2a-9e1c-000000000001","name":"Home","universe":1,"fixtures":[{"kind":"rgbaw"}],"rev":3,"updatedAt":1719000000000,"deleted":false}"#
+            r#"{"id":"7f0175a6-3b64-4a2a-9e1c-000000000001","name":"Home","universe":1,"fixtures":[{"kind":"rgbaw"}],"scenes":[{"name":"Worship"}],"rev":3,"updatedAt":1719000000000,"deleted":false}"#
         );
     }
 
     #[test]
-    fn setup_record_tolerates_missing_deleted() {
+    fn setup_record_tolerates_missing_deleted_and_scenes() {
+        // A record from a server that predates either field still parses; the
+        // client reads a null `scenes` as "this setup has none".
         let record: SetupRecord = serde_json::from_value(json!({
             "id": "a", "name": "n", "universe": 1, "fixtures": [], "rev": 0,
             "updatedAt": 1
         }))
         .unwrap();
         assert!(!record.deleted);
+        assert!(record.scenes.is_null());
     }
 
     #[test]
@@ -1029,23 +1042,25 @@ mod tests {
             name: "Home".into(),
             universe: 7,
             fixtures: json!([]),
+            scenes: json!([]),
             base_updated_at: None,
         };
         assert_eq!(
             serde_json::to_string(&create).unwrap(),
-            r#"{"name":"Home","universe":7,"fixtures":[],"baseUpdatedAt":null}"#
+            r#"{"name":"Home","universe":7,"fixtures":[],"scenes":[],"baseUpdatedAt":null}"#
         );
 
         let update: UpsertSetupBody = serde_json::from_str(
-            r#"{"name":"Home","universe":7,"fixtures":[],"baseUpdatedAt":42}"#,
+            r#"{"name":"Home","universe":7,"fixtures":[],"scenes":[],"baseUpdatedAt":42}"#,
         )
         .unwrap();
         assert_eq!(update.base_updated_at, Some(42));
 
-        // A body without the field at all (very old client) still parses.
+        // A body from a client that predates either field still parses.
         let bare: UpsertSetupBody =
             serde_json::from_str(r#"{"name":"Home","universe":7,"fixtures":[]}"#).unwrap();
         assert_eq!(bare.base_updated_at, None);
+        assert!(bare.scenes.is_null());
     }
 
     #[test]

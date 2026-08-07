@@ -8,6 +8,7 @@ use crate::{
     devices::{self, DmxDeviceInfo, DmxOutput},
     fixture::{self, ChannelDef, Fixture, FixturePreset},
     nudge::RemotePeer,
+    scene::{self, Scene},
     settings::{SliderOrientation, UserSettings},
     setup::{self, LuxSetups, SetupSummary},
     sync::*,
@@ -54,6 +55,38 @@ pub trait CmdMethods {
         channels: Vec<ChannelDef>,
     ) -> Result<Vec<Fixture>, String>;
     fn remove_fixture(&self, app_handle: AppHandle, id: String) -> Result<Vec<Fixture>, String>;
+    // Scenes — the active setup's saved looks. Every mutator returns the whole
+    // list, the repo's cache-through pattern: the `scenesSet` event is a
+    // desktop fast path, and iOS never receives events.
+    fn list_scenes(&self, app_handle: AppHandle) -> Result<Vec<Scene>, String>;
+    /// Save the live buffer as a new scene, over whatever the patch covers.
+    fn capture_scene(&self, app_handle: AppHandle, name: String) -> Result<Vec<Scene>, String>;
+    /// Re-capture an existing scene's levels from the live buffer.
+    fn update_scene(&self, app_handle: AppHandle, id: String) -> Result<Vec<Scene>, String>;
+    /// Start the crossfade toward a scene. Returns as soon as the fade is
+    /// running — the buffer it could return would be stale by the next tick,
+    /// and the UI already watches the buffer.
+    fn recall_scene(&self, app_handle: AppHandle, id: String) -> Result<(), String>;
+    fn rename_scene(
+        &self,
+        app_handle: AppHandle,
+        id: String,
+        name: String,
+    ) -> Result<Vec<Scene>, String>;
+    fn set_scene_fade(
+        &self,
+        app_handle: AppHandle,
+        id: String,
+        fade_ms: u32,
+    ) -> Result<Vec<Scene>, String>;
+    /// Move a scene `delta` places in the list, saturating at either end.
+    fn move_scene(
+        &self,
+        app_handle: AppHandle,
+        id: String,
+        delta: i32,
+    ) -> Result<Vec<Scene>, String>;
+    fn delete_scene(&self, app_handle: AppHandle, id: String) -> Result<Vec<Scene>, String>;
     // Setups — a user's named (fixtures + universe) configurations.
     fn list_setups(&self, app_handle: AppHandle) -> Result<Vec<SetupSummary>, String>;
     fn create_setup(
@@ -338,6 +371,10 @@ pub enum CmdEvent {
         setup_id: String,
         fixtures: Vec<Fixture>,
     },
+    ScenesSet {
+        setup_id: String,
+        scenes: Vec<Scene>,
+    },
     SetupsChanged {
         setups: Vec<SetupSummary>,
         active_setup_id: String,
@@ -452,6 +489,75 @@ impl CmdMethods for CmdEndpoint {
         let setups = app_handle.state::<LuxSetups>();
         setups.remove_fixture(id)?;
         commit_patch(&app_handle, setups.inner())
+    }
+
+    fn list_scenes(&self, app_handle: AppHandle) -> Result<Vec<Scene>, String> {
+        Ok(app_handle.state::<LuxSetups>().active_scenes())
+    }
+
+    fn capture_scene(&self, app_handle: AppHandle, name: String) -> Result<Vec<Scene>, String> {
+        let setups = app_handle.state::<LuxSetups>();
+        setups.add_scene(name, capture_live_levels(&app_handle, setups.inner()))?;
+        commit_scenes(&app_handle, setups.inner())
+    }
+
+    fn update_scene(&self, app_handle: AppHandle, id: String) -> Result<Vec<Scene>, String> {
+        let id = parse_scene_id(&id)?;
+        let setups = app_handle.state::<LuxSetups>();
+        setups.set_scene_levels(id, capture_live_levels(&app_handle, setups.inner()))?;
+        commit_scenes(&app_handle, setups.inner())
+    }
+
+    fn recall_scene(&self, app_handle: AppHandle, id: String) -> Result<(), String> {
+        let id = parse_scene_id(&id)?;
+        let scene = app_handle
+            .state::<LuxSetups>()
+            .active_scene(id)
+            .ok_or_else(|| format!("scene {id} not found"))?;
+        scene::recall(&app_handle, &scene)
+    }
+
+    fn rename_scene(
+        &self,
+        app_handle: AppHandle,
+        id: String,
+        name: String,
+    ) -> Result<Vec<Scene>, String> {
+        let id = parse_scene_id(&id)?;
+        let setups = app_handle.state::<LuxSetups>();
+        setups.rename_scene(id, name)?;
+        commit_scenes(&app_handle, setups.inner())
+    }
+
+    fn set_scene_fade(
+        &self,
+        app_handle: AppHandle,
+        id: String,
+        fade_ms: u32,
+    ) -> Result<Vec<Scene>, String> {
+        let id = parse_scene_id(&id)?;
+        let setups = app_handle.state::<LuxSetups>();
+        setups.set_scene_fade(id, fade_ms)?;
+        commit_scenes(&app_handle, setups.inner())
+    }
+
+    fn move_scene(
+        &self,
+        app_handle: AppHandle,
+        id: String,
+        delta: i32,
+    ) -> Result<Vec<Scene>, String> {
+        let id = parse_scene_id(&id)?;
+        let setups = app_handle.state::<LuxSetups>();
+        setups.move_scene(id, delta)?;
+        commit_scenes(&app_handle, setups.inner())
+    }
+
+    fn delete_scene(&self, app_handle: AppHandle, id: String) -> Result<Vec<Scene>, String> {
+        let id = parse_scene_id(&id)?;
+        let setups = app_handle.state::<LuxSetups>();
+        setups.remove_scene(id)?;
+        commit_scenes(&app_handle, setups.inner())
     }
 
     fn list_setups(&self, app_handle: AppHandle) -> Result<Vec<SetupSummary>, String> {
@@ -946,6 +1052,34 @@ fn parse_setup_id(id: &str) -> Result<uuid::Uuid, String> {
     uuid::Uuid::parse_str(id).map_err(|e| format!("bad setup id: {e}"))
 }
 
+fn parse_scene_id(id: &str) -> Result<uuid::Uuid, String> {
+    uuid::Uuid::parse_str(id).map_err(|e| format!("bad scene id: {e}"))
+}
+
+/// Snapshot the live buffer over the active setup's patch — what "save this
+/// look" means. Reading the buffer (never `sync_buffer`, which is a command
+/// path) keeps capture a pure read with no render or echo side effects.
+fn capture_live_levels(app: &AppHandle, setups: &LuxSetups) -> Vec<crate::scene::SceneLevel> {
+    let buffer = app.state::<LuxBuffer>().buffer.lock_or_recover().clone();
+    scene::capture_levels(&buffer, &setups.active_fixtures())
+}
+
+/// Persist the store and broadcast the active setup's scenes to the UI. Like
+/// [`commit_patch`], the `setup_id` lets the UI ignore a list from a setup it
+/// has already switched away from.
+fn commit_scenes(app: &AppHandle, setups: &LuxSetups) -> Result<Vec<Scene>, String> {
+    setup::save(app, setups);
+    let scenes = setups.active_scenes();
+    CmdEvent::ScenesSet {
+        setup_id: setups.active_id().to_string(),
+        scenes: scenes.clone(),
+    }
+    .emit(app)
+    .map_err(|e| format!("Failed to emit scenes_set event: {e}"))?;
+    crate::cloud::schedule_push(app);
+    Ok(scenes)
+}
+
 /// Persist the store and broadcast the active setup's patch to the UI, returning
 /// the new fixture list. The `setup_id` lets the UI ignore a `PatchSet` from a
 /// setup it has already switched away from.
@@ -1011,8 +1145,13 @@ pub fn broadcast_synced_state(app: &AppHandle) {
     }
     .emit(app);
     let _ = CmdEvent::PatchSet {
-        setup_id: active_id,
+        setup_id: active_id.clone(),
         fixtures: setups.active_fixtures(),
+    }
+    .emit(app);
+    let _ = CmdEvent::ScenesSet {
+        setup_id: active_id,
+        scenes: setups.active_scenes(),
     }
     .emit(app);
     let _ = CmdEvent::SettingsChanged {
@@ -1052,6 +1191,13 @@ fn activate(app: &AppHandle, setups: &LuxSetups) -> Result<(), String> {
     }
     .emit(app)
     .map_err(|e| format!("Failed to emit patch_set event: {e}"))?;
+    // Scenes belong to the setup, so switching swaps the whole list.
+    CmdEvent::ScenesSet {
+        setup_id: setups.active_id().to_string(),
+        scenes: setups.active_scenes(),
+    }
+    .emit(app)
+    .map_err(|e| format!("Failed to emit scenes_set event: {e}"))?;
     // Remote surfaces learn the new binding through the presence card.
     crate::nudge::presence_changed(app);
     Ok(())

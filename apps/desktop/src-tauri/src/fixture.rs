@@ -40,7 +40,7 @@ pub struct Fixture {
 
 impl Fixture {
     /// Last DMX slot this fixture occupies (1-based, inclusive).
-    fn end(&self) -> u16 {
+    pub(crate) fn end(&self) -> u16 {
         // A validated fixture spans ≤512 consecutive slots, so its channel count
         // fits u16; saturate rather than wrap if that invariant is ever violated.
         let count = u16::try_from(self.channels.len()).unwrap_or(u16::MAX);

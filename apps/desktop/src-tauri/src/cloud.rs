@@ -116,6 +116,11 @@ fn cloud_to_setup(c: &SetupRecord) -> Option<Setup> {
         name: c.name.clone(),
         universe: c.universe,
         fixtures: serde_json::from_value(c.fixtures.clone()).ok()?,
+        // A setup written before scenes existed (or by a server that predates
+        // them) carries `null` here. That is "no scenes", not a broken record:
+        // unlike `fixtures`, an unreadable list must not cost us the whole
+        // setup — losing a patch to a bad scene blob would be the worse bug.
+        scenes: serde_json::from_value(c.scenes.clone()).unwrap_or_default(),
         updated_at: Some(c.updated_at),
         dirty: false,
     })
@@ -197,6 +202,7 @@ async fn upsert(
         universe: setup.universe,
         fixtures: serde_json::to_value(&setup.fixtures)
             .map_err(|e| SyncError::Other(e.to_string()))?,
+        scenes: serde_json::to_value(&setup.scenes).map_err(|e| SyncError::Other(e.to_string()))?,
         base_updated_at: setup.updated_at,
     };
     let resp = client
@@ -810,6 +816,7 @@ mod tests {
             name: name.into(),
             universe: 1,
             fixtures: vec![],
+            scenes: vec![],
             updated_at,
             dirty,
         }
@@ -821,6 +828,7 @@ mod tests {
             name: name.into(),
             universe: 1,
             fixtures: serde_json::json!([]),
+            scenes: serde_json::json!([]),
             rev: 1,
             updated_at,
             deleted,
@@ -834,6 +842,31 @@ mod tests {
         assert_eq!(merged[0].name, "Home");
         assert_eq!(merged[0].updated_at, Some(100));
         assert!(!merged[0].dirty);
+    }
+
+    #[test]
+    fn scenes_cross_the_wire_with_their_setup() {
+        // The reason scenes ride `SetupRecord` at all: adopting a remote-newer
+        // setup must bring its saved looks, not silently drop them.
+        let mut remote = cloud_setup(1, "Home", 200, false);
+        remote.scenes = serde_json::json!([{
+            "id": "00000000-0000-0000-0000-000000000009",
+            "name": "Worship",
+            "levels": [{ "ch": 1, "val": 200 }],
+            "fadeMs": 3000
+        }]);
+        let merged = reconcile(vec![local_setup(1, "Home", Some(100), false)], &[remote]);
+        assert_eq!(merged[0].scenes.len(), 1);
+        assert_eq!(merged[0].scenes[0].name, "Worship");
+        assert_eq!(merged[0].scenes[0].fade_ms, 3000);
+
+        // A record from a server that predates scenes reads as "none" and still
+        // yields a usable setup — the patch is never lost to a missing blob.
+        let mut old = cloud_setup(2, "Church", 200, false);
+        old.scenes = serde_json::Value::Null;
+        let merged = reconcile(vec![], &[old]);
+        assert_eq!(merged[0].name, "Church");
+        assert!(merged[0].scenes.is_empty());
     }
 
     #[test]
@@ -918,6 +951,7 @@ mod tests {
                 name: "Sync Round-Trip".into(),
                 universe: 7,
                 fixtures: vec![],
+                scenes: vec![],
                 updated_at: None,
                 dirty: true,
             };

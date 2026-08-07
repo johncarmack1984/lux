@@ -107,6 +107,12 @@ pub async fn list(ddb: &Client, table: &str, sub: &str) -> Result<ListSetupsResp
             fixtures: s(item, "fixtures")
                 .and_then(|raw| serde_json::from_str(&raw).ok())
                 .unwrap_or(Value::Array(vec![])),
+            // Absent on every setup written before scenes existed; an empty
+            // list is the honest reading, and the owning client repairs the
+            // attribute on its next push.
+            scenes: s(item, "scenes")
+                .and_then(|raw| serde_json::from_str(&raw).ok())
+                .unwrap_or(Value::Array(vec![])),
             rev: n(item, "rev").unwrap_or(0),
             updated_at: n(item, "updatedAt").unwrap_or(0),
             deleted: item
@@ -136,17 +142,20 @@ pub async fn upsert(
         .key("sk", AttributeValue::S(sk(setup_id)))
         .update_expression(
             "SET #name = :name, #universe = :universe, #fixtures = :fixtures, \
-             #deleted = :false, #updatedAt = :now, #rev = if_not_exists(#rev, :zero) + :one",
+             #scenes = :scenes, #deleted = :false, #updatedAt = :now, \
+             #rev = if_not_exists(#rev, :zero) + :one",
         )
         .expression_attribute_names("#name", "name")
         .expression_attribute_names("#universe", "universe")
         .expression_attribute_names("#fixtures", "fixtures")
+        .expression_attribute_names("#scenes", "scenes")
         .expression_attribute_names("#deleted", "deleted")
         .expression_attribute_names("#updatedAt", "updatedAt")
         .expression_attribute_names("#rev", "rev")
         .expression_attribute_values(":name", AttributeValue::S(body.name.clone()))
         .expression_attribute_values(":universe", AttributeValue::N(body.universe.to_string()))
         .expression_attribute_values(":fixtures", AttributeValue::S(body.fixtures.to_string()))
+        .expression_attribute_values(":scenes", AttributeValue::S(body.scenes.to_string()))
         .expression_attribute_values(":false", AttributeValue::Bool(false))
         .expression_attribute_values(":now", AttributeValue::N(now.to_string()))
         .expression_attribute_values(":zero", AttributeValue::N("0".into()))
