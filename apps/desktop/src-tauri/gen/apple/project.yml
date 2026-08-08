@@ -11,8 +11,10 @@ options:
   bundleIdPrefix: com.johncarmack.lux
   # Pinned rather than templated: bundle > iOS > minimumSystemVersion is unset
   # (the CLI default drifted to 13.0 after this project scaffolded at 14.0).
+  # Floor is 15.0: Apple rejects uploads below MinimumOSVersion 15.0 from
+  # Spring 2027 (ITMS-90068), and 14.0 uploads already draw the warning.
   deploymentTarget:
-    iOS: 14.0
+    iOS: 15.0
   # Stamps LastUpgradeCheck/LastUpgradeVersion as already reviewed by Xcode 26,
   # so it stops offering "Update to recommended settings" — those
   # recommendations are wrong for this generated project (script sandboxing
