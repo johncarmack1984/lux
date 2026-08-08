@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.1](https://github.com/johncarmack1984/lux/compare/v1.13.0...v1.13.1) (2026-08-08)
+
+
+### Bug Fixes
+
+* **ios:** raise minimum iOS version to 15.0 ([#266](https://github.com/johncarmack1984/lux/issues/266)) ([8890d0b](https://github.com/johncarmack1984/lux/commit/8890d0b46239d46c2cc1a40391f55b594c308fa6))
+
 ## [1.13.0](https://github.com/johncarmack1984/lux/compare/v1.12.0...v1.13.0) (2026-08-07)
 
 
