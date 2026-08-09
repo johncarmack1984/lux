@@ -337,7 +337,7 @@ jobs:
       # smallest-binary config, kept as-is). rust-cache restores those dep
       # artifacts keyed on Cargo.lock, so only the workspace crates + the final
       # LTO link recompile. The cache is scoped to the workspace-root target/.
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: "."
 
@@ -654,7 +654,7 @@ jobs:
       # keeps the registry/index warm without caching target/.
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
 
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: "."
           cache-targets: "false"
@@ -854,7 +854,7 @@ jobs:
       # rust-cache only, no sccache: the Rust compile runs inside Xcode's
       # "Build Rust Code" script phase, where the GHA cache credentials
       # sccache's backend needs are one env-propagation hop too fragile.
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: "."
 
@@ -1029,7 +1029,7 @@ jobs:
       # driven by the tauri CLI (no Xcode in the loop), so sccache applies.
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
 
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: "."
 
@@ -1210,7 +1210,7 @@ jobs:
 
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
 
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: "."
           cache-targets: "false"
