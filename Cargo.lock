@@ -157,9 +157,9 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "apple-native-keyring-store"
-version = "1.0.1"
+version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "797f94b6a53d7d10b56dc18290e0d40a2158352f108bb4ff32350825081a9f29"
+checksum = "2b350bfd03649e07aa05c0a81b3e15934374e585c98204a57e20b9d49f49bb9a"
 dependencies = [
  "keyring-core",
  "log",
@@ -959,9 +959,9 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64"
-version = "0.23.0"
+version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b25655df2c3cdd83c5e5b293b88acd880332b2ddadd7c30ac43144fdc0033da9"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "base64-simd"
@@ -3344,9 +3344,9 @@ dependencies = [
 
 [[package]]
 name = "keyring"
-version = "4.1.5"
+version = "4.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0298a59b384c540e408a600c8b375a09b49c3f97debc080e2c30675d79a6368a"
+checksum = "72585bb6cc9bc370d1d545b7e23fcce71dfd4461c5e15275e3cf51bdfd9a980a"
 dependencies = [
  "apple-native-keyring-store",
  "keyring-core",
@@ -3563,7 +3563,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-cognitoidentityprovider",
  "aws-smithy-http-client",
- "base64 0.23.0",
+ "base64 0.23.1",
  "gethostname",
  "keyring",
  "keyring-core",
@@ -3603,7 +3603,7 @@ dependencies = [
  "aws-sdk-secretsmanager",
  "aws-smithy-http-client",
  "aws-smithy-runtime-api",
- "base64 0.23.0",
+ "base64 0.23.1",
  "jsonwebtoken",
  "lambda_runtime",
  "lux-auth",
@@ -3668,7 +3668,7 @@ dependencies = [
 name = "lux-engine"
 version = "0.1.0"
 dependencies = [
- "base64 0.23.0",
+ "base64 0.23.1",
  "log",
  "lux-wire",
  "pem 4.0.0",
@@ -4452,7 +4452,7 @@ version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d354a98a3d1251555de99e8fdd8afda05573c31b82f59063a7b0a29b5527f120"
 dependencies = [
- "base64 0.23.0",
+ "base64 0.23.1",
  "serde_core",
 ]
 
