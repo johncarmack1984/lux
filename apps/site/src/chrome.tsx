@@ -8,12 +8,15 @@ export function Nav() {
         </svg>
         lux
       </a>
-      <div className="flex items-center gap-7 text-[15px]">
+      <div className="flex items-center gap-5 text-[15px] sm:gap-7">
         <a className="text-mut transition-colors hover:text-ink" href="/#how">
           How it works
         </a>
         <a className="text-mut transition-colors hover:text-ink" href="/privacy/">
           Privacy
+        </a>
+        <a className="text-mut transition-colors hover:text-ink" href="/terms/">
+          Terms
         </a>
       </div>
     </nav>
@@ -37,6 +40,9 @@ export function Footer() {
           </a>
           <a className="transition-colors hover:text-ink" href="/privacy/">
             Privacy
+          </a>
+          <a className="transition-colors hover:text-ink" href="/terms/">
+            Terms
           </a>
         </div>
       </div>
