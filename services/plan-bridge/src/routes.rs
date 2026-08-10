@@ -234,6 +234,12 @@ pub async fn plan(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
     if req.service_type_id.trim().is_empty() {
         return reply(400, &error("missing service type"));
     }
+    // The id is interpolated into a Planning Center URL path, so its shape is
+    // checked rather than trusted: one carrying `/`, `..` or `?` would rewrite
+    // the request into a different read instead of naming a service type.
+    if !is_service_type_id(&req.service_type_id) {
+        return reply(400, &error("that is not a service type"));
+    }
     // A map authored against another service type would resolve silently and
     // wrongly — the one mistake in this flow that produces confident nonsense.
     if let Some(map) = &req.cue_map {
@@ -393,7 +399,13 @@ fn pco_failure(what: &str, e: &PcoError) -> Result<Value, Error> {
 
 /// A minimal, self-contained page. No external anything: this is served from a
 /// Lambda into a browser that may be on a church's guest wifi.
+///
+/// Both strings are escaped once, here, on every surface they reach — the
+/// `<title>` included. Callers hand this raw text, and one unescaped slot would
+/// quietly make that the wrong thing to do.
 fn page(status: u16, heading: &str, detail: &str) -> Result<Value, Error> {
+    let heading = escape(heading);
+    let detail = escape(detail);
     html(
         status,
         format!(
@@ -406,11 +418,19 @@ margin:0;min-height:100vh;display:grid;place-items:center;padding:2rem}}\
 main{{max-width:32rem;text-align:center}}\
 h1{{font-size:1.5rem;margin:0 0 .5rem}}\
 p{{margin:0;opacity:.8}}</style></head>\
-<body><main><h1>{}</h1><p>{}</p></main></body></html>",
-            escape(heading),
-            escape(detail)
+<body><main><h1>{heading}</h1><p>{detail}</p></main></body></html>"
         ),
     )
+}
+
+/// Whether this is the shape Planning Center gives a service type id.
+///
+/// Their ids are decimal integers as strings, and the only ones a church can
+/// legitimately send came from `/pco/service-types` in the first place. Checked
+/// against the shape rather than percent-encoded because there is no honest id
+/// this rejects, and a bounded allowlist is the cheaper thing to be sure of.
+fn is_service_type_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 32 && id.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// Escape the five characters that matter in HTML text.
@@ -449,22 +469,27 @@ fn rand_token() -> Result<String, String> {
 mod tests {
     use super::*;
 
+    /// The whole document `page` renders — head included, because a page is
+    /// only safe if every slot in it is.
+    fn document(status: u16, heading: &str, detail: &str) -> String {
+        let rendered = page(status, heading, detail).expect("page renders");
+        rendered["body"]
+            .as_str()
+            .expect("body is a string")
+            .to_owned()
+    }
+
     /// Build the callback page's text the way `callback` does, so these tests
     /// exercise the real composition rather than a hand-escaped stand-in.
     fn connected_page(org_name: Option<&str>) -> String {
         let church = org_name
             .map(|n| format!("{n} is connected to lux."))
             .unwrap_or_else(|| "Your Planning Center account is connected to lux.".to_owned());
-        let rendered = page(
+        document(
             200,
             "Connected",
             &format!("{church} You can close this window and go back to lux."),
         )
-        .expect("page renders");
-        rendered["body"]
-            .as_str()
-            .expect("body is a string")
-            .to_owned()
     }
 
     #[test]
@@ -474,6 +499,22 @@ mod tests {
         let body = connected_page(Some("<script>alert('x')</script>"));
         assert!(!body.contains("<script>"));
         assert!(body.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn every_slot_in_the_page_is_escaped_not_just_the_visible_ones() {
+        // Both arguments are literals at every call site today, and the reason
+        // `callback` may hand the church's raw name to `detail` is precisely
+        // that this function escapes what it renders. That claim has to hold
+        // for the title as much as the heading, or the next caller that passes
+        // a church's name as a heading inherits a hole nobody re-checked for.
+        let rendered = document(200, "<script>alert(1)</script>", "<img src=x onerror=1>");
+        assert!(!rendered.contains("<script>"), "unescaped: {rendered}");
+        assert!(!rendered.contains("<img "), "unescaped: {rendered}");
+        assert!(rendered.contains("<title>&lt;script&gt;"), "{rendered}");
+        assert!(rendered.contains("<h1>&lt;script&gt;"), "{rendered}");
+        // The document's own markup survives — this is escaping, not stripping.
+        assert!(rendered.starts_with("<!doctype html>"));
     }
 
     #[test]
@@ -513,6 +554,27 @@ mod tests {
         assert!(a
             .bytes()
             .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_'));
+    }
+
+    #[test]
+    fn a_service_type_id_that_could_rewrite_the_url_is_refused() {
+        // What Planning Center actually issues.
+        assert!(is_service_type_id("1"));
+        assert!(is_service_type_id("1183041"));
+
+        // Path traversal, a second path segment, a query, and a fragment: each
+        // of these would turn "read this service type's plans" into a read of
+        // something else, since the id lands in the URL path.
+        assert!(!is_service_type_id("../../people/v2/me"));
+        assert!(!is_service_type_id("123/plans/456"));
+        assert!(!is_service_type_id("123?per_page=100"));
+        assert!(!is_service_type_id("123#x"));
+        assert!(!is_service_type_id("123%2Fplans"));
+        // And the ordinary near-misses.
+        assert!(!is_service_type_id(""));
+        assert!(!is_service_type_id(" 123"));
+        assert!(!is_service_type_id("abc"));
+        assert!(!is_service_type_id(&"9".repeat(33)));
     }
 
     #[test]
