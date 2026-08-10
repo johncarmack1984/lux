@@ -155,9 +155,12 @@ pub async fn callback(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> 
     }
 
     tracing::info!("planning center connected");
+    // Raw here on purpose: `page` escapes everything it renders, so escaping
+    // the church's name now would double-encode it and show a congregation
+    // "Saints &amp; Sinners" on the one screen that is meant to reassure them.
     let church = org
         .name
-        .map(|n| format!("{} is connected to lux.", escape(&n)))
+        .map(|n| format!("{n} is connected to lux."))
         .unwrap_or_else(|| "Your Planning Center account is connected to lux.".to_owned());
     page(
         200,
@@ -446,25 +449,60 @@ fn rand_token() -> Result<String, String> {
 mod tests {
     use super::*;
 
+    /// Build the callback page's text the way `callback` does, so these tests
+    /// exercise the real composition rather than a hand-escaped stand-in.
+    fn connected_page(org_name: Option<&str>) -> String {
+        let church = org_name
+            .map(|n| format!("{n} is connected to lux."))
+            .unwrap_or_else(|| "Your Planning Center account is connected to lux.".to_owned());
+        let rendered = page(
+            200,
+            "Connected",
+            &format!("{church} You can close this window and go back to lux."),
+        )
+        .expect("page renders");
+        rendered["body"]
+            .as_str()
+            .expect("body is a string")
+            .to_owned()
+    }
+
     #[test]
     fn a_church_name_cannot_inject_markup_into_the_page() {
         // Planning Center is not the enemy, but the church's own display name
         // is user-entered text arriving over the network, and it lands in HTML.
-        let injected = "<script>alert('x')</script>";
-        let escaped = escape(injected);
-        assert!(!escaped.contains('<'));
-        assert_eq!(escaped, "&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;");
-
-        let rendered =
-            page(200, "Connected", &format!("{escaped} is connected.")).expect("page renders");
-        let body = rendered["body"].as_str().expect("body is a string");
+        let body = connected_page(Some("<script>alert('x')</script>"));
         assert!(!body.contains("<script>"));
+        assert!(body.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn a_church_name_is_escaped_exactly_once() {
+        // The page escapes what it renders, so the caller must hand it the raw
+        // name. Escaping in both places renders "Saints &amp; Sinners" to the
+        // congregation — visibly wrong on the one screen meant to reassure.
+        let body = connected_page(Some("Saints & Sinners"));
+        assert!(
+            body.contains("Saints &amp; Sinners is connected to lux."),
+            "expected a single escape; got: {body}"
+        );
+        assert!(
+            !body.contains("&amp;amp;"),
+            "name was double-escaped: {body}"
+        );
     }
 
     #[test]
     fn ordinary_names_survive_escaping_readably() {
         assert_eq!(escape("Grace Chapel"), "Grace Chapel");
         assert_eq!(escape("Saints & Sinners"), "Saints &amp; Sinners");
+        assert!(connected_page(Some("Grace Chapel")).contains("Grace Chapel is connected to lux."));
+    }
+
+    #[test]
+    fn a_church_with_no_name_still_gets_a_sentence() {
+        let body = connected_page(None);
+        assert!(body.contains("Your Planning Center account is connected to lux."));
     }
 
     #[test]
