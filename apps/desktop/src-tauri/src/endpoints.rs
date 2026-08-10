@@ -45,6 +45,12 @@ pub struct Endpoints {
     /// live; the desktop lights its web Apple button on it. Default-false so a
     /// file that predates the field keeps the feature dark.
     pub apple_web_enabled: bool,
+    /// Base URL of the lux-plan-bridge Function URL (the Planning Center
+    /// bridge). Absent until the first release after that service's Terraform
+    /// applied — the endpoints file only carries outputs that exist in applied
+    /// state — and empty means the `/plan` route stays dark, which is the
+    /// correct state for every build that predates the bridge.
+    pub plan_bridge_url: String,
     /// Dev-machine remote control (device identity + mTLS material); only ever
     /// present in `endpoints.local.json` — the generated prod file never
     /// carries it, so plain installs have no remote-control surface.

@@ -37,4 +37,4 @@ pub use client::{PcoClient, PlanFilter, RateLimit, API_BASE};
 pub use error::Error;
 pub use http::{Http, HttpRequest, HttpResponse, Method, ReqwestHttp};
 pub use oauth::{OAuthApp, Tokens};
-pub use services::{LiveSlot, LiveSnapshot, Plan, ServiceType};
+pub use services::{LiveSlot, LiveSnapshot, Organization, Plan, ServiceType};

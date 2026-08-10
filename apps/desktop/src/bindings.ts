@@ -303,6 +303,33 @@ export const cmd = {
   },
 };
 
+export const plan = {
+  /** @throws {string} */
+  plan_status(): Promise<PlanConnection> {
+    return invoke("plan.plan_status");
+  },
+
+  /** @throws {string} */
+  plan_connect(): Promise<PlanConsent> {
+    return invoke("plan.plan_connect");
+  },
+
+  /** @throws {string} */
+  plan_service_types(): Promise<PlanServiceType[]> {
+    return invoke("plan.plan_service_types");
+  },
+
+  /** @throws {string} */
+  plan_next(serviceTypeId: string): Promise<PlanView> {
+    return invoke("plan.plan_next", { service_type_id: serviceTypeId });
+  },
+
+  /** @throws {string} */
+  plan_disconnect(): Promise<PlanConnection> {
+    return invoke("plan.plan_disconnect");
+  },
+};
+
 export const sync = {
   /** @throws {string} */
   sync_buffer(): Promise<LuxBuffer> {
@@ -350,6 +377,7 @@ export const events = {
 
 export const createTauRPCProxy = () => ({
   cmd: { ...cmd, event: { on: events.cmd.listen } },
+  plan,
   sync: { ...sync, event: { on: events.sync.listen } },
 });
 
@@ -503,6 +531,66 @@ export type PendingShare = {
 	label: string | null,
 	/**  Epoch millis (an `f64`; see [`InviteCode`]). */
 	expiresAt: number | null,
+};
+
+/**  Whether a Planning Center organization is connected, and which. */
+export type PlanConnection = {
+	connected: boolean,
+	/**  The church's name, when Planning Center told us one. */
+	orgName: string | null,
+	/**  Epoch millis (an `f64` so it crosses to the webview as a plain number). */
+	connectedAt: number | null,
+	/**
+	 *  The 90-day authorization is nearly up. The surface asks for a reconnect
+	 *  on a weekday rather than letting a Sunday discover it.
+	 */
+	needsReconnect: boolean,
+	/**
+	 *  False when this build has no bridge configured or nobody is signed in —
+	 *  the difference between "not connected" and "cannot connect", which are
+	 *  different sentences on the route.
+	 */
+	available: boolean,
+};
+
+/**  The consent URL to open in the administrator's browser. */
+export type PlanConsent = {
+	authorizeUrl: string,
+};
+
+/**  One row of the plan. */
+export type PlanItemRow = {
+	id: string,
+	title: string,
+	/**  `song`, `header`, `media`, `item`, or a church's own type. */
+	itemType: string,
+	/**  Planned length in seconds, when the plan gives one. Display only. */
+	lengthS: number | null,
+	/**
+	 *  The scene this item calls for, once a cue map exists. Always `None` in
+	 *  this unit — the plan is driven by hand — and the field is here so the
+	 *  surface that renders it does not change when the map arrives.
+	 */
+	sceneId: string | null,
+};
+
+/**  A service type a setup could follow. */
+export type PlanServiceType = {
+	id: string,
+	name: string,
+};
+
+/**  This week's plan, ready to render. */
+export type PlanView = {
+	/**  `None` when the service type has no future plan — an ordinary Tuesday. */
+	planId: string | null,
+	/**
+	 *  Planning Center's own label for the date, rendered as they render it:
+	 *  the plan's timezone is the church's, not the device's.
+	 */
+	dates: string | null,
+	title: string | null,
+	items: PlanItemRow[],
 };
 
 /**

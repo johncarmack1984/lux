@@ -24,3 +24,7 @@ reqwest = { workspace = true }
 [dev-dependencies]
 lux-wire = { path = "../lux-wire" }
 tokio = { workspace = true, features = ["macros", "rt"] }
+# The live-server tests (tests/live.rs) make real TLS requests, and this crate's
+# reqwest has no baked-in crypto provider — the same one-liner the Lambdas run
+# in main(). Dev-only: the crate itself still installs nothing on its callers.
+rustls = { workspace = true }

@@ -15,6 +15,7 @@ mod guest;
 mod lock;
 mod logger;
 mod nudge;
+mod plan;
 mod remote;
 mod scene;
 mod settings;
@@ -28,6 +29,7 @@ use buffer::LuxBuffer;
 use channels::LuxChannels;
 use cmd::*;
 use devices::DmxOutput;
+use plan::*;
 use sync::*;
 use tauri::Manager;
 
@@ -69,10 +71,12 @@ pub async fn run() {
     let default_channels = LuxChannels::default();
     let router = SyncEndpoint
         .into_procedures()
-        .merge(CmdEndpoint.into_procedures());
+        .merge(CmdEndpoint.into_procedures())
+        .merge(PlanEndpoint.into_procedures());
     let taurpc = ttipc::handler(router);
     let builder = builder
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(logger::logger().build())
         .manage(default_buffer)
@@ -115,6 +119,7 @@ pub fn ttipc_bindings() -> ttipc::Bindings {
         .method_case(ttipc::MethodCase::Snake)
         .router("createTauRPCProxy")
         .register::<CmdMethodsProcedures>()
+        .register::<PlanMethodsProcedures>()
         .register::<SyncMethodsProcedures>()
         .register_events::<CmdEvent>()
         .register_events::<SyncEvent>()

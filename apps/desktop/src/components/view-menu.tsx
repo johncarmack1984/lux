@@ -1,5 +1,12 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { Check, ChevronsUpDown, Lightbulb, SlidersVertical, Users } from "lucide-react";
+import {
+  CalendarDays,
+  Check,
+  ChevronsUpDown,
+  Lightbulb,
+  SlidersVertical,
+  Users,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -11,6 +18,7 @@ import {
 const VIEWS = [
   { to: "/", label: "Fixtures", icon: Lightbulb },
   { to: "/universe", label: "Universe", icon: SlidersVertical },
+  { to: "/plan", label: "Plan", icon: CalendarDays },
   { to: "/shared", label: "Shared with you", icon: Users },
 ] as const;
 

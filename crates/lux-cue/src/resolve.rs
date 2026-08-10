@@ -38,6 +38,23 @@ pub enum CueSource {
     Unmapped,
 }
 
+impl CueSource {
+    /// The name this tier travels under on `lux_wire::plan::PlanItemSummary`.
+    ///
+    /// Spelled once, here, rather than at the bridge's serialization site: the
+    /// surface renders these strings, so a rename that only happened on one
+    /// side would be a silently mislabelled cue rather than a build failure.
+    pub fn wire_name(self) -> &'static str {
+        match self {
+            CueSource::Pin => "pin",
+            CueSource::Title => "title",
+            CueSource::ItemType => "itemType",
+            CueSource::Fallback => "fallback",
+            CueSource::Unmapped => "none",
+        }
+    }
+}
+
 /// One plan item and the scene it calls for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cue {

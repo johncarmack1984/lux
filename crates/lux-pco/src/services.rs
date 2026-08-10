@@ -87,6 +87,34 @@ pub struct LiveAttrs {
     pub chat_room_channel: Option<String>,
 }
 
+/// The connected church, as the Services API root names it.
+///
+/// Read once at connect, to answer "which organization is this token for?" —
+/// the question `lux_wire::plan::PlanBinding` carries an `org_id` to settle.
+/// Everything here is optional because identifying the church is a *nicety*:
+/// a connection whose org could not be named still reads plans perfectly well,
+/// so a surprise in this document degrades the label, never the connection.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Organization {
+    pub id: Option<String>,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "snake_case", default)]
+pub struct OrganizationAttrs {
+    pub name: Option<String>,
+}
+
+impl From<Resource<OrganizationAttrs>> for Organization {
+    fn from(resource: Resource<OrganizationAttrs>) -> Self {
+        Self {
+            id: (!resource.id.is_empty()).then_some(resource.id),
+            name: resource.attributes.name,
+        }
+    }
+}
+
 /// A recurring service. The cue map's anchor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceType {

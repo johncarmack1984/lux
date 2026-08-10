@@ -3583,6 +3583,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-log",
+ "tauri-plugin-opener",
  "tauri-plugin-positioner",
  "tauri-plugin-process",
  "tauri-plugin-shell",
@@ -3726,9 +3727,33 @@ dependencies = [
  "lux-cue",
  "lux-wire",
  "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "lux-plan-bridge"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws-sdk-secretsmanager",
+ "aws-smithy-http-client",
+ "aws-smithy-runtime-api",
+ "base64 0.23.0",
+ "lambda_runtime",
+ "lux-auth",
+ "lux-cue",
+ "lux-pco",
+ "lux-wire",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -6220,6 +6245,28 @@ dependencies = [
  "tauri-plugin",
  "thiserror 2.0.19",
  "time",
+]
+
+[[package]]
+name = "tauri-plugin-opener"
+version = "2.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17e1bea14edce6b793a04e2417e3fd924b9bc4faae83cdee7d714156cceeed29"
+dependencies = [
+ "dunce",
+ "glob",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "open",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.19",
+ "url",
+ "windows",
+ "zbus",
 ]
 
 [[package]]

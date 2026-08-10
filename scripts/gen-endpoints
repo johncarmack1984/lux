@@ -23,6 +23,7 @@ jq -Sn \
   --arg nudgeEndpoint         "$(out iot_endpoint)" \
   --arg appleAuthUrl          "$(out apple_auth_url)" \
   --argjson appleWebEnabled   "$(out apple_web_enabled)" \
+  --arg planBridgeUrl         "$(out plan_bridge_url)" \
   '{
     cognitoRegion:         $cognitoRegion,
     cognitoUserPoolId:     $cognitoUserPoolId,
@@ -31,7 +32,8 @@ jq -Sn \
     syncUrl:               $syncUrl,
     nudgeEndpoint:         $nudgeEndpoint,
     appleAuthUrl:          $appleAuthUrl,
-    appleWebEnabled:       $appleWebEnabled
+    appleWebEnabled:       $appleWebEnabled,
+    planBridgeUrl:         $planBridgeUrl
   }' > apps/desktop/src-tauri/endpoints.prod.json
 
 echo "wrote apps/desktop/src-tauri/endpoints.prod.json:"

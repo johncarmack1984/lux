@@ -12,6 +12,7 @@ members = [
     "services/apple-auth",
     "services/bot",
     "services/iot-authorizer",
+    "services/plan-bridge",
     "services/sync-api",
 ]
 
