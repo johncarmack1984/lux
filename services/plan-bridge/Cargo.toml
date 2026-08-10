@@ -1,0 +1,37 @@
+[package]
+name = "lux-plan-bridge"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# The Planning Center bridge on AWS Lambda (provided.al2023). One function
+# serving the `/pco/*` routes on the auth domain: the church's administrator
+# authorizes once in a browser, this service keeps custody of the resulting
+# refresh token, and every plan read the desktop makes goes through here rather
+# than through an installed app holding a client secret it has no business
+# holding. Read-only against Planning Center by construction (`lux-pco`), and
+# built and deployed with the same static-musl pipeline as the other services.
+
+[lints]
+workspace = true
+
+[dependencies]
+lux-auth = { path = "../../crates/lux-auth" }
+lux-cue = { path = "../../crates/lux-cue" }
+lux-pco = { path = "../../crates/lux-pco" }
+lux-wire = { path = "../../crates/lux-wire" }
+lambda_runtime = "1"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+aws-config = { workspace = true }
+aws-smithy-http-client.workspace = true
+aws-smithy-runtime-api = "1"
+aws-sdk-dynamodb = { version = "1", default-features = false, features = ["rt-tokio"] }
+aws-sdk-secretsmanager = { version = "1", default-features = false, features = ["rt-tokio"] }
+# rustls with no baked-in crypto provider; main() installs ring as the process
+# default, sidestepping the aws-lc-rs C build that reqwest's `rustls` feature pulls.
+rustls = { workspace = true }
+base64 = "0.23"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

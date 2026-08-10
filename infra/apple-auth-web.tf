@@ -17,6 +17,14 @@ locals {
     trimprefix(aws_lambda_function_url.lux_apple_auth.function_url, "https://"),
     "/",
   )
+  # The Planning Center bridge shares this domain (plan-bridge.tf): Planning
+  # Center matches a registered redirect URI byte for byte, and the registered
+  # one is https://auth.lux.johncarmack.com/pco/callback. Second origin, second
+  # behaviour — the two functions never see each other's traffic.
+  plan_bridge_fn_host = trimsuffix(
+    trimprefix(aws_lambda_function_url.lux_plan_bridge.function_url, "https://"),
+    "/",
+  )
 }
 
 # --- certificate (us-east-1, CloudFront's required region) + DNS validation ---
@@ -73,6 +81,39 @@ resource "aws_cloudfront_distribution" "apple_auth" {
       origin_protocol_policy = "https-only"
       origin_ssl_protocols   = ["TLSv1.2"]
     }
+  }
+
+  origin {
+    domain_name = local.plan_bridge_fn_host
+    origin_id   = "lux-plan-bridge-fn"
+
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "https-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
+  # /pco/* → the Planning Center bridge. Ordered behaviours are evaluated before
+  # the default, so this claims the bridge's paths and everything else still
+  # lands on the Apple function exactly as it did.
+  ordered_cache_behavior {
+    path_pattern           = "/pco/*"
+    target_origin_id       = "lux-plan-bridge-fn"
+    viewer_protocol_policy = "https-only"
+    # Planning Center redirects the browser here with GET; the app POSTs the
+    # rest.
+    allowed_methods = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods  = ["GET", "HEAD"]
+    compress        = true
+    # Never cache: the callback carries a single-use code in its query string
+    # and every other route is per-account (AWS managed "CachingDisabled").
+    cache_policy_id = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+    # Forward everything except Host, which a Function URL rejects if it isn't
+    # its own (AWS managed "AllViewerExceptHostHeader"). This is also what
+    # carries the Authorization header and the OAuth query string through.
+    origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac"
   }
 
   default_cache_behavior {

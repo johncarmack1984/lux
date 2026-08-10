@@ -301,7 +301,7 @@ resource "aws_iam_role_policy" "terraform_apply" {
 # Assumed by release.yml's deploy-lambdas job (after terraform-apply, before the
 # desktop build), so deployed Lambda code always matches the release tag instead
 # of drifting behind manual `cargo lambda deploy` runs. Deliberately narrow:
-# update code + read config on the three lux functions, plus what the post-deploy
+# update code + read config on the lux functions listed below, plus what the post-deploy
 # smoke tests need (the Function URLs, and a direct test invoke of the
 # authorizer's deny path). It cannot touch IAM, config, or any other resource.
 
@@ -311,6 +311,7 @@ locals {
     "arn:aws:lambda:*:${local.aws_account_id}:function:lux-iot-authorizer",
     "arn:aws:lambda:*:${local.aws_account_id}:function:lux-discord-bot",
     "arn:aws:lambda:*:${local.aws_account_id}:function:lux-apple-auth",
+    "arn:aws:lambda:*:${local.aws_account_id}:function:lux-plan-bridge",
   ]
 }
 

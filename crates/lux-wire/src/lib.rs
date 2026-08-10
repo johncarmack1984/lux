@@ -1113,6 +1113,154 @@ pub mod plan {
         Contains,
         Exact,
     }
+
+    // --- the bridge's HTTP surface -------------------------------------------
+    //
+    // Everything below is desktop ↔ `lux-plan-bridge`. The shapes above are
+    // *stored* data (they ride the setup through sync); these are *transport*,
+    // and they exist so neither side re-declares the other's JSON.
+
+    /// Path segments the bridge routes on, all under `/pco`.
+    ///
+    /// `callback` is the one Planning Center itself calls, and its full URL is
+    /// registered with them byte for byte (`lux_pco::oauth::REDIRECT_URI_PROD`)
+    /// — so this constant and that one must agree, which the golden tests
+    /// assert rather than trust.
+    pub const PCO_SEGMENT: &str = "pco";
+    pub const CONNECT_SEGMENT: &str = "connect";
+    pub const CALLBACK_SEGMENT: &str = "callback";
+    pub const STATUS_SEGMENT: &str = "status";
+    pub const SERVICE_TYPES_SEGMENT: &str = "service-types";
+    pub const PLAN_SEGMENT: &str = "plan";
+    pub const DISCONNECT_SEGMENT: &str = "disconnect";
+
+    /// `POST /pco/connect` — start a connection. Bearer-authed: the caller's
+    /// verified Cognito `sub` is the account the connection lands on, and the
+    /// request body never names a user.
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ConnectResponse {
+        /// Where to send the church's administrator. Open it in a browser —
+        /// never in a webview inside the app, which is both Planning Center's
+        /// preference and the only way the admin can see the address bar they
+        /// are typing a password into.
+        pub authorize_url: String,
+        /// The CSRF token minted for this attempt, echoed so a surface can
+        /// recognise its own callback. Single-use and short-lived server-side.
+        pub state: String,
+    }
+
+    /// `GET /pco/status` — what, if anything, this account has connected.
+    ///
+    /// `connected: false` with everything else absent is the normal answer for
+    /// the overwhelming majority of accounts, and it is not an error.
+    #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase", default)]
+    pub struct StatusResponse {
+        pub connected: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub org_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub org_name: Option<String>,
+        /// Unix milliseconds at which the connection was authorized.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub connected_at: Option<i64>,
+        /// True once the stored refresh token has aged past Planning Center's
+        /// 90-day ceiling, so a surface can say "reconnect" rather than show a
+        /// connection that will fail on the next read.
+        pub needs_reconnect: bool,
+    }
+
+    /// One row of `GET /pco/service-types`.
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ServiceTypeSummary {
+        pub id: String,
+        pub name: String,
+    }
+
+    #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase", default)]
+    pub struct ServiceTypesResponse {
+        pub service_types: Vec<ServiceTypeSummary>,
+    }
+
+    /// `POST /pco/plan` — the next plan for a service type, resolved.
+    ///
+    /// A `POST` for what is plainly a read, because the request carries the
+    /// [`CueMap`]: the map lives on the setup and travels by sync, so the
+    /// bridge has no copy of its own, and sending it up means **one** engine
+    /// (`lux-cue`, server-side) decides what a plan means. A laptop and a
+    /// phone looking at the same plan then cannot disagree about which scene
+    /// an item calls for — and a surface holding no setup at all still gets
+    /// resolved cues.
+    ///
+    /// The map is optional. Without one the plan comes back unresolved
+    /// (`sceneId: null`, `source: "none"`), which is exactly what a church
+    /// that has connected but not yet authored a map should see.
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PlanRequest {
+        pub service_type_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub cue_map: Option<CueMap>,
+    }
+
+    /// The answer to [`PlanRequest`]: the next plan and its items.
+    ///
+    /// `plan: None` means the service type has no future plan on the calendar,
+    /// which is an ordinary Tuesday answer, not a failure.
+    #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase", default)]
+    pub struct PlanResponse {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub plan: Option<PlanSummary>,
+        pub items: Vec<PlanItemSummary>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PlanSummary {
+        pub id: String,
+        /// Planning Center's own human label for the date ("August 10, 2026").
+        /// Carried as the string they render rather than a parsed date: the
+        /// plan's timezone is the church's, not the device's, and re-deriving
+        /// it client-side is how a plan shows up on the wrong Sunday.
+        pub dates: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub title: Option<String>,
+        /// ISO-8601 sort date, for ordering only.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub sort_date: Option<String>,
+    }
+
+    /// A plan item as the surface renders it: the identity fields plus the
+    /// scene the cue map resolved for it, and which rule did the resolving.
+    ///
+    /// This is deliberately *not* `lux_cue::PlanItem` — the desktop shows the
+    /// resolution result, and shipping the resolved answer means one engine
+    /// (the bridge's) decides what a plan means, so a phone and a laptop
+    /// looking at the same plan can never disagree.
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PlanItemSummary {
+        pub id: String,
+        pub sequence: i64,
+        pub title: String,
+        pub item_type: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub song_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub length_s: Option<i64>,
+        /// The scene this item calls for, if the map resolved one. `None` is
+        /// "nothing mapped" — the item runs and the lights stay as they are.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub scene_id: Option<String>,
+        /// Which rule chose it: `pin`, `title`, `itemType`, `fallback`, or
+        /// `none`. Display-only, but the thing that makes a cue map debuggable
+        /// at the back of a room.
+        pub source: String,
+    }
 }
 
 // --- golden tests: the wire's own drift gate ---------------------------------
@@ -1893,6 +2041,166 @@ mod tests {
                 item_type: "Baptism".into(),
                 scene_id: "baptism".into(),
             }]
+        );
+    }
+
+    #[test]
+    fn plan_bridge_routes_are_exactly_these() {
+        // The callback path is registered with Planning Center; the rest are
+        // ours. `lux-pco` owns the full registered URL and asserts its own
+        // half — this pins the path the bridge routes on so the two cannot
+        // drift apart without a failing test on one side or the other.
+        assert_eq!(
+            format!("/{}/{}", plan::PCO_SEGMENT, plan::CALLBACK_SEGMENT),
+            "/pco/callback"
+        );
+        assert_eq!(plan::CONNECT_SEGMENT, "connect");
+        assert_eq!(plan::STATUS_SEGMENT, "status");
+        assert_eq!(plan::SERVICE_TYPES_SEGMENT, "service-types");
+        assert_eq!(plan::PLAN_SEGMENT, "plan");
+        assert_eq!(plan::DISCONNECT_SEGMENT, "disconnect");
+    }
+
+    #[test]
+    fn connect_response_shape() {
+        let body = plan::ConnectResponse {
+            authorize_url: "https://api.planningcenteronline.com/oauth/authorize?client_id=cid"
+                .into(),
+            state: "st-1".into(),
+        };
+        assert_eq!(
+            serde_json::to_string(&body).unwrap(),
+            r#"{"authorizeUrl":"https://api.planningcenteronline.com/oauth/authorize?client_id=cid","state":"st-1"}"#
+        );
+    }
+
+    #[test]
+    fn status_response_omits_what_it_does_not_know() {
+        // The common answer — no connection — is four bytes of truth and no
+        // null soup for the surface to special-case.
+        let body = plan::StatusResponse::default();
+        assert_eq!(
+            serde_json::to_string(&body).unwrap(),
+            r#"{"connected":false,"needsReconnect":false}"#
+        );
+
+        let connected = plan::StatusResponse {
+            connected: true,
+            org_id: Some("org-9".into()),
+            org_name: Some("Grace Chapel".into()),
+            connected_at: Some(1_719_000_000_000),
+            needs_reconnect: false,
+        };
+        assert_eq!(
+            serde_json::to_string(&connected).unwrap(),
+            r#"{"connected":true,"orgId":"org-9","orgName":"Grace Chapel","connectedAt":1719000000000,"needsReconnect":false}"#
+        );
+
+        // A body from a server that predates `needsReconnect` reads as "no".
+        let old: plan::StatusResponse = serde_json::from_str(r#"{"connected":true}"#).unwrap();
+        assert!(old.connected);
+        assert!(!old.needs_reconnect);
+    }
+
+    #[test]
+    fn service_types_response_shape() {
+        let body = plan::ServiceTypesResponse {
+            service_types: vec![plan::ServiceTypeSummary {
+                id: "1109432".into(),
+                name: "Sunday Morning".into(),
+            }],
+        };
+        assert_eq!(
+            serde_json::to_string(&body).unwrap(),
+            r#"{"serviceTypes":[{"id":"1109432","name":"Sunday Morning"}]}"#
+        );
+    }
+
+    #[test]
+    fn plan_request_shape() {
+        let bare = plan::PlanRequest {
+            service_type_id: "1109432".into(),
+            cue_map: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&bare).unwrap(),
+            r#"{"serviceTypeId":"1109432"}"#
+        );
+
+        let mapped = plan::PlanRequest {
+            service_type_id: "1109432".into(),
+            cue_map: Some(plan::CueMap::new(
+                "1109432".into(),
+                vec![plan::CueRule::ItemType {
+                    item_type: "song".into(),
+                    scene_id: "worship".into(),
+                }],
+            )),
+        };
+        assert_eq!(
+            serde_json::to_string(&mapped).unwrap(),
+            r#"{"serviceTypeId":"1109432","cueMap":{"v":1,"serviceTypeId":"1109432","rules":[{"kind":"itemType","itemType":"song","sceneId":"worship"}],"fallbackSceneId":null}}"#
+        );
+
+        // A church that has connected but authored no map sends the bare form.
+        let parsed: plan::PlanRequest =
+            serde_json::from_str(r#"{"serviceTypeId":"1109432"}"#).unwrap();
+        assert_eq!(parsed, bare);
+    }
+
+    #[test]
+    fn plan_response_shape() {
+        let body = plan::PlanResponse {
+            plan: Some(plan::PlanSummary {
+                id: "70112".into(),
+                dates: "August 16, 2026".into(),
+                title: Some("Summer Series".into()),
+                sort_date: Some("2026-08-16T09:00:00Z".into()),
+            }),
+            items: vec![plan::PlanItemSummary {
+                id: "i-1".into(),
+                sequence: 1,
+                title: "Doxology".into(),
+                item_type: "song".into(),
+                song_id: Some("1003".into()),
+                length_s: Some(210),
+                scene_id: Some("doxology".into()),
+                source: "pin".into(),
+            }],
+        };
+        assert_eq!(
+            serde_json::to_string(&body).unwrap(),
+            r#"{"plan":{"id":"70112","dates":"August 16, 2026","title":"Summer Series","sortDate":"2026-08-16T09:00:00Z"},"items":[{"id":"i-1","sequence":1,"title":"Doxology","itemType":"song","songId":"1003","lengthS":210,"sceneId":"doxology","source":"pin"}]}"#
+        );
+    }
+
+    #[test]
+    fn plan_response_with_no_future_plan_is_not_an_error_shape() {
+        // Tuesday, nothing on the calendar. The surface says "no upcoming
+        // plan", never "failed to load".
+        let body = plan::PlanResponse::default();
+        assert_eq!(serde_json::to_string(&body).unwrap(), r#"{"items":[]}"#);
+
+        let parsed: plan::PlanResponse = serde_json::from_str("{}").unwrap();
+        assert_eq!(parsed.plan, None);
+        assert!(parsed.items.is_empty());
+    }
+
+    #[test]
+    fn an_unmapped_item_serializes_without_a_scene() {
+        let item = plan::PlanItemSummary {
+            id: "i-2".into(),
+            sequence: 2,
+            title: "Announcements".into(),
+            item_type: "item".into(),
+            song_id: None,
+            length_s: None,
+            scene_id: None,
+            source: "none".into(),
+        };
+        assert_eq!(
+            serde_json::to_string(&item).unwrap(),
+            r#"{"id":"i-2","sequence":2,"title":"Announcements","itemType":"item","source":"none"}"#
         );
     }
 }

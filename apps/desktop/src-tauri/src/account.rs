@@ -98,6 +98,10 @@ pub struct LuxAccount {
     /// the `appleWebEnabled` endpoints field (true once the Services ID + its
     /// domain are provisioned).
     apple_web_enabled: bool,
+    /// Base URL of the lux-plan-bridge Function URL (the Planning Center
+    /// bridge); `None` keeps the `/plan` route dark, which is every build
+    /// that predates the service.
+    plan_bridge_url: Option<String>,
     session: Arc<Mutex<Session>>,
 }
 
@@ -158,6 +162,7 @@ impl LuxAccount {
             sync_url: base_url(&endpoints.sync_url),
             apple_auth_url: base_url(&endpoints.apple_auth_url),
             apple_web_enabled: endpoints.apple_web_enabled,
+            plan_bridge_url: base_url(&endpoints.plan_bridge_url),
             session: Arc::new(Mutex::new(Session::default())),
         }
     }
@@ -165,6 +170,11 @@ impl LuxAccount {
     /// Base URL of the sync API, if cloud sync is configured.
     pub fn sync_url(&self) -> Option<String> {
         self.sync_url.clone()
+    }
+
+    /// Base URL of the Planning Center bridge, if it is provisioned.
+    pub fn plan_bridge_url(&self) -> Option<String> {
+        self.plan_bridge_url.clone()
     }
 
     pub fn signed_in(&self) -> bool {

@@ -25,8 +25,8 @@ use crate::error::Error;
 use crate::http::{Http, HttpRequest};
 use crate::jsonapi::{Collection, MaybeSingle, Resource, Single};
 use crate::services::{
-    plan_item, ItemAttrs, ItemTime, ItemTimeAttrs, LiveAttrs, LiveSlot, LiveSnapshot, Plan,
-    PlanAttrs, ServiceType, ServiceTypeAttrs,
+    plan_item, ItemAttrs, ItemTime, ItemTimeAttrs, LiveAttrs, LiveSlot, LiveSnapshot, Organization,
+    OrganizationAttrs, Plan, PlanAttrs, ServiceType, ServiceTypeAttrs,
 };
 use lux_cue::PlanItem;
 
@@ -119,6 +119,20 @@ impl<H: Http> PcoClient<H> {
         // limit is advisory, so answering "unknown" beats propagating a panic
         // into a live service.
         self.rate_limit.lock().ok().and_then(|seen| *seen)
+    }
+
+    /// Which church this token belongs to, from the Services API root.
+    ///
+    /// **Best effort by design.** The root document is read for a label and an
+    /// id, and an `Ok(Organization::default())` — not an error — is the answer
+    /// when it does not carry them. A church whose name we cannot read is
+    /// still a church whose plans we can follow, and failing the connect over
+    /// a display string would be the wrong trade on a Sunday morning. The
+    /// transport's own failures (401, 429, no network) still surface.
+    pub async fn organization(&self) -> Result<Organization, Error> {
+        let url = format!("{}/services/v2", self.base);
+        let document: MaybeSingle<OrganizationAttrs> = self.get(&url).await?;
+        Ok(document.data.map(Organization::from).unwrap_or_default())
     }
 
     /// The organization's service types.
