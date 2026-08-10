@@ -150,13 +150,10 @@ export default function PlanDesk() {
   const [connecting, setConnecting] = useState(false);
   const [consentUrl, setConsentUrl] = useState<string | null>(null);
 
-  // The connection finishes in a browser, outside this window. Coming back to
-  // lux is the signal to re-ask.
-  useEffect(() => {
-    const onFocus = () => void refreshPlanStatus();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, []);
+  // Note: the connection finishes in a browser, outside this window, so coming
+  // back to lux is the signal to re-ask — but `usePlanStatus` already refetches
+  // on window focus. A second listener here would just double every request at
+  // the exact moment someone is impatiently alt-tabbing back.
 
   // The bridge is unreachable. Say so rather than spinning: the desk still
   // works, and the operator needs to know to drive it by hand.
