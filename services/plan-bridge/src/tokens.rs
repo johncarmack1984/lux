@@ -25,6 +25,16 @@ pub enum Refused {
     Unavailable,
 }
 
+/// Whether a stored access token is good for long enough to spend on a read.
+///
+/// The one place the rule lives, so the fast path below, the race recovery, and
+/// the tests all ask the same question. A test that re-stated the comparison
+/// could agree with a bug in it — the same reason `http::route` exists as a
+/// function rather than a match a test re-writes.
+fn is_usable(conn: &Connection, now_s: i64) -> bool {
+    now_s.saturating_add(lux_pco::oauth::REFRESH_SKEW_S) < conn.access_expires_at_s
+}
+
 /// An access token good for the next few minutes.
 ///
 /// Returns the stored one when it is still comfortably valid, and otherwise
@@ -35,7 +45,7 @@ pub async fn fresh_access_token(
     conn: &Connection,
 ) -> Result<String, Refused> {
     let now_s = store::now_secs();
-    if now_s.saturating_add(lux_pco::oauth::REFRESH_SKEW_S) < conn.access_expires_at_s {
+    if is_usable(conn, now_s) {
         return Ok(conn.access_token.clone());
     }
 
@@ -47,6 +57,15 @@ pub async fn fresh_access_token(
     let tokens = match app.refresh(&ctx.http, &conn.refresh_token).await {
         Ok(t) => t,
         Err(lux_pco::Error::Unauthorized) => {
+            // Two reads that overlap on an expired access token both refresh
+            // with the same rotating token, and Planning Center honours one of
+            // them — so "rejected" is ambiguous here. Look again before saying
+            // the word: if the other read has already stored a working pair,
+            // this connection is healthy and telling a church to reconnect
+            // would be exactly the wrong sentence.
+            if let Some(token) = token_from_a_concurrent_refresh(ctx, sub, conn).await {
+                return Ok(token);
+            }
             // The refresh token is spent, revoked, or ninety days old. The
             // stored pair is now worthless; say so rather than retrying it on
             // every poll for the rest of the service.
@@ -74,9 +93,10 @@ pub async fn fresh_access_token(
         now_s
     };
 
-    if let Err(e) = store::set_tokens(
+    match store::set_tokens(
         ctx,
         sub,
+        &conn.refresh_token,
         &tokens.access_token,
         &refresh_token,
         tokens.expires_at_s().unwrap_or(now_s),
@@ -84,13 +104,51 @@ pub async fn fresh_access_token(
     )
     .await
     {
+        Ok(true) => {}
+        // The stored pair moved under this write: another read rotated it, or
+        // the church disconnected. Either way theirs is the current truth and
+        // this one must not put an older pair back.
+        Ok(false) => tracing::info!("a concurrent refresh already stored a newer pair"),
         // The refresh itself worked. Failing the read now would strand a
         // church mid-service over a bookkeeping error — serve the token, log
         // loudly, and let the next read try the write again.
-        tracing::error!("refreshed token write failed, serving anyway: {e}");
+        Err(e) => tracing::error!("refreshed token write failed, serving anyway: {e}"),
     }
 
     Ok(tokens.access_token)
+}
+
+/// The access token another in-flight read just stored, when there is one.
+///
+/// Only consulted after Planning Center refuses a refresh: a rotating refresh
+/// token that has already been spent by a concurrent read looks exactly like a
+/// revoked one from here, and the stored pair is what tells the two apart.
+async fn token_from_a_concurrent_refresh(
+    ctx: &Ctx,
+    sub: &str,
+    refreshed_with: &Connection,
+) -> Option<String> {
+    let current = match store::get_connection(ctx, sub).await {
+        Ok(Some(c)) => c,
+        // No connection at all: the church disconnected mid-read, which is a
+        // reconnect in every sense that matters to the caller.
+        Ok(None) => return None,
+        Err(e) => {
+            tracing::error!("post-refresh connection read failed: {e}");
+            return None;
+        }
+    };
+    if current.refresh_token == refreshed_with.refresh_token {
+        // Nothing moved, so nothing raced. The token really is spent.
+        return None;
+    }
+    if !is_usable(&current, store::now_secs()) {
+        // Rotated, but not into something this read can spend. Fall through to
+        // the honest answer rather than serving a token about to expire.
+        return None;
+    }
+    tracing::info!("refresh raced a concurrent one; using the pair it stored");
+    Some(current.access_token)
 }
 
 #[cfg(test)]
@@ -109,18 +167,11 @@ mod tests {
         }
     }
 
-    /// The decision `fresh_access_token` makes before it touches anything.
-    /// Pulled out so the "do we even need to refresh" rule is testable without
-    /// AWS clients or a network.
-    fn would_reuse(conn: &Connection, now_s: i64) -> bool {
-        now_s.saturating_add(lux_pco::oauth::REFRESH_SKEW_S) < conn.access_expires_at_s
-    }
-
     #[test]
     fn a_token_with_time_left_is_reused_rather_than_refreshed() {
         let c = conn(10_000);
         // An hour of life left: no round trip.
-        assert!(would_reuse(&c, 6_400));
+        assert!(is_usable(&c, 6_400));
     }
 
     #[test]
@@ -128,14 +179,26 @@ mod tests {
         let c = conn(10_000);
         // Four minutes left, inside the five-minute skew — refresh now, not
         // during the next request.
-        assert!(!would_reuse(&c, 9_760));
-        assert!(!would_reuse(&c, 10_001));
+        assert!(!is_usable(&c, 9_760));
+        assert!(!is_usable(&c, 10_001));
     }
 
     #[test]
     fn a_connection_with_no_recorded_expiry_always_refreshes() {
         // Written before the field existed, or by a token response that did
         // not say. One extra round trip beats a 401 mid-service.
-        assert!(!would_reuse(&conn(0), 1));
+        assert!(!is_usable(&conn(0), 1));
+    }
+
+    #[test]
+    fn the_skew_is_wide_enough_to_cover_a_read() {
+        // The point of the skew is that a token handed out here survives the
+        // Planning Center round trips the caller is about to make. Five
+        // minutes; a value small enough to expire mid-read would turn this
+        // module into the thing it exists to prevent.
+        assert!(lux_pco::oauth::REFRESH_SKEW_S >= 60);
+        let c = conn(10_000);
+        assert!(is_usable(&c, 10_000 - lux_pco::oauth::REFRESH_SKEW_S - 1));
+        assert!(!is_usable(&c, 10_000 - lux_pco::oauth::REFRESH_SKEW_S));
     }
 }

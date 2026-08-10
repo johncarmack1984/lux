@@ -156,31 +156,51 @@ pub async fn put_connection(ctx: &Ctx, sub: &str, conn: &Connection) -> Result<(
 /// An update rather than a put: a refresh happening while the church is being
 /// renamed must not resurrect the old label, and a refresh must never be able
 /// to *create* a connection that no one authorized.
+///
+/// Conditional on `refreshed_from` still being the stored refresh token, so two
+/// overlapping reads cannot leave the older of two rotations in the table. The
+/// second one's write is refused and answers `Ok(false)` — a race, not a
+/// failure; the caller keeps serving the token it was handed and the newer pair
+/// stays put.
 pub async fn set_tokens(
     ctx: &Ctx,
     sub: &str,
+    refreshed_from: &str,
     access_token: &str,
     refresh_token: &str,
     access_expires_at_s: i64,
     refresh_issued_at_s: i64,
-) -> Result<(), String> {
-    ctx.ddb
+) -> Result<bool, String> {
+    let result = ctx
+        .ddb
         .update_item()
         .table_name(&ctx.table)
         .key("pk", AttributeValue::S(conn_pk(sub)))
         .key("sk", AttributeValue::S(CONN_SK.into()))
-        .condition_expression("attribute_exists(pk)")
+        .condition_expression("attribute_exists(pk) AND refreshToken = :from")
         .update_expression(
             "SET accessToken = :a, refreshToken = :r, accessExpiresAt = :e, refreshIssuedAt = :i",
         )
+        .expression_attribute_values(":from", AttributeValue::S(refreshed_from.into()))
         .expression_attribute_values(":a", AttributeValue::S(access_token.into()))
         .expression_attribute_values(":r", AttributeValue::S(refresh_token.into()))
         .expression_attribute_values(":e", AttributeValue::N(access_expires_at_s.to_string()))
         .expression_attribute_values(":i", AttributeValue::N(refresh_issued_at_s.to_string()))
         .send()
-        .await
-        .map_err(|e| format!("token update failed: {e}"))?;
-    Ok(())
+        .await;
+
+    match result {
+        Ok(_) => Ok(true),
+        Err(e)
+            if e.as_service_error()
+                .is_some_and(|service| service.is_conditional_check_failed_exception()) =>
+        {
+            // Someone else rotated the pair, or the church disconnected, while
+            // this refresh was in flight. Neither is an error to report.
+            Ok(false)
+        }
+        Err(e) => Err(format!("token update failed: {e}")),
+    }
 }
 
 pub async fn delete_connection(ctx: &Ctx, sub: &str) -> Result<(), String> {
