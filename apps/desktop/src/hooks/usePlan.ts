@@ -45,17 +45,34 @@ export default function usePlanStatus(): {
   };
 }
 
-/** The connected church's service types. Only asked once connected. */
-export function usePlanServiceTypes(enabled: boolean): PlanServiceType[] | null {
-  const { data } = useQuery({
+/**
+ * The connected church's service types. Only asked once connected.
+ *
+ * The error travels with them because the interesting failure here is a
+ * *refusal*, not an outage: a revoked authorization answers "needs
+ * reconnecting", and a caller that kept only the data would show an empty
+ * calendar to a church whose connection simply needs renewing.
+ */
+export function usePlanServiceTypes(enabled: boolean): {
+  serviceTypes: PlanServiceType[] | null;
+  error: string | null;
+} {
+  const { data, error } = useQuery({
     queryKey: PLAN_SERVICE_TYPES_QUERY_KEY,
     queryFn: () => plan().plan_service_types(),
     enabled,
     // Service types change about once a year. Don't spend a church's rate
     // limit re-asking on every focus.
     staleTime: 5 * 60 * 1000,
+    // One retry, then say so. "Needs reconnecting" and "not connected" are
+    // settled answers, and asking three more times only delays the sentence
+    // the operator has to act on.
+    retry: 1,
   });
-  return data ?? null;
+  return {
+    serviceTypes: data ?? null,
+    error: error ? String((error as Error).message ?? error) : null,
+  };
 }
 
 /**

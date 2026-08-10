@@ -135,7 +135,8 @@ export default function PlanDesk() {
   const showing = activeSceneId(buffer, scenes);
 
   const connected = status?.connected ?? false;
-  const serviceTypes = usePlanServiceTypes(connected);
+  const { serviceTypes, error: serviceTypesError } =
+    usePlanServiceTypes(connected);
   const [serviceTypeId, setServiceTypeId] = useState<string | null>(null);
 
   // Land on the church's first service type. Most have exactly one, and making
@@ -304,7 +305,19 @@ export default function PlanDesk() {
         </p>
       )}
 
-      {plan?.planId ? (
+      {/*
+        The service types are what a plan is read *through*: without them there
+        is no service type to ask about, so "no upcoming plan" below would be a
+        guess dressed as a fact. Say what actually happened — usually that the
+        church's authorization needs renewing, which Disconnect and Connect fix
+        from this same screen.
+      */}
+      {serviceTypesError ? (
+        <Empty
+          title="Can’t read this church’s services"
+          detail={`${serviceTypesError} — your lights and scenes are unaffected. If the connection has lapsed, Disconnect and connect again from this screen.`}
+        />
+      ) : plan?.planId ? (
         <>
           <div>
             <p className="text-sm font-medium">{plan.dates ?? "Next plan"}</p>
