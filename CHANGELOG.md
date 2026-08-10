@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.0](https://github.com/johncarmack1984/lux/compare/v1.13.1...v1.14.0) (2026-08-10)
+
+
+### Features
+
+* **bridge:** read Planning Center plans from a /plan route ([#270](https://github.com/johncarmack1984/lux/issues/270)) ([13e7427](https://github.com/johncarmack1984/lux/commit/13e7427f2905f8f5b494afddc81623420cffde8e))
+
 ## [1.13.1](https://github.com/johncarmack1984/lux/compare/v1.13.0...v1.13.1) (2026-08-08)
 
 
