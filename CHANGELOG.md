@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.1](https://github.com/johncarmack1984/lux/compare/v1.14.0...v1.14.1) (2026-08-11)
+
+
+### Bug Fixes
+
+* **account:** deleting an account disconnects Planning Center and its devices ([#274](https://github.com/johncarmack1984/lux/issues/274)) ([5a2eb2d](https://github.com/johncarmack1984/lux/commit/5a2eb2d4a5c560e0dd6e644b91655d757512c05c))
+
 ## [1.14.0](https://github.com/johncarmack1984/lux/compare/v1.13.1...v1.14.0) (2026-08-10)
 
 
