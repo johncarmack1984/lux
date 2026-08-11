@@ -144,12 +144,12 @@ export function Privacy() {
 
         <h3>Turning it off</h3>
         <p>
-          <strong>Disconnect</strong>, in the Plan view, deletes the stored
-          token — a delete, not a flag. You can also revoke lux in Planning
-          Center's own settings, which stops it immediately; lux's next read
-          then fails and asks you to connect again. Deleting your lux account
-          does not by itself end a Planning Center connection, so disconnect or
-          revoke first.
+          <strong>Disconnect</strong>, in the Plan view, hands the token back
+          to Planning Center and then deletes it here — a delete, not a flag.
+          You can also revoke lux in Planning Center's own settings, which
+          stops it immediately; lux's next read then fails and asks you to
+          connect again. Deleting your lux account does the same thing
+          Disconnect does, so you don't have to remember to do it first.
         </p>
 
         <h3>Whose data it is</h3>
@@ -213,15 +213,18 @@ export function Privacy() {
           Account menu → Delete account. That permanently deletes your synced
           setups and scenes, your settings record, and your sharing grants from
           lux's servers, tells Apple to end the Sign in with Apple link if you
-          made one, and removes your sign-in, right then. Removing the sign-in
-          is also what ends a paired lux-node's access, since its credentials
-          are your account's.
+          made one, ends a Planning Center connection if you have one, drops
+          the record of any paired lux-node, and removes your sign-in, right
+          then. Removing the sign-in is also what ends a paired lux-node's
+          access, since its credentials are your account's.
         </p>
         <p>
-          One thing it does not reach: a Planning Center connection. That token
-          belongs to another company's system, so end it deliberately —
-          Disconnect in the Plan view, or revoke lux in Planning Center —
-          before you delete the account.
+          The Planning Center part reaches another company's system, so here is
+          how it goes: lux tells Planning Center to end the authorization, then
+          deletes the token it was holding. If Planning Center can't be reached
+          right then, your account is still deleted and the token is still
+          dropped — the authorization can survive on their side, and you can
+          clear it under lux's entry in your Planning Center settings.
         </p>
         <p>
           The local files on your devices stay yours; delete the app and its
