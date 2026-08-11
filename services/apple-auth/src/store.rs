@@ -591,6 +591,64 @@ pub async fn list_devices(
     Ok(out.items.unwrap_or_default())
 }
 
+/// Delete every one of the owner's device-registry rows (`DEVICE#<sub>`),
+/// answering how many there were.
+///
+/// A hard delete, unlike [`revoke_device`]'s tombstone. That one keeps the row
+/// so a device can be seen to have been removed; this one runs when the account
+/// itself is going away, and a record kept "for audit" against a deleted
+/// account is just a note about someone who asked to be forgotten.
+///
+/// Paged, and it re-reads after each page rather than trusting one query to
+/// have seen everything — a partial wipe here would be the same class of defect
+/// as the one this exists to fix. Deletes go one at a time (`BatchWriteItem` is
+/// not in this role's policy, and a registry is a handful of rows).
+///
+/// The `PAIR#`/`PAIRIP#` items a pairing leaves behind are keyed by the device
+/// code's hash and the caller's public IP, not by `sub`, so they cannot be
+/// found from here — they carry a `ttl` and expire on their own within the
+/// hour, holding no credential in the meantime.
+pub async fn delete_devices(ctx: &Ctx, sub: &str) -> Result<usize, String> {
+    let mut deleted = 0usize;
+    let mut start: Option<HashMap<String, AttributeValue>> = None;
+    loop {
+        let page = ctx
+            .ddb
+            .query()
+            .table_name(&ctx.table)
+            .key_condition_expression("pk = :pk")
+            .expression_attribute_values(":pk", AttributeValue::S(device_pk(sub)))
+            .set_exclusive_start_key(start)
+            .send()
+            .await
+            .map_err(|e| format!("device query failed: {e}"))?;
+
+        for item in page.items.unwrap_or_default() {
+            let Some(device_id) = item.get("sk").and_then(|v| v.as_s().ok()).cloned() else {
+                // DynamoDB cannot return a row without its sort key. Read for
+                // it anyway rather than assume: this runs inside a deletion,
+                // where the one unacceptable outcome is an abort.
+                tracing::warn!("device row with no sort key; skipping");
+                continue;
+            };
+            ctx.ddb
+                .delete_item()
+                .table_name(&ctx.table)
+                .key("pk", AttributeValue::S(device_pk(sub)))
+                .key("sk", AttributeValue::S(device_id))
+                .send()
+                .await
+                .map_err(|e| format!("device delete failed: {e}"))?;
+            deleted += 1;
+        }
+
+        start = page.last_evaluated_key;
+        if start.is_none() {
+            return Ok(deleted);
+        }
+    }
+}
+
 /// Approve a pending grant: bind it to the approver and the chosen setup,
 /// retire its pending-list row, and record the device in the owner's registry
 /// — one transaction. Fails (condition) if the grant isn't pending anymore.

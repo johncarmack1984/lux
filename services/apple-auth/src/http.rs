@@ -1,7 +1,10 @@
 //! The Function URL surface: parse the Lambda URL (payload v2) event, route,
-//! and reply in `lux-wire` shapes. Identity on `/link` and `/revoke` comes only
-//! from the verified Cognito bearer token; identity on `/auth/apple` comes only
-//! from the verified Apple identity token — a request body never names a user.
+//! and reply in `lux-wire` shapes. Identity on `/link`, `/revoke` and the
+//! bearer-authed `/auth/device/*` routes comes only from the verified Cognito
+//! bearer token; identity on `/auth/apple` comes only from the verified Apple
+//! identity token — a request body never names a user. That is what makes
+//! `/auth/device/forget-all`, which takes no body at all, unable to name
+//! anyone's devices but the caller's.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -64,8 +67,8 @@ pub async fn handle(ctx: &Arc<Ctx>, payload: Value) -> Result<Value, Error> {
     let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
 
     use lux_wire::device::{
-        APPROVE_SEGMENT, AUTHORIZE_SEGMENT, DEVICE_SEGMENT, LIST_SEGMENT, PENDING_SEGMENT,
-        REVOKE_SEGMENT as DEVICE_REVOKE_SEGMENT, TOKEN_SEGMENT,
+        APPROVE_SEGMENT, AUTHORIZE_SEGMENT, DEVICE_SEGMENT, FORGET_ALL_SEGMENT, LIST_SEGMENT,
+        PENDING_SEGMENT, REVOKE_SEGMENT as DEVICE_REVOKE_SEGMENT, TOKEN_SEGMENT,
     };
 
     match (method, segments.as_slice()) {
@@ -129,6 +132,11 @@ pub async fn handle(ctx: &Arc<Ctx>, payload: Value) -> Result<Value, Error> {
             if *a == AUTH_SEGMENT && *b == DEVICE_SEGMENT && *c == DEVICE_REVOKE_SEGMENT =>
         {
             crate::device::revoke(ctx, &event).await
+        }
+        ("POST", [a, b, c])
+            if *a == AUTH_SEGMENT && *b == DEVICE_SEGMENT && *c == FORGET_ALL_SEGMENT =>
+        {
+            crate::device::forget_all(ctx, &event).await
         }
         _ => reply(404, &error("not found")),
     }

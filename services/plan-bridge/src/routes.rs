@@ -317,15 +317,50 @@ pub async fn plan(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
     )
 }
 
-/// `POST /pco/disconnect` — forget the church's tokens.
+/// `POST /pco/disconnect` — give the church's authorization back and forget
+/// its tokens.
+///
+/// Two steps, in this order: revoke at Planning Center, then delete the row.
+/// Deleting alone would only stop *lux* from being able to spend the token —
+/// the grant would still be live in the church's Planning Center settings for
+/// up to ninety days, listed as an integration nobody can see the end of. So
+/// the credential is handed back first, and the delete is what makes it gone
+/// from here.
 ///
 /// Deletes rather than marks: the point of disconnecting is that lux stops
 /// holding a credential for someone else's data, and a soft delete would not
 /// be that.
+///
+/// **This is also account deletion's Planning Center step** — the app calls
+/// this route while deleting an account, because "the church is done with us"
+/// is the same operation whichever end asked for it. Which is why every failure
+/// below is survivable: the revoke is best-effort by type
+/// ([`tokens::Revoked`]), an account that never connected takes the quiet path,
+/// and only the delete can answer anything but 200.
 pub async fn disconnect(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
     let Some(sub) = caller(ctx, event) else {
         return reply(401, &error("unauthorized"));
     };
+
+    // A read that fails is not a reason to keep the row: it costs the upstream
+    // revoke (nothing to revoke *with*), and the delete below still runs.
+    let conn = match store::get_connection(ctx, &sub).await {
+        Ok(conn) => conn,
+        Err(e) => {
+            tracing::error!("connection read failed before revoke: {e}");
+            None
+        }
+    };
+    match ctx.oauth().await {
+        Ok(app) => {
+            tokens::revoke(app, &ctx.http, conn.as_ref()).await;
+        }
+        // The secret is unreadable, so there is no way to ask Planning Center
+        // for anything. Still delete: holding a token lux cannot even revoke is
+        // strictly worse than dropping it.
+        Err(e) => tracing::error!("oauth app unavailable; dropping the token unrevoked: {e}"),
+    }
+
     match store::delete_connection(ctx, &sub).await {
         Ok(()) => reply(200, &StatusResponse::default()),
         Err(e) => {

@@ -14,6 +14,9 @@
 //!    a refresh token (good for up to 90 days after issuance).
 //! 4. [`OAuthApp::refresh`] renews both, well before
 //!    [`Tokens::needs_refresh`] says the access token is about to expire.
+//! 5. [`OAuthApp::revoke`] gives the grant back when the church disconnects or
+//!    deletes its lux account — the only way lux can end its own access
+//!    without the administrator visiting Planning Center's settings.
 //!
 //! **The redirect URI must match the registration byte for byte**, port and
 //! all, so the two live here as constants and travel as a *field* on
@@ -34,6 +37,9 @@ use crate::http::{Http, HttpRequest};
 
 pub const AUTHORIZE_URL: &str = "https://api.planningcenteronline.com/oauth/authorize";
 pub const TOKEN_URL: &str = "https://api.planningcenteronline.com/oauth/token";
+/// Where a grant is handed back. Revoking a refresh token also invalidates the
+/// access token it minted, so one call ends lux's access entirely.
+pub const REVOKE_URL: &str = "https://api.planningcenteronline.com/oauth/revoke";
 
 /// The only scope the bridge asks for. Planning Center has no finer grain than
 /// this — see the crate docs on why read-only is enforced in code instead.
@@ -176,6 +182,46 @@ impl OAuthApp {
             ("client_secret", &self.client_secret),
         ]);
         self.post_token(http, body).await
+    }
+
+    /// Hand a refresh token back, ending the grant it belongs to.
+    ///
+    /// The one thing lux can do about its own access without asking a church to
+    /// go and click something: a disconnect, and an account deletion, both end
+    /// here. Revoking the refresh token invalidates its access token too, so
+    /// this single call is the whole of it.
+    ///
+    /// Planning Center answers 200 for a token that was already revoked or was
+    /// never valid, so success means "this token cannot be spent", not "this
+    /// token was live a moment ago" — which is exactly the property a caller
+    /// deleting an account wants, and the reason this is safe to retry.
+    ///
+    /// The response body is an empty JSON object and nothing here reads it: the
+    /// status is the entire answer.
+    pub async fn revoke<H: Http + ?Sized>(
+        &self,
+        http: &H,
+        refresh_token: &str,
+    ) -> Result<(), Error> {
+        let body = form(&[
+            ("token", refresh_token),
+            ("token_type_hint", "refresh_token"),
+            ("client_id", &self.client_id),
+            ("client_secret", &self.client_secret),
+        ]);
+        let response = http.send(HttpRequest::form(REVOKE_URL, body)).await?;
+        if response.status == 401 {
+            // The application's own credentials were refused — a deployment
+            // problem, not a token that is now gone.
+            return Err(Error::Unauthorized);
+        }
+        if !(200..300).contains(&response.status) {
+            return Err(Error::Status {
+                status: response.status,
+                detail: truncate(&response.body, 300),
+            });
+        }
+        Ok(())
     }
 
     async fn post_token<H: Http + ?Sized>(&self, http: &H, body: String) -> Result<Tokens, Error> {

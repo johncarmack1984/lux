@@ -225,6 +225,30 @@ impl PlanMethods for PlanEndpoint {
     }
 }
 
+/// Disconnect Planning Center as part of deleting the account.
+///
+/// The same `/pco/disconnect` the Plan view's button calls — "this church is
+/// done with lux" is one operation, whichever end asked for it — which means
+/// the bridge revokes the church's authorization at Planning Center before
+/// dropping the token it held. Deleting an account cannot leave a live 90-day
+/// credential for another company's data behind it.
+///
+/// Best-effort *by type*: there is no error to return, and that is deliberate.
+/// The three ordinary failures — this build has no bridge, the account never
+/// connected, Planning Center or the bridge is unreachable right now — are all
+/// answered the same way, because none of them is a reason to refuse to delete
+/// someone's account. Each one is logged; the deletion carries on.
+pub fn disconnect_for_deletion(app: &AppHandle) {
+    let Some((base, token)) = credentials(app) else {
+        // No bridge in this build, or nothing signed in: nothing to disconnect.
+        return;
+    };
+    match request::<StatusResponse>(app, Method::Post, &base, DISCONNECT_SEGMENT, token, None) {
+        Ok(_) => log::info!("planning center disconnected as part of account deletion"),
+        Err(e) => log::warn!("planning center disconnect skipped ({e}); continuing with deletion"),
+    }
+}
+
 /// Hand a URL to the OS's default browser.
 ///
 /// Only ever called with a URL this app just built from

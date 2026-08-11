@@ -24,9 +24,11 @@
 //! `redirect_uri`, so no unauthenticated request can confirm that the callback
 //! URIs are registered — that is only checked after a human signs in. What is
 //! provable without a human is the half below: the token endpoint is reachable
-//! over TLS, it answers in the shape this crate parses, and a dead refresh
-//! token produces exactly the error the bridge turns into "reconnect" rather
-//! than into a 500 in the middle of a service.
+//! over TLS, it answers in the shape this crate parses, a dead refresh token
+//! produces exactly the error the bridge turns into "reconnect" rather than
+//! into a 500 in the middle of a service, and the revocation endpoint — the
+//! one account deletion depends on — is there and answers the way its
+//! documentation says.
 
 use lux_pco::{Error, OAuthApp, ReqwestHttp};
 
@@ -94,6 +96,36 @@ async fn a_bogus_authorization_code_is_refused_cleanly() {
     assert!(
         matches!(err, Error::Unauthorized | Error::Status { .. }),
         "expected a typed refusal; got {err:?}"
+    );
+}
+
+/// The revocation endpoint exists, accepts this application's credentials, and
+/// treats a token it has never seen as already gone.
+///
+/// Account deletion leans on both halves of that: the endpoint has to be there
+/// (it is the only way lux can end its own access without a church visiting
+/// Planning Center's settings), and a 200 for an unknown token is what makes a
+/// retried deletion — or a second disconnect — a no-op rather than a failure.
+/// Documented as "a successful revocation returns 200, including for a token
+/// that was already revoked or is invalid"; pinned here so a change in that
+/// behaviour surfaces during a runbook pass instead of leaving a live 90-day
+/// credential behind a deleted account.
+#[tokio::test]
+#[ignore = "hits the live Planning Center OAuth server"]
+async fn revoking_a_token_planning_center_never_issued_still_answers_ok() {
+    let Some(app) = app() else { return };
+    let http = ReqwestHttp::new().expect("transport");
+
+    let result = app
+        .revoke(&http, "definitely-not-a-real-refresh-token")
+        .await;
+    match &result {
+        Ok(()) => eprintln!("live revoke: 200, as documented"),
+        Err(e) => eprintln!("live revoke error: {e}"),
+    }
+    assert!(
+        result.is_ok(),
+        "the documented answer is 200 even for an unknown token; got {result:?}"
     );
 }
 

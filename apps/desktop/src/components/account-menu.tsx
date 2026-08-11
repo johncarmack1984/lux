@@ -5,6 +5,7 @@ import { LogOut, Trash2, User as UserIcon } from "lucide-react";
 import { createTauRPCProxy } from "@/bindings";
 import useAuth, { AUTH_QUERY_KEY } from "@/hooks/useAuth";
 import useSetups from "@/hooks/useSetups";
+import { PLAN_STATUS_QUERY_KEY } from "@/hooks/usePlan";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 
 const cmd = () => createTauRPCProxy().cmd;
+const plan = () => createTauRPCProxy().plan;
 
 type Mode = "signIn" | "signUp" | "confirm";
 
@@ -72,6 +74,14 @@ export default function AccountMenu() {
   const { data: shares } = useQuery({
     queryKey: ["shares"],
     queryFn: () => cmd().list_shares(),
+    enabled: !!status?.signedIn && confirmDelete,
+  });
+  // Deletion now ends the church's Planning Center authorization too, so the
+  // confirm has to say so: it is the one item in the blast radius that reaches
+  // another company's system, and the one nobody would guess.
+  const { data: planConnection } = useQuery({
+    queryKey: PLAN_STATUS_QUERY_KEY,
+    queryFn: () => plan().plan_status(),
     enabled: !!status?.signedIn && confirmDelete,
   });
 
@@ -174,6 +184,13 @@ export default function AccountMenu() {
                   ? ` You also lose access to setups shared with you by ${peopleList(
                       shares.receivedFrom,
                     )}.`
+                  : ""}
+                {/* The part that reaches outside lux: the church's Planning
+                    Center authorization is handed back, not merely forgotten. */}
+                {planConnection?.connected
+                  ? ` It also disconnects ${
+                      planConnection.orgName ?? "your Planning Center organization"
+                    } from lux and ends the authorization at Planning Center.`
                   : ""}{" "}
                 Setups on this device stay on this device. This can't be undone.
               </DialogDescription>
