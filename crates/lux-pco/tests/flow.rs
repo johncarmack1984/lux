@@ -46,6 +46,10 @@ const ERROR_401: &str = include_str!("fixtures/error_401.json");
 struct Recorded {
     routes: Mutex<BTreeMap<String, VecDeque<HttpResponse>>>,
     calls: Mutex<Vec<(Method, String)>>,
+    /// The form bodies the OAuth hops sent, in order. Kept apart from `calls`
+    /// because only those hops have one, and the read path's assertion is
+    /// precisely that it never does.
+    bodies: Mutex<Vec<String>>,
 }
 
 impl Recorded {
@@ -67,12 +71,19 @@ impl Recorded {
     fn calls(&self) -> Vec<(Method, String)> {
         self.calls.lock().map(|c| c.clone()).unwrap_or_default()
     }
+
+    fn bodies(&self) -> Vec<String> {
+        self.bodies.lock().map(|b| b.clone()).unwrap_or_default()
+    }
 }
 
 impl Http for Recorded {
     fn send(&self, request: HttpRequest) -> BoxFuture<'_, Result<HttpResponse, Error>> {
         if let Ok(mut calls) = self.calls.lock() {
             calls.push((request.method, request.url.clone()));
+        }
+        if let (Ok(mut bodies), Some(body)) = (self.bodies.lock(), request.body.as_ref()) {
+            bodies.push(body.clone());
         }
         let answer = match self.routes.lock() {
             Ok(mut routes) => match routes.get_mut(&request.url) {
@@ -474,4 +485,73 @@ async fn a_rejected_code_is_reported_not_swallowed() {
         matches!(&error, Error::Status { status: 400, detail } if detail.contains("invalid_grant")),
         "expected the OAuth error to survive, got {error:?}"
     );
+}
+
+// --- handing the grant back -------------------------------------------------
+
+fn revoking_app() -> OAuthApp {
+    OAuthApp::new(
+        "client-id",
+        "client-secret",
+        lux_pco::oauth::REDIRECT_URI_PROD,
+    )
+}
+
+#[tokio::test]
+async fn a_disconnect_hands_the_refresh_token_back_to_planning_center() {
+    // Planning Center answers a successful revocation with 200 and an empty
+    // JSON body.
+    let http = Recorded::new().ok(lux_pco::oauth::REVOKE_URL, "{}");
+
+    revoking_app()
+        .revoke(&http, "the-churchs-refresh-token")
+        .await
+        .expect("a 200 is a revocation");
+
+    // One POST, to the revocation endpoint, naming the refresh token as a
+    // refresh token — the hint is what makes this end the whole grant rather
+    // than one two-hour access token, which would leave the 90-day credential
+    // alive and the defect unfixed.
+    let calls = http.calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0, Method::Post);
+    assert_eq!(calls[0].1, lux_pco::oauth::REVOKE_URL);
+
+    let body = http.bodies().pop().expect("the revocation carried a body");
+    assert!(body.contains("token=the-churchs-refresh-token"), "{body}");
+    assert!(body.contains("token_type_hint=refresh_token"), "{body}");
+    assert!(body.contains("client_id=client-id"), "{body}");
+    assert!(body.contains("client_secret=client-secret"), "{body}");
+}
+
+#[tokio::test]
+async fn revoking_a_token_that_is_already_gone_is_a_success() {
+    // Their endpoint answers 200 for a token that was already revoked or never
+    // existed. That is the property that makes an account deletion safe to
+    // retry: "revoked" here means "cannot be spent", not "was live a moment
+    // ago".
+    let http = Recorded::new().ok(lux_pco::oauth::REVOKE_URL, "{}");
+    assert!(revoking_app().revoke(&http, "spent-token").await.is_ok());
+}
+
+#[tokio::test]
+async fn a_refused_revocation_is_reported_rather_than_swallowed() {
+    // The caller deleting an account carries on regardless — but it can only
+    // log what it is told, so a failure has to arrive as one.
+    let http = Recorded::new().on(
+        lux_pco::oauth::REVOKE_URL,
+        HttpResponse::new(500, r#"{"error":"server_error"}"#),
+    );
+    let error = revoking_app()
+        .revoke(&http, "the-churchs-refresh-token")
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&error, Error::Status { status: 500, .. }),
+        "expected the refusal to survive, got {error:?}"
+    );
+
+    // And an unreachable Planning Center is a transport error, not a silent ok.
+    let offline = Recorded::new();
+    assert!(revoking_app().revoke(&offline, "rt").await.is_err());
 }

@@ -19,8 +19,8 @@ use std::sync::Arc;
 use lambda_runtime::Error;
 use lux_wire::device::{
     ApproveRequest, ApproveResponse, AuthorizeRequest, AuthorizeResponse, DeviceRecord,
-    ListResponse, PendingDevice, PendingResponse, RevokeRequest, RevokeResponse, TokenRequest,
-    TokenResponse,
+    ForgetAllResponse, ListResponse, PendingDevice, PendingResponse, RevokeRequest, RevokeResponse,
+    TokenRequest, TokenResponse,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -239,6 +239,44 @@ pub async fn revoke(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
         Ok(revoked) => reply(200, &RevokeResponse { revoked }),
         Err(e) => {
             tracing::error!("device revoke failed: {e}");
+            reply(500, &error("internal"))
+        }
+    }
+}
+
+/// `POST /auth/device/forget-all` — bearer-authed: drop every device in the
+/// caller's registry.
+///
+/// Account deletion's cleanup step. The boxes lose their access the moment the
+/// Cognito user goes (their sessions are that account's), but the registry rows
+/// are keyed by the `sub` and survive it — a list of someone's hardware, still
+/// sitting in a table, belonging to an account that no longer exists. This is
+/// what removes them.
+///
+/// A hard delete rather than `/revoke`'s tombstone, and an empty registry
+/// answers `0` rather than a refusal: the caller is a deletion, and a deletion
+/// has to be able to finish. It carries no body — there is nothing to name.
+pub async fn forget_all(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
+    let Some(caller_sub) = caller(ctx, event) else {
+        return reply(401, &error("invalid or missing token"));
+    };
+    match store::delete_devices(ctx, &caller_sub).await {
+        Ok(forgotten) => {
+            if forgotten > 0 {
+                tracing::info!("forgot {forgotten} paired device(s) for a deleted account");
+            }
+            reply(
+                200,
+                &ForgetAllResponse {
+                    // A registry that somehow held four billion rows would
+                    // report the ceiling rather than wrap; the delete itself
+                    // already happened either way.
+                    forgotten: u32::try_from(forgotten).unwrap_or(u32::MAX),
+                },
+            )
+        }
+        Err(e) => {
+            tracing::error!("device forget-all failed: {e}");
             reply(500, &error("internal"))
         }
     }

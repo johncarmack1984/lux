@@ -24,8 +24,9 @@ use crate::error::Error;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// The two verbs this crate knows. There is no `PUT`, `PATCH` or `DELETE`
-/// here, and [`Method::Post`] exists only for the OAuth token endpoint — see
-/// the crate docs on why that boundary is structural rather than a promise.
+/// here, and [`Method::Post`] exists only for the OAuth token and revocation
+/// endpoints — see the crate docs on why that boundary is structural rather
+/// than a promise.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Method {
     Get,

@@ -1,4 +1,5 @@
-//! Keeping the access token fresh, on the read path.
+//! Keeping the access token fresh on the read path — and handing it back at
+//! the end.
 //!
 //! Planning Center's access tokens last two hours and their refresh tokens
 //! ninety days, and a refresh mints a *new* refresh token — so the stored pair
@@ -9,6 +10,8 @@
 //! schedule: a church that has not opened lux in a month should not be costing
 //! a timer, and the read path is the only place where a stale token has any
 //! consequence.
+
+use lux_pco::{Http, OAuthApp};
 
 use crate::store::{self, Connection};
 use crate::Ctx;
@@ -151,8 +154,64 @@ async fn token_from_a_concurrent_refresh(
     Some(current.access_token)
 }
 
+// --- giving it back -----------------------------------------------------------
+
+/// What became of a revocation attempt.
+///
+/// There is no error arm, and [`revoke`] returns this rather than a `Result` on
+/// purpose: its callers are a disconnect and an account deletion, and both are
+/// operations that must finish. A deletion that refused to complete because
+/// Planning Center was unreachable would leave lux holding the very credential
+/// the church just asked it to let go of — the opposite of what was asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Revoked {
+    /// Nothing was connected. The ordinary case for an account that never used
+    /// the bridge, and for a second disconnect.
+    NothingToRevoke,
+    /// Planning Center accepted it — or had already revoked it, which answers
+    /// the same way and means the same thing.
+    Done,
+    /// The attempt did not land. The stored row is deleted regardless, so lux
+    /// stops holding the token; the grant itself may outlive it at Planning
+    /// Center until the church revokes lux in their own settings or the 90 days
+    /// run out. Logged loudly here because nothing downstream can see it.
+    Failed,
+}
+
+/// Hand the church's refresh token back to Planning Center.
+///
+/// Called before the stored row is deleted, never after: once the row is gone
+/// the token is gone with it, and a credential nobody can revoke is exactly the
+/// thing this exists to prevent. Doing it in this order also makes a failed
+/// delete harmless — the token is already dead by then.
+pub async fn revoke<H: Http + ?Sized>(
+    app: &OAuthApp,
+    http: &H,
+    conn: Option<&Connection>,
+) -> Revoked {
+    let Some(conn) = conn else {
+        return Revoked::NothingToRevoke;
+    };
+    match app.revoke(http, &conn.refresh_token).await {
+        Ok(()) => {
+            tracing::info!("planning center authorization revoked");
+            Revoked::Done
+        }
+        Err(e) => {
+            // Never the token itself: the error type redacts it, and this line
+            // must stay safe to read in CloudWatch.
+            tracing::error!("pco revoke failed, deleting the stored token anyway: {e}");
+            Revoked::Failed
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
+    use lux_pco::http::{BoxFuture, HttpRequest, HttpResponse};
+
     use super::*;
 
     fn conn(access_expires_at_s: i64) -> Connection {
@@ -165,6 +224,107 @@ mod tests {
             connected_at_ms: 0,
             refresh_issued_at_s: 0,
         }
+    }
+
+    /// A transport that answers with one canned outcome and remembers whether
+    /// it was asked anything at all. "Was Planning Center called?" is half of
+    /// what the tests below are about: a disconnect on an account that never
+    /// connected must not send a request carrying an empty token.
+    struct Fake {
+        answer: Result<HttpResponse, lux_pco::Error>,
+        calls: Mutex<Vec<HttpRequest>>,
+    }
+
+    impl Fake {
+        fn answering(status: u16) -> Self {
+            Self {
+                answer: Ok(HttpResponse::new(status, "{}")),
+                calls: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn offline() -> Self {
+            Self {
+                answer: Err(lux_pco::Error::Transport("no route to host".into())),
+                calls: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn calls(&self) -> Vec<HttpRequest> {
+            self.calls.lock().map(|c| c.clone()).unwrap_or_default()
+        }
+    }
+
+    impl Http for Fake {
+        fn send(
+            &self,
+            request: HttpRequest,
+        ) -> BoxFuture<'_, Result<HttpResponse, lux_pco::Error>> {
+            if let Ok(mut calls) = self.calls.lock() {
+                calls.push(request);
+            }
+            let answer = match &self.answer {
+                Ok(response) => Ok(response.clone()),
+                Err(e) => Err(lux_pco::Error::Transport(e.to_string())),
+            };
+            Box::pin(async move { answer })
+        }
+    }
+
+    fn app() -> OAuthApp {
+        OAuthApp::new("cid", "csecret", lux_pco::oauth::REDIRECT_URI_PROD)
+    }
+
+    #[tokio::test]
+    async fn a_connected_church_has_its_token_handed_back() {
+        let http = Fake::answering(200);
+        let connection = conn(10_000);
+
+        assert_eq!(
+            revoke(&app(), &http, Some(&connection)).await,
+            Revoked::Done
+        );
+
+        // The refresh token, at the revocation endpoint. Revoking that half is
+        // what ends the 90-day credential — the whole point of the exercise.
+        let calls = http.calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].url, lux_pco::oauth::REVOKE_URL);
+        let body = calls[0].body.clone().expect("a form body");
+        assert!(body.contains("token=rt"), "{body}");
+        assert!(body.contains("token_type_hint=refresh_token"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn an_account_that_never_connected_is_a_quiet_no_op() {
+        // Deleting an account is the common case here: most accounts have no
+        // Planning Center connection at all, and the deletion must not spend a
+        // round trip — or send a request with an empty token in it — to learn
+        // that.
+        let http = Fake::answering(200);
+
+        assert_eq!(revoke(&app(), &http, None).await, Revoked::NothingToRevoke);
+        assert!(http.calls().is_empty(), "nothing should have been asked");
+    }
+
+    #[tokio::test]
+    async fn a_failed_revocation_is_reported_but_never_fatal() {
+        // Planning Center refusing, and Planning Center unreachable. Neither
+        // may become an error: the caller is deleting an account, and the row
+        // is deleted either way. `revoke` has no error arm to return, which is
+        // the guarantee — this test pins the outcome it reports instead.
+        let refused = Fake::answering(500);
+        assert_eq!(
+            revoke(&app(), &refused, Some(&conn(10_000))).await,
+            Revoked::Failed
+        );
+        assert_eq!(refused.calls().len(), 1, "it did try");
+
+        let offline = Fake::offline();
+        assert_eq!(
+            revoke(&app(), &offline, Some(&conn(10_000))).await,
+            Revoked::Failed
+        );
     }
 
     #[test]

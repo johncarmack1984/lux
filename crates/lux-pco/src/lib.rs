@@ -3,7 +3,8 @@
 //! This crate does four things and refuses to do a fifth:
 //!
 //! - [`oauth`] — the authorization-code flow: build the consent URL, exchange
-//!   the code, refresh the token. The one client secret lives here.
+//!   the code, refresh the token, and hand it back when a church is done. The
+//!   one client secret lives here.
 //! - [`jsonapi`] — the JSON:API envelope Planning Center answers in
 //!   (`data`/`included`/`links`), typed once so no reader hand-rolls it.
 //! - [`services`] — the vertices the bridge reads: service types, plans, plan
@@ -17,9 +18,11 @@
 //! token the bridge already holds — so "lux never advances someone else's
 //! service" cannot be enforced by the grant. It is enforced here instead:
 //! [`PcoClient`] builds `GET` requests and nothing else, no method on it names
-//! a write action, and the only `POST` in the crate is the token endpoint in
-//! [`oauth`], which talks to the OAuth server rather than the API. A write
-//! would have to be *written*, in a diff, on purpose.
+//! a write action, and the only `POST`s in the crate are the token and
+//! revocation endpoints in [`oauth`], which talk to the OAuth server rather
+//! than the API — one asks for a credential, the other gives it back, and
+//! neither touches a church's data. A write would have to be *written*, in a
+//! diff, on purpose.
 //!
 //! Rate limits are Planning Center's, not ours: 100 requests per 20 seconds
 //! per connected church, reported on every response and re-read from the

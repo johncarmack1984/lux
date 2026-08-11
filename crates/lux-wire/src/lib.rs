@@ -304,13 +304,15 @@ pub mod device {
     //! - `POST /auth/device/token`     — device: poll for the grant
     //! - `GET  /auth/device/pending`   — bearer-authed: same-egress pending list
     //! - `POST /auth/device/approve`   — bearer-authed: approve one device
-    //! - `GET  /auth/device/list`      — bearer-authed: the owner's paired devices
-    //! - `POST /auth/device/revoke`    — bearer-authed: remove a paired device
+    //! - `GET  /auth/device/list`       — bearer-authed: the owner's paired devices
+    //! - `POST /auth/device/revoke`     — bearer-authed: remove a paired device
+    //! - `POST /auth/device/forget-all` — bearer-authed: remove every one of
+    //!   them, for an account that is being deleted
 
     use serde::{Deserialize, Serialize};
 
     /// Path segments under [`super::apple::AUTH_SEGMENT`]:
-    /// `/auth/device/{authorize|token|pending|approve|list|revoke}`.
+    /// `/auth/device/{authorize|token|pending|approve|list|revoke|forget-all}`.
     pub const DEVICE_SEGMENT: &str = "device";
     pub const AUTHORIZE_SEGMENT: &str = "authorize";
     pub const TOKEN_SEGMENT: &str = "token";
@@ -318,6 +320,9 @@ pub mod device {
     pub const APPROVE_SEGMENT: &str = "approve";
     pub const LIST_SEGMENT: &str = "list";
     pub const REVOKE_SEGMENT: &str = "revoke";
+    /// Deliberately not `forget`: a route that removes *every* device should
+    /// not be one letter away from reading like it removes one.
+    pub const FORGET_ALL_SEGMENT: &str = "forget-all";
 
     /// Body for `POST /auth/device/authorize`. Everything here is display
     /// metadata for the approve screen — identity is established by approval,
@@ -468,6 +473,20 @@ pub mod device {
     #[serde(rename_all = "camelCase")]
     pub struct RevokeResponse {
         pub revoked: bool,
+    }
+
+    /// Response to `POST /auth/device/forget-all` — every device dropped from
+    /// the caller's registry, for an account that is being deleted.
+    ///
+    /// A hard delete, unlike [`RevokeRequest`]'s tombstone: an account that is
+    /// going away should not leave a row behind saying which boxes it once
+    /// paired. `forgotten` is how many were dropped, `0` when the account never
+    /// paired one — a no-op, never an error, because deletion is the operation
+    /// that always has to finish.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ForgetAllResponse {
+        pub forgotten: u32,
     }
 }
 
@@ -1594,6 +1613,21 @@ mod tests {
         assert_eq!(device::APPROVE_SEGMENT, "approve");
         assert_eq!(device::LIST_SEGMENT, "list");
         assert_eq!(device::REVOKE_SEGMENT, "revoke");
+        assert_eq!(device::FORGET_ALL_SEGMENT, "forget-all");
+        // The two removal routes must not be confusable: one takes a device id
+        // in its body, the other takes nothing and removes them all.
+        assert_ne!(device::FORGET_ALL_SEGMENT, device::REVOKE_SEGMENT);
+    }
+
+    #[test]
+    fn device_forget_all_shape() {
+        let answer: device::ForgetAllResponse =
+            serde_json::from_str(r#"{"forgotten":3}"#).expect("forget-all answer parses");
+        assert_eq!(answer.forgotten, 3);
+        // An account that never paired a device: zero, not an error.
+        let none = serde_json::to_string(&device::ForgetAllResponse { forgotten: 0 })
+            .expect("forget-all answer serializes");
+        assert_eq!(none, r#"{"forgotten":0}"#);
     }
 
     #[test]

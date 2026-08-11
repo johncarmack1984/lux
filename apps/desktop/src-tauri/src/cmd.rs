@@ -740,10 +740,30 @@ impl CmdMethods for CmdEndpoint {
     }
 
     fn delete_account(&self, app_handle: AppHandle) -> Result<AuthStatus, String> {
-        // Revoke the Apple-side grant first (required when an Apple link
-        // exists; a quiet no-op otherwise) — best-effort, never blocks the
-        // deletion itself.
+        // Everything this account reaches outside lux, detached first — while
+        // the tokens still authenticate, because after the Cognito user goes
+        // there is nothing left to authorize any of these calls with.
+        //
+        // Every step in this block is best-effort by type — none of them
+        // returns an error — because a deletion that refuses to finish is worse
+        // than a cleanup that has to be retried, and each of them is idempotent
+        // if it is. What they must never do is leave a live credential behind a
+        // deleted account.
+        //
+        // One refresh first: they all present the current id token, which is an
+        // hour old at most, and a 401 here is a cleanup silently skipped.
+        app_handle.state::<LuxAccount>().refresh_before_deletion();
+        // Revoke the Apple-side grant (required when an Apple link exists; a
+        // quiet no-op otherwise).
         app_handle.state::<LuxAccount>().revoke_apple_link();
+        // Hand the church's Planning Center authorization back — the bridge
+        // revokes it upstream before dropping the token it held. Without this,
+        // deleting an account left a 90-day refresh token for another company's
+        // data alive and unreachable.
+        crate::plan::disconnect_for_deletion(&app_handle);
+        // And the paired-device registry, whose rows are keyed by the `sub` and
+        // would otherwise outlive the account they describe.
+        app_handle.state::<LuxAccount>().forget_paired_devices();
         // Wipe the cloud data while the tokens still authenticate, then remove
         // the Cognito user; a failure at either step leaves the account intact
         // and the whole flow retryable.

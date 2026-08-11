@@ -269,7 +269,18 @@ sub + client id if we accept one-device-per-account granularity in v1).
 CONNECTs happen hourly, not per frame, so cost is negligible; a revoked box
 degrades to no-remote (sACN keeps last local state → blackout at the venue's
 discretion) within ≤1 h or next reconnect. Tighten in v2 with Cognito
-refresh-token rotation on the device client. **Granularity decision for
+refresh-token rotation on the device client.
+
+**Account deletion** is the other end of this: `POST /auth/device/forget-all`
+(bearer-authed, no body — the caller's `sub` names the partition) hard-deletes
+every `DEVICE#<sub>` row, and the app calls it while deleting an account. The
+boxes lose their access anyway the moment the Cognito user goes, since their
+sessions are that account's; the rows are keyed by `sub` and would otherwise
+outlive it, leaving a list of someone's hardware behind an account that no
+longer exists. Hard delete rather than the tombstone `/revoke` writes: a row
+kept for audit against a deleted account is a record of someone who asked to be
+forgotten. `PAIR#`/`PAIRIP#` litter is not reachable by `sub` and self-expires
+on its `ttl`. **Granularity decision for
 review** (claim-based per-device vs per-account) — claim-based is the clean
 answer and the pre-token trigger is small.
 

@@ -486,6 +486,75 @@ impl LuxAccount {
         }
     }
 
+    /// Freshen the session's tokens before a deletion's detach steps run.
+    ///
+    /// Those steps present the current id token and have no refresh path of
+    /// their own, and an id token lasts an hour — so an app that has been open
+    /// since breakfast would 401 its way through every one of them and delete
+    /// the account anyway, which is precisely the outcome (a live credential
+    /// behind a deleted account) the detach steps exist to prevent. One refresh
+    /// up front costs a round trip and removes the whole class.
+    ///
+    /// Ignores failure: if the refresh token is dead too, the steps will fail
+    /// the way they already handle, and the deletion still has to go through.
+    pub fn refresh_before_deletion(&self) {
+        // Owned arguments, so the future outlives this borrow of `self` — the
+        // same shape `delete_account`'s own retry uses.
+        let Ok(cfg) = self.config() else { return };
+        let Some(refresh) = self.session.lock_or_recover().refresh_token.clone() else {
+            return;
+        };
+        match block_on(do_refresh(cfg, refresh)) {
+            Ok(tokens) => self.apply(tokens, None, None),
+            Err(e) => {
+                log::warn!("could not refresh before deleting ({e}); cleanups may be skipped")
+            }
+        }
+    }
+
+    /// Drop every paired device from the account's registry, as part of
+    /// deleting the account.
+    ///
+    /// The boxes stop working the moment the Cognito user goes — their sessions
+    /// are this account's — but the registry rows are keyed by the `sub` and
+    /// outlive it, leaving a list of someone's hardware behind an account that
+    /// no longer exists. This removes them.
+    ///
+    /// Same shape as [`revoke_apple_link`](Self::revoke_apple_link): no return
+    /// value, because nothing here may stop a deletion. An account with no
+    /// devices, a build with no auth service, and an unreachable service are
+    /// all logged and stepped over.
+    pub fn forget_paired_devices(&self) {
+        let Some(base) = self.apple_auth_url.clone() else {
+            return;
+        };
+        let Some(token) = self.current_id_token() else {
+            return;
+        };
+        let result = block_on(async move {
+            let response = reqwest::Client::new()
+                .post(format!(
+                    "{base}/{}/{}/{}",
+                    lux_wire::apple::AUTH_SEGMENT,
+                    lux_wire::device::DEVICE_SEGMENT,
+                    lux_wire::device::FORGET_ALL_SEGMENT
+                ))
+                .bearer_auth(token)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+            if response.status().is_success() {
+                Ok(())
+            } else {
+                Err(format!("device forget-all answered {}", response.status()))
+            }
+        });
+        match result {
+            Ok(()) => log::info!("paired devices forgotten as part of account deletion"),
+            Err(e) => log::warn!("device cleanup skipped ({e}); continuing with deletion"),
+        }
+    }
+
     /// The account's paired headless devices (lux-node boxes) from the auth
     /// service's registry — the delete-account confirm's tally. No auth
     /// service configured means no pairing anywhere: an empty list.
