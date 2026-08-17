@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.2](https://github.com/johncarmack1984/lux/compare/v1.14.1...v1.14.2) (2026-08-17)
+
+
+### Bug Fixes
+
+* **desktop:** poll the buffer when remote peers are connected ([#278](https://github.com/johncarmack1984/lux/issues/278)) ([3ac56a9](https://github.com/johncarmack1984/lux/commit/3ac56a9c628051a2a4a43c6a37808285d0202e9e))
+
 ## [1.14.1](https://github.com/johncarmack1984/lux/compare/v1.14.0...v1.14.1) (2026-08-11)
 
 
