@@ -1,6 +1,8 @@
 import { createTauRPCProxy, type Scene } from "@/bindings";
 import { queryClient } from "@/lib/query-client";
 import { SCENES_QUERY_KEY } from "@/hooks/useScenes";
+import { BUFFER_QUERY_KEY } from "@/hooks/useBuffer";
+import { noteFadeStarted } from "@/lib/fade-clock";
 
 /**
  * The Tauri adapter for scenes: every mutator lands the list the backend
@@ -34,6 +36,14 @@ export async function updateScene(id: string): Promise<Scene[]> {
 /** Start the crossfade toward a scene. Resolves once the fade is running. */
 export async function recallScene(id: string): Promise<void> {
   await cmd().recall_scene(id);
+  // The fade now writes the buffer from the backend for its whole duration,
+  // and on iOS no event will carry those ticks to the webview. Mark the fade
+  // window and kick the buffer query so useBuffer polls until it closes —
+  // otherwise the lights move and the faders stay frozen. An unknown fade
+  // (cache miss) assumes the default 2 s rather than not following at all.
+  const scenes = queryClient.getQueryData<Scene[]>(SCENES_QUERY_KEY);
+  noteFadeStarted(scenes?.find((s) => s.id === id)?.fadeMs ?? 2000);
+  void queryClient.invalidateQueries({ queryKey: BUFFER_QUERY_KEY });
 }
 
 export async function renameScene(id: string, name: string): Promise<Scene[]> {
