@@ -106,10 +106,15 @@ pub fn guest_route<'t>(topic: &'t str, own_sub: &str) -> Option<GuestRoute<'t>> 
 #[derive(Debug, PartialEq, Eq)]
 pub enum RemoteApply {
     Overlay(Vec<u8>),
-    Channel { ch: u16, val: u8 },
+    Channel {
+        ch: u16,
+        val: u8,
+    },
     /// Recall a saved scene by id. The applier resolves it against the setup
     /// it holds — a consumer with no scenes (the node today) logs and drops it.
-    Scene { id: String },
+    Scene {
+        id: String,
+    },
 }
 
 /// Whether this peer applies `frame`: the version must be known, the frame
@@ -247,7 +252,10 @@ mod tests {
 
         // Inactive setup → dropped.
         assert_eq!(gate(Frame::channel(1, 1), "s-2", "s-1", "me00"), None);
-        assert_eq!(gate(Frame::scene("sc-1".into()), "s-2", "s-1", "me00"), None);
+        assert_eq!(
+            gate(Frame::scene("sc-1".into()), "s-2", "s-1", "me00"),
+            None
+        );
 
         // Unknown version → dropped (parse it as the reader would).
         let future: Frame = serde_json::from_str(r#"{"v":9,"ch":1,"val":1}"#).expect("parses");
