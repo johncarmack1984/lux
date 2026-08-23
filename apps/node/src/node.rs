@@ -21,6 +21,7 @@ use rumqttc::{
     AsyncClient, ConnectionError, Event, LastWill, MqttOptions, Packet, QoS, TlsConfiguration,
     Transport,
 };
+use tokio::signal::unix::{signal, Signal, SignalKind};
 use uuid::Uuid;
 
 use crate::auth;
@@ -41,6 +42,13 @@ pub async fn run(
     let mut refresh_token = session.refresh_token;
     let client_id = session.client_id;
     let mut backoff_secs = 1u64;
+    let mut sigterm =
+        signal(SignalKind::terminate()).map_err(|e| format!("sigterm handler: {e}"))?;
+
+    let shutdown = |sink: &SacnSink, universe: &Universe| {
+        log::info!("shutting down; sending stream-terminated packets");
+        sink.terminate(universe.slots());
+    };
 
     loop {
         // Fresh ID token every attempt; Cognito may rotate the refresh token.
@@ -48,7 +56,10 @@ pub async fn run(
             Ok(tokens) => tokens,
             Err(e) => {
                 log::warn!("token refresh failed ({e}); retrying in {backoff_secs}s");
-                tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
+                tokio::select! {
+                    _ = sigterm.recv() => { shutdown(&sink, &universe); return Ok(()); }
+                    _ = tokio::time::sleep(Duration::from_secs(backoff_secs)) => {}
+                }
                 backoff_secs = (backoff_secs * 2).min(30);
                 continue;
             }
@@ -60,7 +71,7 @@ pub async fn run(
             return Err("could not read sub from the id token".into());
         };
 
-        run_connection(
+        let terminated = run_connection(
             &env,
             &cfg,
             &sink,
@@ -68,9 +79,19 @@ pub async fn run(
             &sub,
             tokens.id,
             &mut backoff_secs,
+            &mut sigterm,
         )
         .await;
-        tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
+
+        if terminated {
+            shutdown(&sink, &universe);
+            return Ok(());
+        }
+
+        tokio::select! {
+            _ = sigterm.recv() => { shutdown(&sink, &universe); return Ok(()); }
+            _ = tokio::time::sleep(Duration::from_secs(backoff_secs)) => {}
+        }
         backoff_secs = (backoff_secs * 2).min(30);
     }
 }
@@ -84,7 +105,8 @@ async fn run_connection(
     sub: &str,
     token: String,
     backoff_secs: &mut u64,
-) {
+    sigterm: &mut Signal,
+) -> bool {
     // Random per-session suffix: shares the peers' client-id prefix (the
     // authorizer allows it) and stamps our own frames/echoes.
     let session = Uuid::new_v4().simple().to_string()[..8].to_owned();
@@ -126,7 +148,7 @@ async fn run_connection(
         .await
     {
         log::warn!("could not queue the ctl subscribe: {e}");
-        return;
+        return false;
     }
 
     let mut keepalive = tokio::time::interval(KEEPALIVE);
@@ -147,6 +169,9 @@ async fn run_connection(
                     echo_dirty = false;
                     publish_state(&client, &state_topic, universe, &session).await;
                 }
+            }
+            _ = sigterm.recv() => {
+                return true;
             }
             event = eventloop.poll() => match event {
                 Ok(Event::Incoming(Packet::SubAck(_))) => {
@@ -182,7 +207,7 @@ async fn run_connection(
                     if matches!(e, ConnectionError::ConnectionRefused(_)) {
                         // Auth-shaped: the caller refreshes the token first.
                     }
-                    return;
+                    return false;
                 }
             }
         }
