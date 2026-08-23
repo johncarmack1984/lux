@@ -210,6 +210,17 @@ pub trait CmdMethods {
         owner_sub: String,
         setup_id: String,
     ) -> Result<Option<SharedDesk>, String>;
+    /// The owner applier's last-known buffer for one shared setup — a cheap
+    /// in-memory read the open desk polls so its faders follow what the rig is
+    /// actually doing (a scene fade, another surface's drag). Empty when no
+    /// state echo has arrived; polling is the delivery path because webview
+    /// events never reach the iOS webview.
+    fn shared_desk_buffer(
+        &self,
+        app_handle: AppHandle,
+        owner_sub: String,
+        setup_id: String,
+    ) -> Result<Vec<u8>, String>;
     fn close_shared_desk(&self, app_handle: AppHandle) -> Result<(), String>;
     // Guest control writes. These publish to the *owner's* frame topic and
     // never touch this device's own buffer — a guest moving a fader on someone
@@ -1044,6 +1055,16 @@ impl CmdMethods for CmdEndpoint {
         // shouldn't claim to be live on it.
         crate::guest::open_desk(&app_handle, &owner_sub, &setup_id);
         desk
+    }
+
+    fn shared_desk_buffer(
+        &self,
+        app_handle: AppHandle,
+        owner_sub: String,
+        setup_id: String,
+    ) -> Result<Vec<u8>, String> {
+        let guest = app_handle.state::<crate::guest::LuxGuest>();
+        Ok(guest.state(&owner_sub, &setup_id).unwrap_or_default())
     }
 
     fn close_shared_desk(&self, app_handle: AppHandle) -> Result<(), String> {

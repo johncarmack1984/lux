@@ -279,6 +279,11 @@ export const cmd = {
   },
 
   /** @throws {string} */
+  shared_desk_buffer(ownerSub: string, setupId: string): Promise<number[]> {
+    return invoke("cmd.shared_desk_buffer", { owner_sub: ownerSub, setup_id: setupId });
+  },
+
+  /** @throws {string} */
   close_shared_desk(): Promise<null> {
     return invoke("cmd.close_shared_desk");
   },

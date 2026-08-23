@@ -49,22 +49,42 @@ async function applyBuffer(frame: number[]) {
 
 /**
  * Engage the preset `id` in `scope`, or toggle it off if it is already the one
- * engaged in that lane. The active mark is only advanced once the backend
- * commits, so a failed write leaves both the lights and the toggle untouched.
+ * engaged in that lane.
+ *
+ * The button highlights on the click, not on the commit: the press is planned
+ * optimistically against the cached buffer so the toggle reads as instant,
+ * then re-planned against a fresh backend read for the write that actually
+ * lands — concurrent changes to unrelated channels (another surface, the
+ * Discord bot) survive both engage and restore. A failed write rolls the
+ * marker back, so the lights and the toggle still end up agreeing.
  */
 export async function togglePreset(
   id: string,
   writes: Map<number, number>,
   scope: PresetScope,
 ) {
-  const base = (await createTauRPCProxy().sync.sync_buffer()).buffer.slice();
-  const { frame, next } = planToggle(active, id, writes, scope, base);
-  await applyBuffer(frame);
-  // Reconcile against the frame we just wrote so any preset this one changed —
-  // e.g. Blackout when a fixture preset is engaged over it — drops its marker
-  // in the same update, not a tick later when the buffer read lands.
-  active = reconcile(next, frame);
-  notify();
+  const before = active;
+  const cached = queryClient.getQueryData<number[]>(BUFFER_QUERY_KEY);
+  if (cached) {
+    active = planToggle(before, id, writes, scope, cached.slice()).next;
+    notify();
+  }
+  try {
+    const base = (await createTauRPCProxy().sync.sync_buffer()).buffer.slice();
+    // Plan against the pre-click active set: the optimistic map above is
+    // display-only, and planning against it would undo the preset twice.
+    const { frame, next } = planToggle(before, id, writes, scope, base);
+    await applyBuffer(frame);
+    // Reconcile against the frame we just wrote so any preset this one changed —
+    // e.g. Blackout when a fixture preset is engaged over it — drops its marker
+    // in the same update, not a tick later when the buffer read lands.
+    active = reconcile(next, frame);
+    notify();
+  } catch (e) {
+    active = before;
+    notify();
+    throw e;
+  }
 }
 
 /** Whether a preset with this `id` is engaged. Re-renders on any change. */
