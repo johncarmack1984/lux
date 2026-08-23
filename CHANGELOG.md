@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.1](https://github.com/johncarmack1984/lux/compare/v1.15.0...v1.15.1) (2026-08-23)
+
+
+### Bug Fixes
+
+* **desktop:** follow the shared desk live and highlight presets on click ([#282](https://github.com/johncarmack1984/lux/issues/282)) ([693b06c](https://github.com/johncarmack1984/lux/commit/693b06c4b127dc1a75c0cd115e08be8e67a5355a))
+
 ## [1.15.0](https://github.com/johncarmack1984/lux/compare/v1.14.2...v1.15.0) (2026-08-23)
 
 
