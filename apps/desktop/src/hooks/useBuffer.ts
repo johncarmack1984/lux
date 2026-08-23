@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createTauRPCProxy } from "@/bindings";
+import { fadeInFlight } from "@/lib/fade-clock";
 import useRemotePeers from "./useRemotePeers";
 
 /** Query key for the live DMX buffer (the current value of every channel). */
@@ -29,7 +30,11 @@ export default function useBuffer(): number[] | null {
       createTauRPCProxy()
         .sync.sync_buffer()
         .then((b) => b.buffer),
-    refetchInterval: hasPeers ? 200 : false,
+    // Poll while another device can write the buffer (a peer or guest), and
+    // while a scene fade is writing it from the backend — recallScene kicks
+    // this query so the interval starts even from the idle (false) state. A
+    // function so each fetch re-asks whether the fade window has closed.
+    refetchInterval: () => (hasPeers || fadeInFlight() ? 200 : false),
   });
 
   useEffect(() => {
