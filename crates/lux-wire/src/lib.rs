@@ -840,6 +840,20 @@ pub mod ctl {
             #[serde(default, skip_serializing_if = "Option::is_none")]
             src: Option<String>,
         },
+        /// `{"v":1,"scene":"<id>"}` — recall one of the setup's saved scenes,
+        /// by the id the compiled [`Config`] listed. The applier resolves the
+        /// id against the setup it holds and runs its ordinary recall (fade
+        /// time included), so the frame carries nothing but the name of the
+        /// destination — levels never ride this wire twice. An id the applier
+        /// no longer knows is logged and dropped, exactly like an unknown
+        /// version: the guest's config was stale, and the next retained
+        /// publish corrects it.
+        Scene {
+            v: u32,
+            scene: String,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            src: Option<String>,
+        },
     }
 
     impl Frame {
@@ -860,10 +874,20 @@ pub mod ctl {
             }
         }
 
+        pub fn scene(id: String) -> Self {
+            Frame::Scene {
+                v: VERSION,
+                scene: id,
+                src: None,
+            }
+        }
+
         /// Stamp the publishing connection's session id (see the enum docs).
         pub fn with_src(mut self, session: &str) -> Self {
             match &mut self {
-                Frame::Buffer { src, .. } | Frame::Channel { src, .. } => {
+                Frame::Buffer { src, .. }
+                | Frame::Channel { src, .. }
+                | Frame::Scene { src, .. } => {
                     *src = Some(session.to_owned());
                 }
             }
@@ -873,14 +897,16 @@ pub mod ctl {
         /// The payload's wire version — gate on this before applying.
         pub fn version(&self) -> u32 {
             match self {
-                Frame::Buffer { v, .. } | Frame::Channel { v, .. } => *v,
+                Frame::Buffer { v, .. } | Frame::Channel { v, .. } | Frame::Scene { v, .. } => *v,
             }
         }
 
         /// The publishing connection's session id, if stamped.
         pub fn src(&self) -> Option<&str> {
             match self {
-                Frame::Buffer { src, .. } | Frame::Channel { src, .. } => src.as_deref(),
+                Frame::Buffer { src, .. }
+                | Frame::Channel { src, .. }
+                | Frame::Scene { src, .. } => src.as_deref(),
             }
         }
     }
@@ -942,6 +968,13 @@ pub mod ctl {
         pub universe: u16,
         pub channels: Vec<ConfigChannel>,
         pub fixtures: Vec<ConfigFixture>,
+        /// The setup's saved scenes, in display order — name-and-id stubs only.
+        /// A surface renders them as recall buttons and publishes a
+        /// [`Frame::Scene`] back; the levels stay with the applier, which is
+        /// the only party that renders them. Defaulted so a config retained by
+        /// an app that predates scenes still parses as "no scenes".
+        #[serde(default)]
+        pub scenes: Vec<ConfigScene>,
     }
 
     /// One patched DMX slot in a [`Config`].
@@ -967,6 +1000,15 @@ pub mod ctl {
         pub count: u16,
     }
 
+    /// One saved scene in a [`Config`] — enough to draw a recall button and
+    /// address a [`Frame::Scene`] at it, nothing more. Levels and fade time
+    /// stay with the applier.
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ConfigScene {
+        pub id: String,
+        pub name: String,
+    }
+
     impl Config {
         pub fn new(
             setup_id: String,
@@ -974,6 +1016,7 @@ pub mod ctl {
             universe: u16,
             channels: Vec<ConfigChannel>,
             fixtures: Vec<ConfigFixture>,
+            scenes: Vec<ConfigScene>,
         ) -> Self {
             Self {
                 v: VERSION,
@@ -982,6 +1025,7 @@ pub mod ctl {
                 universe,
                 channels,
                 fixtures,
+                scenes,
             }
         }
     }
@@ -1818,19 +1862,31 @@ mod tests {
                 address: 1,
                 count: 5,
             }],
+            vec![ctl::ConfigScene {
+                id: "sc-1".into(),
+                name: "Worship".into(),
+            }],
         );
         assert_eq!(
             serde_json::to_string(&config).unwrap(),
-            r#"{"v":1,"setupId":"s-1","name":"Living room","universe":1,"channels":[{"n":1,"name":"Red","role":"Red"}],"fixtures":[{"name":"Par 1","address":1,"count":5}]}"#
+            r#"{"v":1,"setupId":"s-1","name":"Living room","universe":1,"channels":[{"n":1,"name":"Red","role":"Red"}],"fixtures":[{"name":"Par 1","address":1,"count":5}],"scenes":[{"id":"sc-1","name":"Worship"}]}"#
         );
 
         // An unpatched setup publishes empty lists, not a missing key: a fixed
         // parser reads the same field set every time.
-        let bare = ctl::Config::new("s-2".into(), "Blank".into(), 3, vec![], vec![]);
+        let bare = ctl::Config::new("s-2".into(), "Blank".into(), 3, vec![], vec![], vec![]);
         assert_eq!(
             serde_json::to_string(&bare).unwrap(),
-            r#"{"v":1,"setupId":"s-2","name":"Blank","universe":3,"channels":[],"fixtures":[]}"#
+            r#"{"v":1,"setupId":"s-2","name":"Blank","universe":3,"channels":[],"fixtures":[],"scenes":[]}"#
         );
+
+        // A config retained by an app that predates scenes has no `scenes` key
+        // at all; it parses as "no scenes", never as an error.
+        let pre_scenes: ctl::Config = serde_json::from_str(
+            r#"{"v":1,"setupId":"s","name":"n","universe":1,"channels":[],"fixtures":[]}"#,
+        )
+        .unwrap();
+        assert!(pre_scenes.scenes.is_empty());
 
         // A role this reader has never heard of is a string it can ignore, not
         // a parse failure — the whole reason `role` isn't an enum.
@@ -1904,12 +1960,21 @@ mod tests {
             r#"{"v":1,"ch":10,"val":200}"#
         );
 
+        // Scene frame: recall by id — the levels stay with the applier.
+        let scene = ctl::Frame::scene("sc-1".into());
+        assert_eq!(
+            serde_json::to_string(&scene).unwrap(),
+            r#"{"v":1,"scene":"sc-1"}"#
+        );
+
         // Parsing picks the right kind from the fields alone (untagged).
         let parsed: ctl::Frame = serde_json::from_str(r#"{"v":1,"buffer":[1,2]}"#).unwrap();
         assert_eq!(parsed, ctl::Frame::buffer(vec![1, 2]));
         let parsed: ctl::Frame = serde_json::from_str(r#"{"v":1,"ch":512,"val":0}"#).unwrap();
         assert_eq!(parsed, ctl::Frame::channel(512, 0));
         assert_eq!(parsed.version(), 1);
+        let parsed: ctl::Frame = serde_json::from_str(r#"{"v":1,"scene":"sc-1"}"#).unwrap();
+        assert_eq!(parsed, ctl::Frame::scene("sc-1".into()));
 
         // `src` (the publisher's session id) rides both kinds and is omitted
         // when absent — the unstamped pins above are also the CLI-publish shape.

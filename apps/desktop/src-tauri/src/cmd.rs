@@ -221,6 +221,10 @@ pub trait CmdMethods {
         value: u8,
     ) -> Result<(), String>;
     fn set_shared_buffer(&self, app_handle: AppHandle, buffer: Vec<u8>) -> Result<(), String>;
+    /// Recall one of the open shared desk's scenes on the owner's rig. The id
+    /// comes from the desk's scene list; the owner's applier resolves it and
+    /// runs the fade.
+    fn recall_shared_scene(&self, app_handle: AppHandle, id: String) -> Result<(), String>;
     // DMX output — the in-app device picker (the only output selector on mobile,
     // where there's no tray). Mirrors the desktop tray's device menu.
     fn list_dmx_devices(&self, app_handle: AppHandle) -> Result<Vec<DmxDeviceInfo>, String>;
@@ -337,6 +341,10 @@ pub struct SharedDesk {
     pub universe: u16,
     pub channels: Vec<SharedChannel>,
     pub fixtures: Vec<SharedFixture>,
+    /// The setup's saved scenes, in display order — recall buttons, nothing
+    /// more. The levels stay with the owner's applier, which resolves the
+    /// recall.
+    pub scenes: Vec<SharedScene>,
     /// The owner applier's last-applied buffer. Empty when it hasn't published
     /// one — a surface should render zeros, not refuse to draw.
     pub buffer: Vec<u8>,
@@ -351,6 +359,13 @@ pub struct SharedChannel {
     /// Role name; a surface matches the ones it knows and treats the rest as a
     /// plain fader, so an unfamiliar value is never an error.
     pub role: String,
+}
+
+/// One saved scene on a shared desk (`lux_wire::ctl::ConfigScene`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct SharedScene {
+    pub id: String,
+    pub name: String,
 }
 
 /// One fixture on a shared desk (`lux_wire::ctl::ConfigFixture`).
@@ -1014,6 +1029,14 @@ impl CmdMethods for CmdEndpoint {
                     count: f.count,
                 })
                 .collect(),
+            scenes: config
+                .scenes
+                .into_iter()
+                .map(|s| SharedScene {
+                    id: s.id,
+                    name: s.name,
+                })
+                .collect(),
             buffer: guest.state(&owner_sub, &setup_id).unwrap_or_default(),
         }));
         // Bind the publish target and announce this guest on the owner's desk
@@ -1040,6 +1063,11 @@ impl CmdMethods for CmdEndpoint {
 
     fn set_shared_buffer(&self, app_handle: AppHandle, buffer: Vec<u8>) -> Result<(), String> {
         crate::guest::publish_overlay(&app_handle, buffer);
+        Ok(())
+    }
+
+    fn recall_shared_scene(&self, app_handle: AppHandle, id: String) -> Result<(), String> {
+        crate::guest::publish_scene(&app_handle, &id);
         Ok(())
     }
 
@@ -1097,6 +1125,10 @@ fn commit_scenes(app: &AppHandle, setups: &LuxSetups) -> Result<Vec<Scene>, Stri
     .emit(app)
     .map_err(|e| format!("Failed to emit scenes_set event: {e}"))?;
     crate::cloud::schedule_push(app);
+    // A shared setup's guests see its scenes through the retained config, so
+    // it has to follow the scene list rather than lag it (coalesced; see
+    // refresh_shares).
+    crate::nudge::refresh_shares(app);
     Ok(scenes)
 }
 

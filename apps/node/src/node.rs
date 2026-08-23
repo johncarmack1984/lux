@@ -210,6 +210,12 @@ fn apply_frame(payload: &[u8], cfg: &NodeConfig, universe: &mut Universe, sessio
                 false
             }
         },
+        // The node holds no scenes — only the desktop applier can resolve a
+        // recall. Its state echo carries the resulting levels here instead.
+        Some(RemoteApply::Scene { id }) => {
+            log::info!("ignoring a scene recall ({id}): the node holds no scenes");
+            false
+        }
         None => false,
     }
 }

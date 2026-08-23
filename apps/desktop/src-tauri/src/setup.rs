@@ -106,6 +106,16 @@ impl Setup {
             self.universe,
             channels,
             fixtures,
+            // Name-and-id stubs in display order: enough for a guest to draw
+            // recall buttons and address a scene frame back. The levels stay
+            // here, with the applier that renders them.
+            self.scenes
+                .iter()
+                .map(|s| lux_wire::ctl::ConfigScene {
+                    id: s.id.to_string(),
+                    name: s.name.clone(),
+                })
+                .collect(),
         )
     }
 
@@ -867,6 +877,35 @@ mod tests {
         assert_eq!(config.fixtures[1].name, "Front par");
         assert_eq!(config.fixtures[1].address, 1);
         assert_eq!(config.fixtures[1].count, 1);
+    }
+
+    #[test]
+    fn compile_carries_scene_stubs_in_display_order() {
+        let mut setup = new_setup("Living room", 7, vec![]);
+        for name in ["Pre-service", "Worship"] {
+            crate::scene::add(
+                &mut setup.scenes,
+                name.into(),
+                vec![crate::scene::SceneLevel { ch: 1, val: 255 }],
+            )
+            .expect("adds");
+        }
+
+        let config = setup.compile();
+        let stubs: Vec<(String, String)> = config
+            .scenes
+            .iter()
+            .map(|s| (s.id.clone(), s.name.clone()))
+            .collect();
+        assert_eq!(
+            stubs,
+            vec![
+                (setup.scenes[0].id.to_string(), "Pre-service".to_owned()),
+                (setup.scenes[1].id.to_string(), "Worship".to_owned()),
+            ]
+        );
+        // Stubs only: levels and fade time never leave the applier.
+        assert!(!serde_json::to_string(&config).unwrap().contains("levels"));
     }
 
     #[test]
