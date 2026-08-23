@@ -168,9 +168,19 @@ function RedeemForm({ onClaimed }: { onClaimed: (s: SharedSetup) => void }) {
  * the owner's last-known buffer — there is no local buffer behind this view,
  * and every move goes straight out to the owner.
  */
+/**
+ * How long a just-dragged fader ignores the polled state echo. The echo of a
+ * guest's own write takes a full round trip to come back (guest coalesce →
+ * owner apply → echo coalesce → retained delivery → next poll), so following
+ * it immediately would snap a fader backwards mid-drag. Anything older than
+ * this is an out-of-band change worth showing.
+ */
+const DRAG_HOLDOFF_MS = 800;
+
 function Desk({ open, onBack }: { open: Open; onBack: () => void }) {
   const [values, setValues] = useState<Record<number, number>>({});
   const seeded = useRef(false);
+  const lastDragAt = useRef<Map<number, number>>(new Map());
 
   const { data: desk, isPending } = useQuery({
     queryKey: ["sharedDesk", open.ownerSub, open.setupId],
@@ -185,7 +195,38 @@ function Desk({ open, onBack }: { open: Open; onBack: () => void }) {
     setValues(seed);
   }, [desk]);
 
+  // Follow the owner's rig live: poll the applier's state echo (a cheap
+  // in-memory read; polling because webview events never reach iOS, the same
+  // trade as useBuffer) and fold it into every fader not being dragged right
+  // now — a scene fade or another surface's move shows here as it happens.
+  const { data: live } = useQuery({
+    queryKey: ["sharedDeskBuffer", open.ownerSub, open.setupId],
+    queryFn: () => cmd().shared_desk_buffer(open.ownerSub, open.setupId),
+    refetchInterval: 200,
+    enabled: !!desk,
+  });
+
+  useEffect(() => {
+    if (!live?.length || !desk) return;
+    const now = Date.now();
+    setValues((v) => {
+      let changed = false;
+      const next = { ...v };
+      for (const ch of desk.channels) {
+        const dragged = lastDragAt.current.get(ch.n);
+        if (dragged && now - dragged < DRAG_HOLDOFF_MS) continue;
+        const echoed = live[ch.n - 1] ?? 0;
+        if (next[ch.n] !== echoed) {
+          next[ch.n] = echoed;
+          changed = true;
+        }
+      }
+      return changed ? next : v;
+    });
+  }, [live, desk]);
+
   const drag = (n: number, next: number) => {
+    lastDragAt.current.set(n, Date.now());
     setValues((v) => ({ ...v, [n]: next }));
     // Coalesced to ~25 Hz on the backend, the same as a local drag.
     void cmd().set_shared_channel(n, next);
