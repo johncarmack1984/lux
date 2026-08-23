@@ -96,7 +96,7 @@ The cap is enforced at **claim**, not at invite: the contact is not known until 
 
 ## The `config` topic
 
-`lux_wire::ctl::Config` finally gives the reserved `…/setup/<id>/config` topic its schema: a setup compiled down to what it takes to *render a surface for it* — id, name, universe, patched channels (`{n, name, role}`), fixture summaries.
+`lux_wire::ctl::Config` finally gives the reserved `…/setup/<id>/config` topic its schema: a setup compiled down to what it takes to *render a surface for it* — id, name, universe, patched channels (`{n, name, role}`), fixture summaries, and scene stubs (`{id, name}`). A guest recalls a scene by publishing a `Frame::Scene` with the stub's id back on the frame topic; the levels and fade time never leave the owner's applier, which resolves the id against the setup it holds and runs its ordinary recall.
 
 It is deliberately not a `SetupRecord`. That shape is the authoring model — opaque fixture JSON, revisions, tombstones — and it belongs to the account that owns it. This one is the rendering model: flat, small, and parseable by an embedded node with no JSON DOM. `role` is a plain string rather than an enum so that adding a role never strands an older reader, and the payload is versioned from day one because App Store review lag guarantees the two ends run different app versions.
 

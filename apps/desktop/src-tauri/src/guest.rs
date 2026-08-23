@@ -334,6 +334,44 @@ pub fn publish_overlay<R: Runtime>(app: &AppHandle<R>, bytes: Vec<u8>) {
     schedule_flush(app);
 }
 
+/// Publish one scene recall on the open shared desk.
+///
+/// Straight out rather than through the outbox: a recall is a discrete press,
+/// not a stream to coalesce, and it must not sit behind a 40 ms window it has
+/// no writes to share. The id is checked against the desk's compiled config
+/// first — this surface can only ask for scenes the owner said exist, so a
+/// stale or fabricated id stops here instead of travelling to someone's rig.
+pub fn publish_scene<R: Runtime>(app: &AppHandle<R>, scene_id: &str) {
+    let guest = app.state::<LuxGuest>();
+    let Some((owner_sub, setup_id)) = guest.open.lock_or_recover().clone() else {
+        return;
+    };
+    let known = guest
+        .config(&owner_sub, &setup_id)
+        .is_some_and(|c| c.scenes.iter().any(|s| s.id == scene_id));
+    if !known {
+        log::warn!("refusing to recall {scene_id}: not in the shared setup's config");
+        return;
+    }
+    let Some(echo) = crate::nudge::connection(app) else {
+        return;
+    };
+    let topic = lux_wire::ctl::frame_topic(&owner_sub, &setup_id);
+    let frame = lux_wire::ctl::Frame::scene(scene_id.to_owned()).with_src(&echo.session);
+    let Ok(payload) = serde_json::to_vec(&frame) else {
+        return;
+    };
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = echo
+            .client
+            .publish(topic.clone(), QoS::AtMostOnce, false, payload)
+            .await
+        {
+            log::debug!("guest scene publish to {topic} failed: {e}");
+        }
+    });
+}
+
 /// Drain the guest outbox to the open desk's owner, trailing-edge coalesced.
 /// Frames carry `src` so the owner's applier can attribute them in its per-slot
 /// merge — and so this device drops its own frames when they echo back.

@@ -226,6 +226,23 @@ function Desk({ open, onBack }: { open: Open; onBack: () => void }) {
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col gap-3 px-4 py-4">
       {header(desk.name, `Universe ${desk.universe}`)}
+      {desk.scenes.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {desk.scenes.map((scene) => (
+            <Button
+              key={scene.id}
+              variant="outline"
+              size="sm"
+              // The owner's applier resolves the id and runs the fade; the
+              // faders here keep their last-dragged positions — this view has
+              // no live feed of the owner's buffer to follow the fade with.
+              onClick={() => void cmd().recall_shared_scene(scene.id)}
+            >
+              {scene.name}
+            </Button>
+          ))}
+        </div>
+      ) : null}
       {unpatched ? (
         <p className="text-sm text-muted-foreground">
           This setup has no fixtures patched, so there are no named controls to

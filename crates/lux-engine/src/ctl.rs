@@ -107,6 +107,9 @@ pub fn guest_route<'t>(topic: &'t str, own_sub: &str) -> Option<GuestRoute<'t>> 
 pub enum RemoteApply {
     Overlay(Vec<u8>),
     Channel { ch: u16, val: u8 },
+    /// Recall a saved scene by id. The applier resolves it against the setup
+    /// it holds — a consumer with no scenes (the node today) logs and drops it.
+    Scene { id: String },
 }
 
 /// Whether this peer applies `frame`: the version must be known, the frame
@@ -135,6 +138,7 @@ pub fn gate(
     match frame {
         lux_wire::ctl::Frame::Buffer { buffer, .. } => Some(RemoteApply::Overlay(buffer)),
         lux_wire::ctl::Frame::Channel { ch, val, .. } => Some(RemoteApply::Channel { ch, val }),
+        lux_wire::ctl::Frame::Scene { scene, .. } => Some(RemoteApply::Scene { id: scene }),
     }
 }
 
@@ -235,8 +239,15 @@ mod tests {
             Some(RemoteApply::Channel { ch: 10, val: 200 })
         );
 
+        let scene = Frame::scene("sc-1".into());
+        assert_eq!(
+            gate(scene, "s-1", "s-1", "me00"),
+            Some(RemoteApply::Scene { id: "sc-1".into() })
+        );
+
         // Inactive setup → dropped.
         assert_eq!(gate(Frame::channel(1, 1), "s-2", "s-1", "me00"), None);
+        assert_eq!(gate(Frame::scene("sc-1".into()), "s-2", "s-1", "me00"), None);
 
         // Unknown version → dropped (parse it as the reader would).
         let future: Frame = serde_json::from_str(r#"{"v":9,"ch":1,"val":1}"#).expect("parses");

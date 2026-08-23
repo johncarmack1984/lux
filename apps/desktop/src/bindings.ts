@@ -264,6 +264,12 @@ export const cmd = {
 	channels: SharedChannel[],
 	fixtures: SharedFixture[],
 	/**
+	 *  The setup's saved scenes, in display order — recall buttons, nothing
+	 *  more. The levels stay with the owner's applier, which resolves the
+	 *  recall.
+	 */
+	scenes: SharedScene[],
+	/**
 	 *  The owner applier's last-applied buffer. Empty when it hasn't published
 	 *  one — a surface should render zeros, not refuse to draw.
 	 */
@@ -285,6 +291,11 @@ export const cmd = {
   /** @throws {string} */
   set_shared_buffer(buffer: number[]): Promise<null> {
     return invoke("cmd.set_shared_buffer", { buffer });
+  },
+
+  /** @throws {string} */
+  recall_shared_scene(id: string): Promise<null> {
+    return invoke("cmd.recall_shared_scene", { id });
   },
 
   /** @throws {string} */
@@ -691,6 +702,12 @@ export type SharedDesk = {
 	channels: SharedChannel[],
 	fixtures: SharedFixture[],
 	/**
+	 *  The setup's saved scenes, in display order — recall buttons, nothing
+	 *  more. The levels stay with the owner's applier, which resolves the
+	 *  recall.
+	 */
+	scenes: SharedScene[],
+	/**
 	 *  The owner applier's last-applied buffer. Empty when it hasn't published
 	 *  one — a surface should render zeros, not refuse to draw.
 	 */
@@ -702,6 +719,12 @@ export type SharedFixture = {
 	name: string,
 	address: number,
 	count: number,
+};
+
+/**  One saved scene on a shared desk (`lux_wire::ctl::ConfigScene`). */
+export type SharedScene = {
+	id: string,
+	name: string,
 };
 
 /**  One setup another account has shared with this one, as a surface sees it. */

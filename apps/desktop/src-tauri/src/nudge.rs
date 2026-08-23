@@ -905,6 +905,19 @@ fn apply_frame(app: &AppHandle, payload: &[u8], frame_setup: &str, own_session: 
         RemoteApply::Channel { ch, val } => buffer
             .set_channel(usize::from(ch), val, app.clone())
             .map(|_| ()),
+        // A recall resolves against the setup this applier holds and runs the
+        // ordinary recall path (fade included) — a remote scene press behaves
+        // exactly like pressing the button here. An id we don't know means the
+        // sender's config was stale; drop it and let the next retained config
+        // publish correct them.
+        RemoteApply::Scene { id } => uuid::Uuid::parse_str(&id)
+            .map_err(|e| format!("unparseable scene id {id}: {e}"))
+            .and_then(|id| {
+                app.state::<LuxSetups>()
+                    .active_scene(id)
+                    .ok_or_else(|| format!("scene {id} not on the active setup"))
+            })
+            .and_then(|scene| crate::scene::recall(app, &scene)),
     };
     if let Err(e) = result {
         log::warn!("ctl frame apply failed: {e}");
