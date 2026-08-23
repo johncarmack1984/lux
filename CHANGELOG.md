@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.0](https://github.com/johncarmack1984/lux/compare/v1.14.2...v1.15.0) (2026-08-23)
+
+
+### Features
+
+* **shared-control:** let guests recall scenes on a shared desk ([#280](https://github.com/johncarmack1984/lux/issues/280)) ([30855ad](https://github.com/johncarmack1984/lux/commit/30855adcd906373b1709ec77a559ddf000d88a15))
+
 ## [1.14.2](https://github.com/johncarmack1984/lux/compare/v1.14.1...v1.14.2) (2026-08-17)
 
 
