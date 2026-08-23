@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.15.2](https://github.com/johncarmack1984/lux/compare/v1.15.1...v1.15.2) (2026-08-23)
+
+
+### Bug Fixes
+
+* **desktop:** poll the buffer while a scene fade is in flight ([#284](https://github.com/johncarmack1984/lux/issues/284)) ([b0216a2](https://github.com/johncarmack1984/lux/commit/b0216a2e3be625b0473dc3324fdc86be6f7cefd8))
+* **node:** send E1.31 stream-terminated packets on SIGTERM ([#285](https://github.com/johncarmack1984/lux/issues/285)) ([d3b13e6](https://github.com/johncarmack1984/lux/commit/d3b13e69dab17fa5453d591210e4db64ed47b75b))
+
 ## [1.15.1](https://github.com/johncarmack1984/lux/compare/v1.15.0...v1.15.1) (2026-08-23)
 
 
