@@ -42,8 +42,8 @@ pub async fn run(
     let mut refresh_token = session.refresh_token;
     let client_id = session.client_id;
     let mut backoff_secs = 1u64;
-    let mut sigterm = signal(SignalKind::terminate())
-        .map_err(|e| format!("sigterm handler: {e}"))?;
+    let mut sigterm =
+        signal(SignalKind::terminate()).map_err(|e| format!("sigterm handler: {e}"))?;
 
     let shutdown = |sink: &SacnSink, universe: &Universe| {
         log::info!("shutting down; sending stream-terminated packets");
