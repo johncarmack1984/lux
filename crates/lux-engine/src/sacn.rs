@@ -81,6 +81,30 @@ impl SacnSink {
     }
 }
 
+impl SacnSink {
+    /// Send three stream-terminated packets (E1.31-2018 §6.2.6) carrying the
+    /// current channel data. Receivers that implement the spec hold last look
+    /// instead of timing out to zero when they see the Stream_Terminated bit.
+    /// The spec requires at least three packets so late-arriving receivers have
+    /// a chance to see one.
+    pub fn terminate(&self, channels: &[u8]) {
+        for _ in 0..3 {
+            let seq = self.sequence.fetch_add(1, Ordering::Relaxed);
+            let mut packet = build_packet(
+                &self.cid,
+                self.universe,
+                self.priority,
+                &self.source_name,
+                channels,
+                seq,
+            );
+            // E1.31-2018 §6.2.6: bit 6 of the options byte = Stream_Terminated.
+            packet[112] |= 0x40;
+            let _ = self.socket.send_to(&packet, self.dest);
+        }
+    }
+}
+
 impl DmxSink for SacnSink {
     fn render(&self, channels: &[u8]) -> Result<(), String> {
         let seq = self.sequence.fetch_add(1, Ordering::Relaxed);
@@ -208,6 +232,20 @@ mod tests {
         // 300 = 0x012C -> 239.255.1.44
         let sink = SacnSink::new(300, None, DEFAULT_PRIORITY, "lux").unwrap();
         assert_eq!(sink.dest.ip(), &Ipv4Addr::new(239, 255, 1, 44));
+    }
+
+    #[test]
+    fn stream_terminated_bit_is_set_in_options() {
+        let cid = [0u8; 16];
+        let packet = build_packet(&cid, 1, 100, "lux", &[255, 128], 0);
+        assert_eq!(packet[112], 0, "options byte should start at 0");
+        // Simulate what terminate() does:
+        let mut terminated = packet;
+        terminated[112] |= 0x40;
+        assert_eq!(terminated[112], 0x40, "Stream_Terminated bit should be set");
+        // Channel data preserved.
+        assert_eq!(terminated[126], 255);
+        assert_eq!(terminated[127], 128);
     }
 
     #[test]
