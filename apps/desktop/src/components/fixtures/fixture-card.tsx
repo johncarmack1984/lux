@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { ChevronsDownUp, ChevronsRightLeft, Trash2 } from "lucide-react";
 import { createTauRPCProxy, type Fixture } from "@/bindings";
 import useLuxRefresh from "@/hooks/useLuxRefresh";
-import { setFixtureCollapsed } from "@/lib/actions";
+import { useDesk } from "@/lib/desk-context";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import FixtureChannel from "./fixture-channel";
@@ -44,10 +44,13 @@ export default function FixtureCard({
   );
   const dimmerIndex = channels.findIndex((c) => c.role === "Brightness");
 
-  // Collapse state persists (device-local, in setups.json); the view owns the
-  // source of truth and this just requests the flip.
+  const desk = useDesk();
+
+  // Collapse state persists (device-local, in setups.json — or the shared
+  // desk's session on a guest surface); the view owns the source of truth and
+  // this just requests the flip.
   const setCollapsed = (next: boolean) =>
-    setFixtureCollapsed(id, next).catch((e) => toast.error(String(e)));
+    desk.setCollapsed(id, next).catch((e) => toast.error(String(e)));
 
   // Both states toggle on a surface click. Interactive controls handle their
   // own clicks (`.touch-none` is the slider root — track clicks start a
@@ -196,6 +199,7 @@ export default function FixtureCard({
       )}
     >
       <header className="mb-3 flex items-start justify-between gap-2">
+        {desk.editable ? (
         <div className="min-w-0 flex-1">
           <input
             value={draft}
@@ -231,6 +235,18 @@ export default function FixtureCard({
             {channels.length > 1 && <span>-{previewEnd}</span>}
           </p>
         </div>
+        ) : (
+        // The guest form of the same header: the patch belongs to the owner,
+        // so the name and span are facts here, not fields.
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-semibold">{name}</p>
+          <p className="text-xs tabular-nums text-muted-foreground">
+            {channels.length === 1
+              ? `Channel ${address}`
+              : `Channels ${address}-${address + channels.length - 1}`}
+          </p>
+        </div>
+        )}
         <Button
           variant="ghost"
           size="icon"
@@ -241,15 +257,17 @@ export default function FixtureCard({
         >
           <CollapseIcon className="size-4" />
         </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 shrink-0 text-muted-foreground/60 hover:text-foreground"
-          aria-label={`Remove ${name}`}
-          onClick={() => removeFixture()}
-        >
-          <Trash2 className="size-4" />
-        </Button>
+        {desk.editable && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0 text-muted-foreground/60 hover:text-foreground"
+            aria-label={`Remove ${name}`}
+            onClick={() => removeFixture()}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        )}
       </header>
 
       {hasColor && (

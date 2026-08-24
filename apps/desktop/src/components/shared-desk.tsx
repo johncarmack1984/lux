@@ -1,21 +1,31 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ArrowLeft, Link2, Loader2 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createTauRPCProxy, type SharedDesk, type SharedSetup } from "@/bindings";
+import {
+  createTauRPCProxy,
+  type Fixture,
+  type LuxLabelColor,
+  type SharedDesk,
+  type SharedSetup,
+} from "@/bindings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Slider } from "@/components/ui/slider";
-import { cn, lightColorVariants } from "@/lib/utils";
+import FixtureCard from "@/components/fixtures/fixture-card";
+import { PresetRow } from "@/components/button-row";
+import useSettings from "@/hooks/useSettings";
+import { DeskProvider, type Desk as DeskSeam } from "@/lib/desk-context";
+import { createPresetStore } from "@/lib/preset-toggle";
+import { cn } from "@/lib/utils";
 
 const cmd = () => createTauRPCProxy().cmd;
 
 /**
  * Roles cross the wire as plain strings so an owner on a newer app can add one
- * without breaking an older guest. Anything this build doesn't style renders as
- * a plain fader rather than an error.
+ * without breaking an older guest. Anything this build doesn't recognize
+ * renders as a Generic fader rather than an error.
  */
-const STYLED_ROLES = [
+const STYLED_ROLES: readonly LuxLabelColor[] = [
   "Red",
   "Green",
   "Blue",
@@ -23,11 +33,10 @@ const STYLED_ROLES = [
   "White",
   "Brightness",
   "Generic",
-] as const;
-type StyledRole = (typeof STYLED_ROLES)[number];
-const styledRole = (role: string): StyledRole =>
+];
+const styledRole = (role: string): LuxLabelColor =>
   (STYLED_ROLES as readonly string[]).includes(role)
-    ? (role as StyledRole)
+    ? (role as LuxLabelColor)
     : "Generic";
 
 export const SHARED_SETUPS_QUERY_KEY = ["sharedSetups"];
@@ -39,7 +48,7 @@ type Open = { ownerSub: string; setupId: string };
  * Setups other people have shared with this account, and the desk for one of
  * them.
  *
- * A guest holds no copy of anyone's setup: the channel list comes from the
+ * A guest holds no copy of anyone's setup: the fixture list comes from the
  * owner's compiled config and the opening fader positions from their applier's
  * last-known buffer, both fetched fresh when a desk opens. Moving a fader here
  * publishes to the *owner's* rig and never touches this device's own fixtures.
@@ -164,23 +173,39 @@ function RedeemForm({ onClaimed }: { onClaimed: (s: SharedSetup) => void }) {
 }
 
 /**
- * The desk for one shared setup. Fader positions are local UI state seeded from
- * the owner's last-known buffer — there is no local buffer behind this view,
- * and every move goes straight out to the owner.
- */
-/**
- * How long a just-dragged fader ignores the polled state echo. The echo of a
+ * How long a just-written channel ignores the polled state echo. The echo of a
  * guest's own write takes a full round trip to come back (guest coalesce →
  * owner apply → echo coalesce → retained delivery → next poll), so following
- * it immediately would snap a fader backwards mid-drag. Anything older than
- * this is an out-of-band change worth showing.
+ * it immediately would snap a fader backwards mid-drag or drop a just-engaged
+ * preset. Anything older than this is an out-of-band change worth showing.
  */
-const DRAG_HOLDOFF_MS = 800;
+const WRITE_HOLDOFF_MS = 800;
 
+const UNIVERSE_SIZE = 512;
+
+/**
+ * The desk for one shared setup — the owner's fixtures view, pointed at their
+ * rig. The compiled config's fixture list is regrouped into the same shape the
+ * owner's cards render (name, span, role-labelled channels), and every control
+ * writes through a guest desk seam instead of the local buffer. The patch is
+ * the owner's, so the cards are read-only; the levels are live both ways.
+ */
 function Desk({ open, onBack }: { open: Open; onBack: () => void }) {
-  const [values, setValues] = useState<Record<number, number>>({});
-  const seeded = useRef(false);
-  const lastDragAt = useRef<Map<number, number>>(new Map());
+  // The guest's local picture of the owner's buffer: seeded from the applier's
+  // last-known frame, advanced optimistically by this desk's own writes, and
+  // folded toward the polled state echo for everything not just written here.
+  const [buffer, setBuffer] = useState<number[] | null>(null);
+  const bufferRef = useRef<number[] | null>(null);
+  bufferRef.current = buffer;
+  const heldAt = useRef<Map<number, number>>(new Map());
+  // Collapse state is per-session here — a guest has no setups.json row for
+  // someone else's fixtures, and remembering less about another account's rig
+  // is a feature.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  const settings = useSettings();
+  const vertical =
+    settings !== null && (settings.sliderOrientation ?? "vertical") === "vertical";
 
   const { data: desk, isPending } = useQuery({
     queryKey: ["sharedDesk", open.ownerSub, open.setupId],
@@ -188,17 +213,18 @@ function Desk({ open, onBack }: { open: Open; onBack: () => void }) {
   });
 
   useEffect(() => {
-    if (!desk || seeded.current) return;
-    seeded.current = true;
-    const seed: Record<number, number> = {};
-    for (const ch of desk.channels) seed[ch.n] = desk.buffer[ch.n - 1] ?? 0;
-    setValues(seed);
+    if (!desk || bufferRef.current) return;
+    const seed = new Array<number>(UNIVERSE_SIZE).fill(0);
+    desk.buffer.forEach((v, i) => {
+      seed[i] = v;
+    });
+    setBuffer(seed);
   }, [desk]);
 
   // Follow the owner's rig live: poll the applier's state echo (a cheap
   // in-memory read; polling because webview events never reach iOS, the same
-  // trade as useBuffer) and fold it into every fader not being dragged right
-  // now — a scene fade or another surface's move shows here as it happens.
+  // trade as useBuffer) and fold it into every channel not just written here —
+  // a scene fade or another surface's move shows as it happens.
   const { data: live } = useQuery({
     queryKey: ["sharedDeskBuffer", open.ownerSub, open.setupId],
     queryFn: () => cmd().shared_desk_buffer(open.ownerSub, open.setupId),
@@ -207,30 +233,87 @@ function Desk({ open, onBack }: { open: Open; onBack: () => void }) {
   });
 
   useEffect(() => {
-    if (!live?.length || !desk) return;
+    if (!live?.length) return;
     const now = Date.now();
-    setValues((v) => {
+    setBuffer((b) => {
+      if (!b) return b;
       let changed = false;
-      const next = { ...v };
-      for (const ch of desk.channels) {
-        const dragged = lastDragAt.current.get(ch.n);
-        if (dragged && now - dragged < DRAG_HOLDOFF_MS) continue;
-        const echoed = live[ch.n - 1] ?? 0;
-        if (next[ch.n] !== echoed) {
-          next[ch.n] = echoed;
+      const next = [...b];
+      for (let i = 0; i < next.length; i++) {
+        const held = heldAt.current.get(i + 1);
+        if (held && now - held < WRITE_HOLDOFF_MS) continue;
+        const echoed = live[i] ?? 0;
+        if (next[i] !== echoed) {
+          next[i] = echoed;
           changed = true;
         }
       }
-      return changed ? next : v;
+      return changed ? next : b;
     });
-  }, [live, desk]);
+  }, [live]);
 
-  const drag = (n: number, next: number) => {
-    lastDragAt.current.set(n, Date.now());
-    setValues((v) => ({ ...v, [n]: next }));
-    // Coalesced to ~25 Hz on the backend, the same as a local drag.
-    void cmd().set_shared_channel(n, next);
-  };
+  // This desk's preset lane: plans against the guest's local picture of the
+  // buffer (the freshest truth a guest has) and writes full frames to the
+  // owner's rig. A store per open desk, so nothing leaks between visits or
+  // into the owner-side singleton.
+  const seam = useMemo<DeskSeam>(() => {
+    const localWrite = (writes: ReadonlyArray<[number, number]>) => {
+      const now = Date.now();
+      setBuffer((b) => {
+        const next = b ? [...b] : new Array<number>(UNIVERSE_SIZE).fill(0);
+        for (const [n, value] of writes) {
+          heldAt.current.set(n, now);
+          next[n - 1] = value;
+        }
+        return next;
+      });
+    };
+    return {
+      editable: false,
+      async setChannel(channelNumber, value) {
+        localWrite([[channelNumber, value]]);
+        // Coalesced to ~25 Hz on the backend, the same as a local drag.
+        await cmd().set_shared_channel(channelNumber, value);
+      },
+      async setCollapsed(fixtureId, next) {
+        setCollapsed((prev) => {
+          const ids = new Set(prev);
+          if (next) ids.add(fixtureId);
+          else ids.delete(fixtureId);
+          return ids;
+        });
+      },
+      presets: createPresetStore({
+        cached: () => bufferRef.current ?? undefined,
+        read: async () =>
+          bufferRef.current ??
+          (await cmd().shared_desk_buffer(open.ownerSub, open.setupId)),
+        async apply(frame) {
+          await cmd().set_shared_buffer(frame);
+          localWrite(frame.map((value, i) => [i + 1, value]));
+        },
+      }),
+    };
+  }, [open.ownerSub, open.setupId]);
+
+  // Regroup the compiled config into the owner's card shape. The config's
+  // flat channel list covers each fixture's span densely (it is compiled from
+  // the same fixtures), so slicing on [address, address + count) recovers the
+  // per-fixture channel order the color mixer needs. Fixture ids don't cross
+  // the wire; the address is unique within a patch and stands in.
+  const fixtures = useMemo<Fixture[]>(
+    () =>
+      (desk?.fixtures ?? []).map((f) => ({
+        id: `shared-${f.address}`,
+        name: f.name,
+        address: f.address,
+        channels: desk!.channels
+          .filter((c) => c.n >= f.address && c.n < f.address + f.count)
+          .sort((a, b) => a.n - b.n)
+          .map((c) => ({ role: styledRole(c.role), label: c.name })),
+      })),
+    [desk],
+  );
 
   const header = (title: string, subtitle?: string) => (
     <div className="flex items-center gap-2">
@@ -262,66 +345,55 @@ function Desk({ open, onBack }: { open: Open; onBack: () => void }) {
     );
   }
 
-  const unpatched = desk.channels.length === 0;
-
   return (
-    <div className="mx-auto flex h-full w-full max-w-3xl flex-col gap-3 px-4 py-4">
-      {header(desk.name, `Universe ${desk.universe}`)}
-      {desk.scenes.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
-          {desk.scenes.map((scene) => (
-            <Button
-              key={scene.id}
-              variant="outline"
-              size="sm"
-              // The owner's applier resolves the id and runs the fade; the
-              // faders here keep their last-dragged positions — this view has
-              // no live feed of the owner's buffer to follow the fade with.
-              onClick={() => void cmd().recall_shared_scene(scene.id)}
-            >
-              {scene.name}
-            </Button>
-          ))}
-        </div>
-      ) : null}
-      {unpatched ? (
-        <p className="text-sm text-muted-foreground">
-          This setup has no fixtures patched, so there are no named controls to
-          show.
-        </p>
-      ) : (
-        <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-          {desk.channels.map((ch) => (
-            <li key={ch.n} className="flex items-center gap-3">
-              <span
-                className={cn(
-                  "shrink-0 text-xs tabular-nums",
-                  // An unfamiliar role falls through to the neutral style
-                  // rather than breaking the row.
-                  lightColorVariants({ labelColor: styledRole(ch.role) }),
-                )}
+    <DeskProvider value={seam}>
+      <div className="mx-auto flex h-full w-full max-w-3xl flex-col gap-3 overflow-y-auto px-4 py-4">
+        {header(desk.name, `Universe ${desk.universe}`)}
+        <PresetRow buffer={buffer} />
+        {desk.scenes.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {desk.scenes.map((scene) => (
+              <Button
+                key={scene.id}
+                variant="outline"
+                size="sm"
+                // The owner's applier resolves the id and runs the fade; the
+                // desk follows it through the polled state echo above.
+                onClick={() => void cmd().recall_shared_scene(scene.id)}
               >
-                {ch.n}
-              </span>
-              <span className="w-24 shrink-0 truncate text-right text-sm text-muted-foreground">
-                {ch.name}
-              </span>
-              <span className="w-10 shrink-0 text-xs tabular-nums text-muted-foreground">
-                {(values[ch.n] ?? 0).toString().padStart(3, "0")}
-              </span>
-              <Slider
-                aria-label={`${ch.name} (channel ${ch.n})`}
-                value={[values[ch.n] ?? 0]}
-                onValueChange={([next]) => drag(ch.n, next)}
-                max={255}
-                step={1}
-                className="flex-1"
-              />
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+                {scene.name}
+              </Button>
+            ))}
+          </div>
+        ) : null}
+        {fixtures.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            This setup has no fixtures patched, so there is nothing to show.
+          </p>
+        ) : (
+          // The owner's fixtures layout: cards sorted by address, side by side
+          // as a console when the guest's own fader orientation is vertical.
+          <div
+            className={cn(
+              "flex w-full flex-col gap-4",
+              vertical && "min-h-0 flex-1 flex-row gap-4 overflow-x-auto pb-2",
+            )}
+          >
+            {[...fixtures]
+              .sort((a, b) => a.address - b.address)
+              .map((fixture) => (
+                <FixtureCard
+                  key={fixture.id}
+                  fixture={fixture}
+                  buffer={buffer}
+                  vertical={vertical}
+                  collapsed={collapsed.has(fixture.id)}
+                />
+              ))}
+          </div>
+        )}
+      </div>
+    </DeskProvider>
   );
 }
 

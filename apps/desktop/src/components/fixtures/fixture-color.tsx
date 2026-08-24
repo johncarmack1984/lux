@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent } from "@/components/ui/popover";
 import ColorTrigger from "@/components/color-picker/color-trigger";
 import useThrottle from "@/hooks/useThrottle";
-import { setChannelValue } from "@/lib/actions";
+import { useDesk } from "@/lib/desk-context";
 import { emittersToRgb, mixToEmitters } from "@/lib/color-mix";
-import { togglePreset, useIsPresetActive } from "@/lib/preset-toggle";
+import { usePresetActive } from "@/lib/preset-toggle";
 
 const FIXTURE_PRESETS: ReadonlyArray<{
   id: string;
@@ -40,7 +40,8 @@ function FixturePresetButton({
   disabled: boolean;
 }) {
   const presetId = `${preset.id}-${fixture.id}`;
-  const active = useIsPresetActive(presetId);
+  const desk = useDesk();
+  const active = usePresetActive(desk.presets, presetId);
 
   const onClick = () => {
     const r = roleAddress(fixture, "Red");
@@ -64,10 +65,9 @@ function FixturePresetButton({
     ] as Array<[number | null, number]>) {
       if (addr !== null) writes.set(addr, value);
     }
-    togglePreset(presetId, writes, {
-      kind: "fixture",
-      fixtureId: fixture.id,
-    }).catch(() => {});
+    desk.presets
+      .toggle(presetId, writes, { kind: "fixture", fixtureId: fixture.id })
+      .catch(() => {});
   };
 
   return (
@@ -114,6 +114,7 @@ export default function FixtureColor({
   const white = roleAddress(fixture, "White");
   const dimmer = roleAddress(fixture, "Brightness");
 
+  const desk = useDesk();
   const [color, setColor] = useState<RgbaColor>({ r: 0, g: 0, b: 0, a: 1 });
 
   useEffect(() => {
@@ -147,7 +148,7 @@ export default function FixtureColor({
 
   const send = useThrottle((next: RgbaColor) => {
     for (const [addr, value] of emitterWrites(next)) {
-      if (addr) setChannelValue({ channelNumber: addr, value }).catch(() => {});
+      if (addr) desk.setChannel(addr, value).catch(() => {});
     }
   }, 40);
 
