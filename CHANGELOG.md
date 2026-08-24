@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.0](https://github.com/johncarmack1984/lux/compare/v1.15.2...v1.16.0) (2026-08-24)
+
+
+### Features
+
+* **shared-control:** give guests the owner's fixtures view ([#288](https://github.com/johncarmack1984/lux/issues/288)) ([f3dee8e](https://github.com/johncarmack1984/lux/commit/f3dee8e900f48be24205fed437ac642b4b09934b))
+
 ## [1.15.2](https://github.com/johncarmack1984/lux/compare/v1.15.1...v1.15.2) (2026-08-23)
 
 
