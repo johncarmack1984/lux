@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import type { LuxLabelColor } from "@/bindings";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
-import { setChannelValue } from "@/lib/actions";
+import { useDesk } from "@/lib/desk-context";
 import useThrottle from "@/hooks/useThrottle";
 
 // Just the fill — a small role dot, not the heavy bordered badge the desk uses.
@@ -44,10 +44,9 @@ export default function FixtureChannel({
   const [values, setValues] = useState([value]);
   useEffect(() => setValues([value]), [value]);
 
+  const desk = useDesk();
   const send = useThrottle((next: number) => {
-    setChannelValue({ channelNumber: address, value: next }).catch((e) =>
-      toast.error(String(e))
-    );
+    desk.setChannel(address, next).catch((e) => toast.error(String(e)));
   }, 40);
 
   const drag = (next: number[]) => {
