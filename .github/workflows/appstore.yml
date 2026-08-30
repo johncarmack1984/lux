@@ -20,8 +20,7 @@ on:
 permissions: {}
 
 jobs:
-  # ci-bottlenecks: ignore[flaky-or-hanging] — submission time is Apple processing
-  # time (44s to 35m observed on successful runs); the 50m timeout is the guard.
+  # ci-bottlenecks: ignore[flaky-or-hanging] — Apple processing time (44s to 35m on successful runs); the 50m timeout is the hang guard
   submit:
     runs-on: ubuntu-latest
     timeout-minutes: 50
