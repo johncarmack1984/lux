@@ -135,7 +135,9 @@ jobs:
           bun-version-file: apps/desktop/package.json
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch
       - run: bun install --frozen-lockfile
-      - run: cargo install cargo-machete
+      - uses: taiki-e/install-action@1ed6d7be6168f6c9046541087ff549b6bc581fdf # v2.87.2
+        with:
+          tool: cargo-machete
       - name: Unused JS dependencies (knip)
         run: bunx knip --dependencies
       - name: Unused Rust dependencies (cargo-machete)
