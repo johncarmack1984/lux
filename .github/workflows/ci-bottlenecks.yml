@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
       - id: cib
-        uses: johncarmack1984/ci-bottlenecks@fc75dbd75ba6b8c75d919c4c1bba77c0ffe6093d # v0.1.1
+        uses: johncarmack1984/ci-bottlenecks@8a8186d89a8cfd149853899ee41d75842925013a # v0.1.2
         with:
           # Audit tier only on the weekly tick and manual runs: it samples the
           # Actions API (50 completed runs), which is wasted work on every PR.
