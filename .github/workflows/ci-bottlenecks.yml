@@ -1,0 +1,56 @@
+name: ci-bottlenecks
+
+# CI-performance lint (github.com/johncarmack1984/ci-bottlenecks): actionlint
+# checks correctness, zizmor checks security, this checks performance.
+#
+#   - lint (PRs + main): the static tier over .github/workflows — double-run
+#     triggers, missing timeouts/concurrency, cache misuse, falsely serialized
+#     jobs. Report-only (fail-on defaults to none): findings land in the step
+#     summary and as code-scanning alerts via SARIF, never as a red X, so a
+#     finding can be wrong without blocking a merge.
+#   - audit (weekly + on demand): adds measured data from the Actions API —
+#     the release critical path (10.5m through build-macos when first
+#     measured, 2026-08-30), setup-dominated jobs, flaky legs. Weekly because
+#     measurements move with accumulated runs, not with every PR.
+#
+# The action is pinned to a release SHA like every other action here; bump it
+# by moving the pin, not by trusting a floating tag.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    # Same release-please guard as desktop.yml: the release PR and the release
+    # commit carry only version stamps, already gated on main's tip.
+    if: "${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - id: cib
+        uses: johncarmack1984/ci-bottlenecks@d664296bfc1e2b42b2d31d6e57092bebf373ac56 # v0.1.0
+        with:
+          # Audit tier only on the weekly tick and manual runs: it samples the
+          # Actions API (50 completed runs), which is wasted work on every PR.
+          audit: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+      - uses: github/codeql-action/upload-sarif@fddeee1a7ece751b577e409a89057319e3172939 # v4
+        with:
+          sarif_file: ${{ steps.cib.outputs.sarif-path }}
