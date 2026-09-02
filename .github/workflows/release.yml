@@ -269,8 +269,10 @@ jobs:
     uses: ./.github/workflows/desktop.yml
     with:
       # Gate the tag itself, not this run's triggering sha — the two can differ
-      # when a race let an earlier push's run cut the release.
-      ref: ${{ needs.release.outputs.tag_name }}
+      # when a race let an earlier push's run cut the release. desktop.yml
+      # derives the tag from .release-please-manifest.json at this run's sha,
+      # the same file the effective step read above, so no ref is passed.
+      gate: true
 
   # Builds, signs, and notarizes the macOS app and stages the bundles as a
   # workflow artifact — in parallel with the backend and the other build legs,

@@ -75,16 +75,18 @@ on:
   # release run unless the exact release commit passes the same checks as a PR.
   workflow_call:
     inputs:
-      # Trust boundary: release.yml is the only caller, and it always passes the
-      # tag it derived from .release-please-manifest.json on the analyzed commit —
-      # never the workflow_dispatch `tag` input, whose rebuild path skips this
-      # gate entirely. So the ref checked out below is repository content, not
-      # user input, even though scanners read `inputs.ref` as untrusted.
-      ref:
-        description: "Git ref to check out (empty = the triggering sha)"
+      # release.yml calls this as the release gate. No ref crosses the boundary:
+      # in gate mode every job checks out the caller's sha and then switches to
+      # the tag derived from .release-please-manifest.json in that tree — the
+      # same file release.yml read to cut the release, so the gated commit is
+      # the tag's own even when a race let an earlier run cut it. Deriving the
+      # tag here instead of receiving it keeps user input out of the checkout,
+      # which is what code scanning's cache-poisoning query keys on.
+      gate:
+        description: "Gate the release tag derived from the manifest (release.yml only)"
         required: false
-        type: string
-        default: ""
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -108,13 +110,21 @@ jobs:
   # needs it), so a workflow file without its own permissions block silently
   # inherits a write-capable token. Every workflow must say what it wants.
   workflow-permissions:
-    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
+    if: "${{ github.workflow != 'desktop' || inputs.gate || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ inputs.ref }}
+      - name: Switch to the release tag
+        if: ${{ inputs.gate }}
+        # From the repo root: two jobs default their run steps to apps/desktop.
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          tag="v$(jq -r '."."' .release-please-manifest.json)"
+          git fetch --depth=1 origin "refs/tags/$tag"
+          git checkout --detach FETCH_HEAD
+          echo "gating $tag at $(git rev-parse --short HEAD)"
       - name: Every workflow declares a permissions block
         run: |
           fail=0
@@ -125,7 +135,7 @@ jobs:
           exit "$fail"
 
   unused-deps:
-    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
+    if: "${{ github.workflow != 'desktop' || inputs.gate || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -133,8 +143,16 @@ jobs:
       SCCACHE_GHA_ENABLED: "false"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ inputs.ref }}
+      - name: Switch to the release tag
+        if: ${{ inputs.gate }}
+        # From the repo root: two jobs default their run steps to apps/desktop.
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          tag="v$(jq -r '."."' .release-please-manifest.json)"
+          git fetch --depth=1 origin "refs/tags/$tag"
+          git checkout --detach FETCH_HEAD
+          echo "gating $tag at $(git rev-parse --short HEAD)"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: apps/desktop/package.json
@@ -154,7 +172,7 @@ jobs:
         run: cargo machete
 
   deny:
-    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
+    if: "${{ github.workflow != 'desktop' || inputs.gate || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -169,7 +187,7 @@ jobs:
           command: check advisories bans licenses sources
 
   tauri-versions:
-    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
+    if: "${{ github.workflow != 'desktop' || inputs.gate || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -177,8 +195,16 @@ jobs:
         working-directory: apps/desktop
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ inputs.ref }}
+      - name: Switch to the release tag
+        if: ${{ inputs.gate }}
+        # From the repo root: two jobs default their run steps to apps/desktop.
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          tag="v$(jq -r '."."' .release-please-manifest.json)"
+          git fetch --depth=1 origin "refs/tags/$tag"
+          git checkout --detach FETCH_HEAD
+          echo "gating $tag at $(git rev-parse --short HEAD)"
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -195,7 +221,7 @@ jobs:
         run: bun run check:tauri-versions
 
   frontend:
-    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
+    if: "${{ github.workflow != 'desktop' || inputs.gate || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -203,8 +229,16 @@ jobs:
         working-directory: apps/desktop
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ inputs.ref }}
+      - name: Switch to the release tag
+        if: ${{ inputs.gate }}
+        # From the repo root: two jobs default their run steps to apps/desktop.
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          tag="v$(jq -r '."."' .release-please-manifest.json)"
+          git fetch --depth=1 origin "refs/tags/$tag"
+          git checkout --detach FETCH_HEAD
+          echo "gating $tag at $(git rev-parse --short HEAD)"
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -235,7 +269,7 @@ jobs:
   # renamed crate, or a musl-hostile dependency is a red PR check instead of a
   # failed release run.
   lambda-build:
-    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
+    if: "${{ github.workflow != 'desktop' || inputs.gate || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -244,8 +278,16 @@ jobs:
       CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ inputs.ref }}
+      - name: Switch to the release tag
+        if: ${{ inputs.gate }}
+        # From the repo root: two jobs default their run steps to apps/desktop.
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          tag="v$(jq -r '."."' .release-please-manifest.json)"
+          git fetch --depth=1 origin "refs/tags/$tag"
+          git checkout --detach FETCH_HEAD
+          echo "gating $tag at $(git rev-parse --short HEAD)"
 
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch
         with:
@@ -273,13 +315,21 @@ jobs:
   # inside a job that compiles. rust-toolchain.toml pins the channel and the
   # rustfmt component, the same way the clippy job gets clippy.
   fmt:
-    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
+    if: "${{ github.workflow != 'desktop' || inputs.gate || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ inputs.ref }}
+      - name: Switch to the release tag
+        if: ${{ inputs.gate }}
+        # From the repo root: two jobs default their run steps to apps/desktop.
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          tag="v$(jq -r '."."' .release-please-manifest.json)"
+          git fetch --depth=1 origin "refs/tags/$tag"
+          git checkout --detach FETCH_HEAD
+          echo "gating $tag at $(git rev-parse --short HEAD)"
 
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch
 
@@ -292,7 +342,7 @@ jobs:
   # each reports the moment it knows. They share their setup through a composite
   # action rather than a copy, so the two can never drift apart.
   rust-test:
-    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
+    if: "${{ github.workflow != 'desktop' || inputs.gate || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -301,8 +351,16 @@ jobs:
       CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ inputs.ref }}
+      - name: Switch to the release tag
+        if: ${{ inputs.gate }}
+        # From the repo root: two jobs default their run steps to apps/desktop.
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          tag="v$(jq -r '."."' .release-please-manifest.json)"
+          git fetch --depth=1 origin "refs/tags/$tag"
+          git checkout --detach FETCH_HEAD
+          echo "gating $tag at $(git rev-parse --short HEAD)"
 
       - uses: ./.github/actions/setup-rust-desktop
 
@@ -318,7 +376,7 @@ jobs:
         run: sccache --show-stats
 
   rust-clippy:
-    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
+    if: "${{ github.workflow != 'desktop' || inputs.gate || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -327,8 +385,16 @@ jobs:
       CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ inputs.ref }}
+      - name: Switch to the release tag
+        if: ${{ inputs.gate }}
+        # From the repo root: two jobs default their run steps to apps/desktop.
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          tag="v$(jq -r '."."' .release-please-manifest.json)"
+          git fetch --depth=1 origin "refs/tags/$tag"
+          git checkout --detach FETCH_HEAD
+          echo "gating $tag at $(git rev-parse --short HEAD)"
 
       - uses: ./.github/actions/setup-rust-desktop
 
@@ -347,13 +413,21 @@ jobs:
   # The product site + shared UI package: typecheck and production build, so a
   # PR can't land something the deploy workflow (site.yml) would choke on.
   site:
-    if: "${{ github.workflow != 'desktop' || inputs.ref != '' || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
+    if: "${{ github.workflow != 'desktop' || inputs.gate || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ inputs.ref }}
+      - name: Switch to the release tag
+        if: ${{ inputs.gate }}
+        # From the repo root: two jobs default their run steps to apps/desktop.
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          tag="v$(jq -r '."."' .release-please-manifest.json)"
+          git fetch --depth=1 origin "refs/tags/$tag"
+          git checkout --detach FETCH_HEAD
+          echo "gating $tag at $(git rev-parse --short HEAD)"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
