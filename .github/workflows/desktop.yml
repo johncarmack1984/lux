@@ -75,6 +75,11 @@ on:
   # release run unless the exact release commit passes the same checks as a PR.
   workflow_call:
     inputs:
+      # Trust boundary: release.yml is the only caller, and it always passes the
+      # tag it derived from .release-please-manifest.json on the analyzed commit —
+      # never the workflow_dispatch `tag` input, whose rebuild path skips this
+      # gate entirely. So the ref checked out below is repository content, not
+      # user input, even though scanners read `inputs.ref` as untrusted.
       ref:
         description: "Git ref to check out (empty = the triggering sha)"
         required: false
@@ -179,6 +184,11 @@ jobs:
         with:
           bun-version-file: apps/desktop/package.json
 
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
 
       - name: check @tauri-apps JS <-> crate version match
@@ -200,6 +210,11 @@ jobs:
         with:
           bun-version-file: apps/desktop/package.json
 
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
 
       # vite build emits the production bundle and the gitignored
@@ -340,6 +355,11 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
       - run: bun run --cwd apps/site typecheck
       - run: bun run --cwd apps/site build
