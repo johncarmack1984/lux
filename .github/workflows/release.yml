@@ -210,11 +210,6 @@ jobs:
         with:
           bun-version-file: apps/desktop/package.json
 
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
 
       - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6
@@ -348,11 +343,6 @@ jobs:
         with:
           workspaces: "."
 
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
         working-directory: apps/desktop
 
@@ -882,11 +872,6 @@ jobs:
         with:
           workspaces: "."
 
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
         working-directory: apps/desktop
 
@@ -1062,11 +1047,6 @@ jobs:
         with:
           workspaces: "."
 
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
         working-directory: apps/desktop
 
