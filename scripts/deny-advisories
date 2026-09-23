@@ -115,9 +115,11 @@ bump() {
   [[ "$spec" == *@* ]] && ver="v${1#*@}"
   # "   Unchanged rustls v0.23.43 (available: v0.23.45)" or, when a plain
   # update would already take it, "    Updating rustls v0.23.43 -> v0.23.45".
-  # awk scans to the end of the stream: an early exit would close the pipe
-  # under cargo, which treats the broken pipe as a hard error (exit 101).
-  avail="$(cargo update -p "$spec" --dry-run -v 2>&1 \
+  # --color never: CI sets CARGO_TERM_COLOR=always, and the escape codes
+  # would land in the fields awk matches on. awk scans to the end of the
+  # stream: an early exit would close the pipe under cargo, which treats the
+  # broken pipe as a hard error (exit 101).
+  avail="$(cargo update -p "$spec" --dry-run -v --color never 2>&1 \
     | awk -v n="$name" -v v="$ver" '
         ($1 == "Unchanged" || $1 == "Updating") && $2 == n && (v == "" || $3 == v) && !found {
           found = $5; sub(/^v/, "", found); sub(/\)$/, "", found)
