@@ -2541,7 +2541,7 @@ dependencies = [
 [[package]]
 name = "glib"
 version = "0.18.5"
-source = "git+https://github.com/johncarmack1984/gtk-rs-core?branch=lux%2Fglib-0.18-patch#0869c7efc510daf87622847bcf3ea8db48373a64"
+source = "git+https://github.com/johncarmack1984/gtk-rs-core?branch=lux%2Fglib-0.18-patch#39f9bd0f62fbaa4139563b30fb29a8648ce06cc0"
 dependencies = [
  "bitflags 2.13.1",
  "futures-channel",
@@ -2563,11 +2563,10 @@ dependencies = [
 [[package]]
 name = "glib-macros"
 version = "0.18.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bb0228f477c0900c880fd78c8759b95c7636dbd7842707f49e132378aa2acdc"
+source = "git+https://github.com/johncarmack1984/gtk-rs-core?branch=lux%2Fglib-0.18-patch#39f9bd0f62fbaa4139563b30fb29a8648ce06cc0"
 dependencies = [
  "heck 0.4.1",
- "proc-macro-crate 2.0.2",
+ "proc-macro-crate 3.5.0",
  "proc-macro-error",
  "proc-macro2",
  "quote",
@@ -4756,16 +4755,6 @@ checksum = "7f4c021e1093a56626774e81216a4ce732a735e5bad4868a03f3ed65ca0c3919"
 dependencies = [
  "once_cell",
  "toml_edit 0.19.15",
-]
-
-[[package]]
-name = "proc-macro-crate"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b00f26d3400549137f92511a46ac1cd8ce37cb5598a96d382381458b992a5d24"
-dependencies = [
- "toml_datetime 0.6.3",
- "toml_edit 0.20.2",
 ]
 
 [[package]]
