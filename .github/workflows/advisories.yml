@@ -14,14 +14,14 @@ name: advisories
 # advisories` the PR gate runs, then for every finding a move of the locked
 # crate to the newest release the manifests' requirements admit (the
 # advisory's own "Solution" line), pushed as branch advisories/fix, opened as
-# one PR that refreshes in place while it is unmerged, its held gate run
-# approved (a GITHUB_TOKEN push holds desktop.yml in action_required, the
-# same as release-please's branch — release.yml has the pattern), and
-# auto-merge enabled so it lands the moment the gate is green. The gate
-# judges the PR against main, and a lock with fewer findings than main's
-# passes; a finding no compatible release clears stays on main, and this run
-# fails on it — the one loud signal that a hand is needed: a requirement bump,
-# or a deny.toml ignore with its reason.
+# one PR that refreshes in place while it is unmerged, its gate run waited
+# for (and approved, when a GITHUB_TOKEN push left it held, as release.yml
+# does for the release branch), and only then auto-merge armed so it lands
+# the moment the gate is green — never merged by this workflow directly. The
+# gate judges the PR against main, and a lock with fewer findings than
+# main's passes; a finding no compatible release clears stays on main, and
+# this run fails on it — the one loud signal that a hand is needed: a
+# requirement bump, or a deny.toml ignore with its reason.
 #
 # desktop.yml's deny job is the other half: it fails a PR only for findings
 # the PR itself introduces, so a fresh advisory never turns unrelated PRs
@@ -108,44 +108,81 @@ jobs:
             pr=$(gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file "$BODY_PATH" | grep -oE '[0-9]+$')
             echo "opened #$pr"
           fi
-          # Fail-soft: without auto-merge the PR still exists and is green or
-          # red on its own; merging it is then a hand's click.
-          gh pr merge "$pr" --auto --squash \
-            || echo "::warning::could not enable auto-merge on #$pr; merge it by hand once the gate is green"
           echo "number=$pr" >> "$GITHUB_OUTPUT"
+          echo "tip=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"
 
-      # A GITHUB_TOKEN push creates the PR's gate runs in the action_required
-      # state (GitHub holds workflow runs for events its own token caused).
-      # Approve the ones for the branch tip so the gate runs and auto-merge
-      # has checks to wait on; delete held runs for superseded heads (the PR's
-      # runs share a concurrency group, and a stale run approved alongside the
-      # live one can cancel it). Fail-soft: an unapproved run leaves the PR
-      # waiting, visibly, and the next scheduled run approves it.
-      - name: Approve the fix branch's held gate runs
+      # The gate must be engaged before anything asks GitHub to merge. In the
+      # seconds after a PR opens, before its first check run exists, GitHub
+      # reports it mergeable, and `gh pr merge --auto` merges outright in that
+      # state: the first live run of this workflow landed #312 four seconds
+      # after opening it, ungated. So: wait for desktop.yml's run for the
+      # branch tip. A GITHUB_TOKEN push can leave it held in action_required
+      # (GitHub holds runs for events its own token caused; release.yml has
+      # the same dance for the release branch) — approve those, and delete
+      # held runs for superseded heads, whose approval could cancel the live
+      # run through the shared concurrency group. The gate counts as engaged
+      # once a desktop run for the tip is queued, running or finished.
+      - name: Wait for the gate to engage, approving held runs
+        id: gate
         if: ${{ steps.fix.outputs.changed == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
+          TIP: ${{ steps.pr.outputs.tip }}
         run: |
-          tip=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
-          approved=0
-          for _ in 1 2 3 4 5 6; do
+          engaged=""
+          for _ in $(seq 1 18); do
             sleep 10
-            for id in $(gh run list --branch "$BRANCH" --status action_required --limit 20 --json databaseId,headSha \
-                          --jq ".[] | select(.headSha==\"$tip\") | .databaseId"); do
-              gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/$id/approve" >/dev/null \
-                && { approved=$((approved + 1)); echo "approved held run $id (tip ${tip:0:7})"; } \
-                || echo "::warning::could not approve held run $id"
-            done
-            [ "$approved" -gt 0 ] && break
+            while read -r id workflow status; do
+              [ -n "$id" ] || continue
+              if [ "$status" = "action_required" ]; then
+                gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/$id/approve" >/dev/null \
+                  && echo "approved held $workflow run $id (tip ${TIP:0:7})" \
+                  || echo "::warning::could not approve held $workflow run $id"
+              elif [ "$workflow" = "desktop" ]; then
+                engaged=1
+              fi
+            done < <(gh run list --branch "$BRANCH" --limit 20 --json databaseId,headSha,status,workflowName \
+                       --jq ".[] | select(.headSha==\"$TIP\") | \"\(.databaseId) \(.workflowName) \(.status)\"")
+            [ -n "$engaged" ] && break
           done
-          [ "$approved" -gt 0 ] || echo "no held run for the branch tip (nothing newly pushed, or it already ran)"
+          if [ -n "$engaged" ]; then
+            echo "gate engaged for tip ${TIP:0:7}"
+          else
+            echo "::warning::no desktop run for tip ${TIP:0:7} after three minutes; leaving the PR for a hand"
+          fi
+          echo "engaged=${engaged:-0}" >> "$GITHUB_OUTPUT"
           gh run list --branch "$BRANCH" --status action_required --limit 20 --json databaseId,headSha \
-            --jq ".[] | select(.headSha!=\"$tip\") | .databaseId" \
+            --jq ".[] | select(.headSha!=\"$TIP\") | .databaseId" \
             | while read -r stale; do
                 gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/runs/$stale" >/dev/null \
                   && echo "deleted stale held run $stale" \
                   || echo "::warning::could not delete stale held run $stale"
               done
+
+      # The mutation, not `gh pr merge --auto`: it only ever arms auto-merge,
+      # and errors if GitHub already considers the PR mergeable — then nothing
+      # merges and a hand looks first. The merge GitHub performs afterwards is
+      # a token merge, and pushes by the workflow token start no push
+      # workflows: main's push gate and release-please skip that commit (the
+      # PR gate on the merge candidate is its record; release-please picks
+      # the commit up on the next push to main).
+      - name: Arm auto-merge
+        if: ${{ steps.fix.outputs.changed == 'true' && steps.gate.outputs.engaged == '1' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          id=$(gh pr view "$PR" --json id --jq .id)
+          # $id inside the query is a GraphQL variable, bound with -f above.
+          # shellcheck disable=SC2016
+          if gh api graphql -f id="$id" -f query='
+               mutation($id: ID!) {
+                 enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: SQUASH}) { clientMutationId }
+               }' >/dev/null; then
+            echo "auto-merge armed on #$PR; it lands when the gate is green"
+          else
+            echo "::warning::could not arm auto-merge on #$PR (GitHub reports it mergeable already, or auto-merge is off); check its gate, then merge by hand"
+          fi
 
       - name: Fail on findings no compatible release clears
         if: ${{ steps.fix.outputs.unfixable != '0' }}
