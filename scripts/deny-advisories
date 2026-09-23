@@ -1,0 +1,265 @@
+#!/usr/bin/env bash
+# cargo-deny's advisory findings as data, and the two things CI does with them.
+#
+#   scripts/deny-advisories list [DIR]      # error-level findings for the workspace at DIR (default: this one), one per line
+#   scripts/deny-advisories diff BASE_DIR   # fail if this workspace has findings the one at BASE_DIR does not (the PR gate)
+#   scripts/deny-advisories fix [SPEC...]   # move every finding's crate (plus any SPEC) to the newest compatible release
+#
+# A RustSec advisory lands in cargo-deny's database the day it is published,
+# and from then on every check of a lock that carries the crate fails —
+# including PRs that never touched Cargo.lock. `diff` is how the PR gate
+# judges a PR by what it changed: findings the base branch already carries
+# are the base's problem (the advisories workflow repairs main), findings
+# the PR introduces fail it. `fix` is the repair: for each finding, move the
+# locked version to the newest release the manifests' requirements admit,
+# which is what the advisory's own "Solution" line prescribes.
+#
+# Findings are the diagnostics cargo-deny emits at error severity for
+# `check advisories` under the tree's own deny.toml, so its ignore list and
+# yanked/unmaintained policy apply exactly as in the human-readable run. A
+# finding is a line of five tab-separated fields:
+#
+#   code  advisory-id  crate  version  title
+#
+# where code is vulnerability, unsound or yanked, and advisory-id is "-" for
+# a yanked crate (no advisory backs it). Needs cargo, cargo-deny, jq.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+# Run cargo-deny's advisories check in DIR and print its findings. The exit
+# status of cargo-deny itself is not the signal (it is 1 whenever there are
+# findings); the JSON stream's trailing summary line is: without it the check
+# did not run to completion (advisory database unreachable, cargo metadata
+# failed) and the whole stream is shown so the cause is not lost.
+list() {
+  local dir="${1:-.}" raw
+  raw="$(mktemp)"
+  (cd "$dir" && cargo deny --format json --log-level error check advisories 2>"$raw" >/dev/null) || true
+  if ! jq -e 'select(.type == "summary")' "$raw" >/dev/null 2>&1; then
+    echo "::error::cargo deny did not complete its advisories check in $dir:" >&2
+    cat "$raw" >&2
+    rm -f "$raw"
+    return 2
+  fi
+  jq -r '
+    select(.type == "diagnostic" and .fields.severity == "error")
+    | .fields as $f
+    | $f.graphs[].Krate
+    | [$f.code, ($f.advisory.id // "-"), .name, .version, $f.message]
+    | @tsv
+  ' "$raw" | sort -u
+  rm -f "$raw"
+}
+
+# One line of human-readable finding.
+describe() {
+  local code id crate version title
+  IFS=$'\t' read -r code id crate version title <<<"$1"
+  if [ "$id" = "-" ]; then
+    echo "$code: $crate $version ($title)"
+  else
+    echo "$id: $crate $version ($title) https://rustsec.org/advisories/$id"
+  fi
+}
+
+# The identity of a finding across two trees: the advisory and the crate it
+# names, not the locked version. A PR that moves a flagged crate to another
+# still-flagged version has not made the tree worse, so it is not new. A
+# yanked crate has no advisory, so there the version is the identity.
+key_of() {
+  awk -F'\t' '{ if ($2 == "-") print $1 "\t" $3 "@" $4; else print $1 "\t" $2 "\t" $3 }'
+}
+
+diff_against_base() {
+  local base="$1" head_findings base_findings new
+  [ -d "$base" ] || { echo "::error::base workspace not found at $base" >&2; return 2; }
+  head_findings="$(list .)"
+  base_findings="$(list "$base")"
+  new="$(comm -23 <(printf '%s\n' "$head_findings" | sed '/^$/d' | key_of | sort -u) \
+                 <(printf '%s\n' "$base_findings" | sed '/^$/d' | key_of | sort -u))"
+  if [ -n "$base_findings" ]; then
+    echo "already on the base branch (not this PR's doing; the advisories workflow repairs main):"
+    while IFS= read -r line; do [ -n "$line" ] && echo "  $(describe "$line")"; done <<<"$base_findings"
+  fi
+  if [ -z "$new" ]; then
+    echo "advisories: this PR introduces none."
+    return 0
+  fi
+  echo
+  echo "::error::this PR introduces advisory findings its base does not have:"
+  # Print every head finding whose key is among the new ones.
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    if grep -qxF "$(printf '%s\n' "$line" | key_of)" <<<"$new"; then
+      echo "::error::  $(describe "$line")"
+    fi
+  done <<<"$head_findings"
+  return 1
+}
+
+# name<TAB>version for every entry in Cargo.lock.
+lock_versions() {
+  awk -F' = ' '/^name = / { n = $2 } /^version = / { gsub(/"/, "", n); gsub(/"/, "", $2); print n "\t" $2 }' Cargo.lock | sort
+}
+
+# Move one locked package (name or name@version) to the newest release the
+# manifests' requirements admit. `cargo update -p X` unlocks only X, so when
+# the release that clears an advisory also needs a newer dependency (rustls
+# 0.23.45 needed rustls-webpki and aws-lc-rs bumps) it silently keeps the
+# old version. Cargo's dry run still names the newest admissible version;
+# forcing it with --precise unlocks whatever that release needs. A version
+# no lock state admits (a requirement elsewhere pins a dependency it needs)
+# is reported and left for a hand, not a reason to abandon the other bumps.
+bump() {
+  local spec="$1" name="${1%%@*}" ver="" avail
+  [[ "$spec" == *@* ]] && ver="v${1#*@}"
+  # "   Unchanged rustls v0.23.43 (available: v0.23.45)" or, when a plain
+  # update would already take it, "    Updating rustls v0.23.43 -> v0.23.45".
+  # awk scans to the end of the stream: an early exit would close the pipe
+  # under cargo, which treats the broken pipe as a hard error (exit 101).
+  avail="$(cargo update -p "$spec" --dry-run -v 2>&1 \
+    | awk -v n="$name" -v v="$ver" '
+        ($1 == "Unchanged" || $1 == "Updating") && $2 == n && (v == "" || $3 == v) && !found {
+          found = $5; sub(/^v/, "", found); sub(/\)$/, "", found)
+        }
+        END { if (found) print found }')"
+  if [ -z "$avail" ]; then
+    echo "$spec: already at the newest release the requirements admit"
+    return 0
+  fi
+  echo "+ cargo update -p $spec --precise $avail"
+  cargo update -p "$spec" --precise "$avail" \
+    || echo "::warning::$spec: cargo could not lock $avail (a requirement elsewhere holds a dependency it needs)"
+}
+
+# name<TAB>old<TAB>new for every lock entry that differs between two
+# lock_versions listings. Grouped by crate name, because a tree can lock
+# several versions of one crate: the versions that left and the versions
+# that arrived are each listed, comma-separated when more than one.
+lock_moves() {
+  local before="$1" after="$2"
+  {
+    comm -23 <(printf '%s\n' "$before") <(printf '%s\n' "$after") | awk -F'\t' '{ print $1 "\told\t" $2 }'
+    comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after") | awk -F'\t' '{ print $1 "\tnew\t" $2 }'
+  } | sort | awk -F'\t' '
+      { names[$1] = 1; if ($2 == "old") old[$1] = (old[$1] ? old[$1] "," : "") $3; else new[$1] = (new[$1] ? new[$1] "," : "") $3 }
+      END { for (n in names) printf "%s\t%s\t%s\n", n, (old[n] ? old[n] : "-"), (new[n] ? new[n] : "-") }
+    ' | sort
+}
+
+# Sets GitHub Actions outputs when running there, otherwise only prints.
+out() { [ -n "${GITHUB_OUTPUT:-}" ] && echo "$1=$2" >> "$GITHUB_OUTPUT"; echo "$1=$2"; }
+
+fix() {
+  local findings specs=() before after moved remaining line code id crate version title spec body
+  body="${RUNNER_TEMP:-/tmp}/advisories-body.md"
+  : > "$body"
+  findings="$(list .)"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    IFS=$'\t' read -r code id crate version title <<<"$line"
+    specs+=("$crate@$version")
+    echo "finding: $(describe "$line")"
+  done <<<"$findings"
+  for spec in "$@"; do specs+=("$spec"); echo "requested: $spec"; done
+
+  if [ "${#specs[@]}" -eq 0 ]; then
+    echo "advisories: none; nothing to fix."
+    out changed false
+    out unfixable 0
+    return 0
+  fi
+
+  before="$(lock_versions)"
+  # Dedupe: one crate can back several advisories.
+  for spec in $(printf '%s\n' "${specs[@]}" | sort -u); do
+    bump "$spec"
+  done
+  after="$(lock_versions)"
+  moved="$(lock_moves "$before" "$after")"
+  remaining="$(list .)"
+
+  local title n_adv n_yank
+  if [ -z "$moved" ]; then
+    echo "the lock did not move: no release the manifests' requirements admit clears these."
+    out changed false
+  else
+    echo "moved:"
+    printf '%s\n' "$moved" | awk -F'\t' '{ printf "  %s %s -> %s\n", $1, $2, $3 }'
+
+    # Title: the advisory (or the crate) when there is one, a count otherwise.
+    n_adv="$(printf '%s\n' "$findings" | sed '/^$/d' | awk -F'\t' '$2 != "-"' | cut -f2 | sort -u | wc -l | tr -d ' ')"
+    n_yank="$(printf '%s\n' "$findings" | sed '/^$/d' | awk -F'\t' '$2 == "-"' | wc -l | tr -d ' ')"
+    local n_moved crate_list
+    n_moved="$(printf '%s\n' "$moved" | wc -l | tr -d ' ')"
+    crate_list="$(printf '%s\n' "$moved" | cut -f1 | paste -sd ',' - | sed 's/,/, /g')"
+    if [ "$n_adv" -eq 1 ] && [ "$n_yank" -eq 0 ]; then
+      # One advisory: name it and the move of the crate it flags; the
+      # companions that release needed are in the body.
+      IFS=$'\t' read -r code id crate version title <<<"$(printf '%s\n' "$findings" | sed '/^$/d' | awk -F'\t' '$2 != "-" && !f { print; f = 1 }')"
+      title="fix(deps): clear $id ($(printf '%s\n' "$moved" | awk -F'\t' -v c="$crate" '$1 == c { printf "%s %s -> %s", $1, $2, $3 }'))"
+    elif [ "$n_adv" -gt 0 ] || [ "$n_yank" -gt 0 ]; then
+      title="fix(deps): clear $((n_adv + n_yank)) RustSec findings ($crate_list)"
+    elif [ "$n_moved" -eq 1 ]; then
+      title="build(deps): bump $(printf '%s\n' "$moved" | awk -F'\t' '{ printf "%s from %s to %s", $1, $2, $3 }')"
+    else
+      title="build(deps): bump $n_moved locked packages ($crate_list)"
+    fi
+
+    {
+      if [ -n "$findings" ]; then
+        echo "Findings from \`cargo deny check advisories\` against the RustSec database, cleared by moving the locked versions to the newest releases the manifests' requirements admit:"
+        echo
+        echo "| Advisory | Crate | Locked | Now | Title |"
+        echo "|---|---|---|---|---|"
+        while IFS= read -r line; do
+          [ -n "$line" ] || continue
+          IFS=$'\t' read -r code id crate version title_ <<<"$line"
+          local now
+          now="$(printf '%s\n' "$moved" | awk -F'\t' -v c="$crate" '$1 == c && !f { print $3; f = 1 }')"
+          [ -n "$now" ] || now="(unchanged)"
+          if [ "$id" = "-" ]; then
+            echo "| $code | \`$crate\` | $version | $now | $title_ |"
+          else
+            echo "| [$id](https://rustsec.org/advisories/$id) | \`$crate\` | $version | $now | $title_ |"
+          fi
+        done <<<"$findings"
+        echo
+      fi
+      if [ "$#" -gt 0 ]; then
+        echo "Requested by hand: \`$*\`."
+        echo
+      fi
+      echo "Every locked package that moved:"
+      echo
+      printf '%s\n' "$moved" | awk -F'\t' '{ printf "- `%s` %s -> %s\n", $1, $2, $3 }'
+      echo
+      if [ -n "$remaining" ]; then
+        echo "Still flagged after this bump, because no compatible release clears them (a requirement bump by hand, or a \`deny.toml\` ignore with its reason):"
+        echo
+        while IFS= read -r line; do [ -n "$line" ] && echo "- $(describe "$line")"; done <<<"$remaining"
+        echo
+      fi
+      echo "Opened by the \`advisories\` workflow, which checks main against RustSec twice a day. GitHub's advisory database imports RustSec entries days later, so Dependabot's security updates cannot be relied on to open these."
+    } > "$body"
+
+    out changed true
+    out title "$title"
+    out body_path "$body"
+  fi
+
+  if [ -n "$remaining" ]; then
+    echo "still flagged:"
+    while IFS= read -r line; do [ -n "$line" ] && echo "  $(describe "$line")"; done <<<"$remaining"
+    out unfixable "$(printf '%s\n' "$remaining" | sed '/^$/d' | wc -l | tr -d ' ')"
+  else
+    out unfixable 0
+  fi
+}
+
+case "${1:-}" in
+  list) shift; list "$@" ;;
+  diff) shift; [ $# -eq 1 ] || { echo "usage: $0 diff BASE_DIR" >&2; exit 2; }; diff_against_base "$1" ;;
+  fix)  shift; fix "$@" ;;
+  *) sed -n '2,7p' "$0" >&2; exit 2 ;;
+esac

@@ -166,20 +166,58 @@ jobs:
       - name: Unused Rust dependencies (cargo-machete)
         run: cargo machete
 
+  # cargo-deny: bans, licenses and sources are functions of the tree alone and
+  # are checked as such. Advisories are not: a RustSec entry lands in the
+  # database the day it is published, and from then on every check of a lock
+  # that carries the crate fails, PRs that never touched Cargo.lock included
+  # (RUSTSEC-2026-0285 turned #307, an actions bump, red on 2026-09-20). So a
+  # PR is judged by what it changed — scripts/deny-advisories diff fails it
+  # only for findings its base does not already carry — while the runs that
+  # stand for a whole tree stay absolute: pushes to main, and the release gate
+  # at the tag. Main's own findings are advisories.yml's to repair.
   deny:
     if: "${{ github.workflow != 'desktop' || inputs.gate || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      # The deny action is a musl docker container; keep the workspace's
-      # sccache wrapper out of it.
+      # Nothing compiles here; keep the workspace's sccache wrapper out of it.
       RUSTC_WRAPPER: ""
       SCCACHE_GHA_ENABLED: "false"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - name: Switch to the release tag
+        if: ${{ inputs.gate }}
+        # From the repo root: two jobs default their run steps to apps/desktop.
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          tag="v$(jq -r '."."' .release-please-manifest.json)"
+          git fetch --depth=1 origin "refs/tags/$tag"
+          git checkout --detach FETCH_HEAD
+          echo "gating $tag at $(git rev-parse --short HEAD)"
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch
+      - uses: taiki-e/install-action@1ed6d7be6168f6c9046541087ff549b6bc581fdf # v2.87.2
         with:
-          command: check advisories bans licenses sources
+          # Pinned like an action SHA: this binary decides what a PR is judged
+          # by, and a floating tool changes that overnight. Bump on purpose,
+          # here and in advisories.yml together.
+          tool: cargo-deny@0.20.2
+      - name: bans, licenses, sources
+        run: cargo deny check bans licenses sources
+      - name: advisories
+        env:
+          # Set on pull_request events only: the base branch's tip as GitHub
+          # took it when it built this run's merge commit.
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BASE_SHA" ]; then
+            cargo deny check advisories
+            exit
+          fi
+          git fetch --depth=1 origin "$BASE_SHA"
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+          scripts/deny-advisories diff "$RUNNER_TEMP/base"
 
   tauri-versions:
     if: "${{ github.workflow != 'desktop' || inputs.gate || !startsWith(github.head_ref, 'release-please--') && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
