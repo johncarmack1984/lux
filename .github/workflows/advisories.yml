@@ -1,0 +1,154 @@
+name: advisories
+
+# Keeps main clear of RustSec advisories without a hand in the loop.
+#
+# Why this exists: a RustSec advisory reaches cargo-deny's database the day
+# it is published, but GitHub's advisory database imports it days later, so
+# the Dependabot security updates this repo has enabled never see the window
+# in which the deny gate is already failing. RUSTSEC-2026-0285 (rustls
+# 0.23.44, published 2026-09-20) was flagged by cargo-deny that afternoon and
+# still had no GitHub advisory three days on; the fix reached main only
+# because the weekly cargo group happened to carry 0.23.45 that weekend.
+#
+# What it does, twice a day and on demand: the same `cargo deny check
+# advisories` the PR gate runs, then for every finding a move of the locked
+# crate to the newest release the manifests' requirements admit (the
+# advisory's own "Solution" line), pushed as branch advisories/fix, opened as
+# one PR that refreshes in place while it is unmerged, its held gate run
+# approved (a GITHUB_TOKEN push holds desktop.yml in action_required, the
+# same as release-please's branch — release.yml has the pattern), and
+# auto-merge enabled so it lands the moment the gate is green. The gate
+# judges the PR against main, and a lock with fewer findings than main's
+# passes; a finding no compatible release clears stays on main, and this run
+# fails on it — the one loud signal that a hand is needed: a requirement bump,
+# or a deny.toml ignore with its reason.
+#
+# desktop.yml's deny job is the other half: it fails a PR only for findings
+# the PR itself introduces, so a fresh advisory never turns unrelated PRs
+# red while this workflow gets main off it.
+
+on:
+  schedule:
+    - cron: "23 5,17 * * *"
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: "Locked packages to bump as well (space-separated name or name@version), e.g. for an upstream advisory RustSec has not imported yet"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+# Never two of these racing over the same branch.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # push the fix branch
+      pull-requests: write # open and refresh the fix PR, enable auto-merge
+      actions: write # approve the fix branch's held gate run
+    env:
+      BRANCH: advisories/fix
+      # Nothing compiles here; keep the workspace's sccache wrapper out of it.
+      RUSTC_WRAPPER: ""
+      SCCACHE_GHA_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch
+      - uses: taiki-e/install-action@1ed6d7be6168f6c9046541087ff549b6bc581fdf # v2.87.2
+        with:
+          # The same pin as desktop.yml's deny job: what this repairs is what
+          # that judges by. Bump both together.
+          tool: cargo-deny@0.20.2
+
+      - name: Find the advisories and move the lock off them
+        id: fix
+        env:
+          PACKAGES: ${{ inputs.packages }}
+        run: |
+          set -euo pipefail
+          read -ra specs <<<"$PACKAGES"
+          scripts/deny-advisories fix "${specs[@]}"
+
+      # One machine branch, refreshed in place: a second run before the first
+      # PR merges recomputes the fix from main and force-pushes only if the
+      # lock differs (so an unchanged PR does not restart its gate). The
+      # branch is deleted on merge, so the next finding starts it afresh.
+      - name: Push the fix branch and open or refresh its PR
+        id: pr
+        if: ${{ steps.fix.outputs.changed == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: ${{ steps.fix.outputs.title }}
+          BODY_PATH: ${{ steps.fix.outputs.body_path }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -q -B "$BRANCH"
+          git add Cargo.lock
+          git commit -q -m "$TITLE"
+          if git fetch -q origin "refs/heads/$BRANCH" 2>/dev/null && git diff --quiet FETCH_HEAD HEAD -- Cargo.lock; then
+            echo "the open fix branch already carries this lock; nothing to push"
+          else
+            git push -q --force origin "HEAD:refs/heads/$BRANCH"
+            echo "pushed $BRANCH at $(git rev-parse --short HEAD)"
+          fi
+          pr=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[0].number // empty')
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --title "$TITLE" --body-file "$BODY_PATH" >/dev/null
+            echo "refreshed #$pr"
+          else
+            pr=$(gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file "$BODY_PATH" | grep -oE '[0-9]+$')
+            echo "opened #$pr"
+          fi
+          # Fail-soft: without auto-merge the PR still exists and is green or
+          # red on its own; merging it is then a hand's click.
+          gh pr merge "$pr" --auto --squash \
+            || echo "::warning::could not enable auto-merge on #$pr; merge it by hand once the gate is green"
+          echo "number=$pr" >> "$GITHUB_OUTPUT"
+
+      # A GITHUB_TOKEN push creates the PR's gate runs in the action_required
+      # state (GitHub holds workflow runs for events its own token caused).
+      # Approve the ones for the branch tip so the gate runs and auto-merge
+      # has checks to wait on; delete held runs for superseded heads (the PR's
+      # runs share a concurrency group, and a stale run approved alongside the
+      # live one can cancel it). Fail-soft: an unapproved run leaves the PR
+      # waiting, visibly, and the next scheduled run approves it.
+      - name: Approve the fix branch's held gate runs
+        if: ${{ steps.fix.outputs.changed == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tip=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+          approved=0
+          for _ in 1 2 3 4 5 6; do
+            sleep 10
+            for id in $(gh run list --branch "$BRANCH" --status action_required --limit 20 --json databaseId,headSha \
+                          --jq ".[] | select(.headSha==\"$tip\") | .databaseId"); do
+              gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/$id/approve" >/dev/null \
+                && { approved=$((approved + 1)); echo "approved held run $id (tip ${tip:0:7})"; } \
+                || echo "::warning::could not approve held run $id"
+            done
+            [ "$approved" -gt 0 ] && break
+          done
+          [ "$approved" -gt 0 ] || echo "no held run for the branch tip (nothing newly pushed, or it already ran)"
+          gh run list --branch "$BRANCH" --status action_required --limit 20 --json databaseId,headSha \
+            --jq ".[] | select(.headSha!=\"$tip\") | .databaseId" \
+            | while read -r stale; do
+                gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/runs/$stale" >/dev/null \
+                  && echo "deleted stale held run $stale" \
+                  || echo "::warning::could not delete stale held run $stale"
+              done
+
+      - name: Fail on findings no compatible release clears
+        if: ${{ steps.fix.outputs.unfixable != '0' }}
+        run: |
+          echo "::error::${{ steps.fix.outputs.unfixable }} advisory finding(s) on main have no release the manifests' requirements admit; bump the requirement by hand or add a deny.toml ignore with its reason (see the step above for which)."
+          exit 1
