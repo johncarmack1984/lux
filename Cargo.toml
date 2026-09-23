@@ -102,6 +102,10 @@ strip = true
 # unaffected. Upstream PR: gtk-rs/gtk-rs-core#1991. Must be at the workspace root.
 [patch.crates-io]
 glib = { git = "https://github.com/johncarmack1984/gtk-rs-core", branch = "lux/glib-0.18-patch" }
+# glib-macros from the same branch: crates.io 0.18.5 wants proc-macro-crate 2,
+# whose 2.x line pins toml_edit and toml_datetime exactly and holds the whole
+# toml line (jsonptr, system-deps) at toml 0.8.2. The branch requires 3.
+glib-macros = { git = "https://github.com/johncarmack1984/gtk-rs-core", branch = "lux/glib-0.18-patch" }
 
 # rustls-webpki 0.102.8 carries four advisories (a CRL parsing panic, two
 # name-constraint acceptance issues, CRL distribution-point handling), all fixed
