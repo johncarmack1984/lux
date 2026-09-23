@@ -121,7 +121,11 @@ jobs:
       # the same dance for the release branch) — approve those, and delete
       # held runs for superseded heads, whose approval could cancel the live
       # run through the shared concurrency group. The gate counts as engaged
-      # once a desktop run for the tip is queued, running or finished.
+      # once a desktop run for the tip is queued, running or finished. A held
+      # run is listed as status "completed" with conclusion "action_required"
+      # (the status filter release.yml uses maps that; a status field read
+      # does not), so the conclusion is what says held — the second live run
+      # armed auto-merge on #317 over a held gate by reading status alone.
       - name: Wait for the gate to engage, approving held runs
         id: gate
         if: ${{ steps.fix.outputs.changed == 'true' }}
@@ -132,17 +136,17 @@ jobs:
           engaged=""
           for _ in $(seq 1 18); do
             sleep 10
-            while read -r id workflow status; do
+            while read -r id workflow status conclusion; do
               [ -n "$id" ] || continue
-              if [ "$status" = "action_required" ]; then
+              if [ "$status" = "action_required" ] || [ "$conclusion" = "action_required" ]; then
                 gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/$id/approve" >/dev/null \
                   && echo "approved held $workflow run $id (tip ${TIP:0:7})" \
                   || echo "::warning::could not approve held $workflow run $id"
               elif [ "$workflow" = "desktop" ]; then
                 engaged=1
               fi
-            done < <(gh run list --branch "$BRANCH" --limit 20 --json databaseId,headSha,status,workflowName \
-                       --jq ".[] | select(.headSha==\"$TIP\") | \"\(.databaseId) \(.workflowName) \(.status)\"")
+            done < <(gh run list --branch "$BRANCH" --limit 20 --json databaseId,headSha,status,conclusion,workflowName \
+                       --jq ".[] | select(.headSha==\"$TIP\") | \"\(.databaseId) \(.workflowName) \(.status) \(.conclusion)\"")
             [ -n "$engaged" ] && break
           done
           if [ -n "$engaged" ]; then
