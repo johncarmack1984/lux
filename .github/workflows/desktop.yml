@@ -158,7 +158,7 @@ jobs:
           bun-version-file: apps/desktop/package.json
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch
       - run: bun install --frozen-lockfile
-      - uses: taiki-e/install-action@fa23953489c080190314742a9b907f8e97c6767c # v2.87.10
+      - uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2.87.17
         with:
           tool: cargo-machete
       - name: Unused JS dependencies (knip)
@@ -196,7 +196,7 @@ jobs:
           git checkout --detach FETCH_HEAD
           echo "gating $tag at $(git rev-parse --short HEAD)"
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch
-      - uses: taiki-e/install-action@1ed6d7be6168f6c9046541087ff549b6bc581fdf # v2.87.2
+      - uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2.87.17
         with:
           # Pinned like an action SHA: this binary decides what a PR is judged
           # by, and a floating tool changes that overnight. Bump on purpose,
