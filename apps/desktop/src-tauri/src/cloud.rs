@@ -657,10 +657,19 @@ async fn pull_and_push(app: &AppHandle) {
     };
 
     let merged = reconcile(local, &pulled.setups);
+    let active_before = app.state::<LuxSetups>().active_id();
     app.state::<LuxSetups>().replace_with_merged(merged, email);
     app.state::<LuxSetups>()
         .merge_remote_settings(pulled.settings.as_ref());
     crate::cmd::broadcast_synced_state(app);
+    // A pull can move the active setup: deleted on another device, or another
+    // account's setups replacing these. That is a switch like any other, so
+    // the buffer must not carry the old setup's levels onto the new one.
+    if app.state::<LuxSetups>().active_id() != active_before {
+        if let Err(e) = crate::cmd::activate(app, app.state::<LuxSetups>().inner()) {
+            log::warn!("could not activate the setup the pull left active: {e}");
+        }
+    }
 
     push_all(app, &client, &base, &mut token).await;
 }

@@ -3,6 +3,8 @@
 //! plain types on purpose — the desktop's Tauri listener and the headless
 //! node share them unchanged.
 
+use std::time::{Duration, Instant};
+
 /// Where an incoming publish on the user channel goes.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Route<'t> {
@@ -103,7 +105,7 @@ pub fn guest_route<'t>(topic: &'t str, own_sub: &str) -> Option<GuestRoute<'t>> 
 }
 
 /// One applicable buffer mutation extracted from a gated ctl frame.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RemoteApply {
     Overlay(Vec<u8>),
     Channel {
@@ -147,10 +149,50 @@ pub fn gate(
     }
 }
 
+/// The spacing between one publisher's retained state echoes. AWS IoT Core
+/// stores at most one retained publish per topic per second, a fixed quota,
+/// and drops the rest. So echoes go out live at the echo rate, one retained
+/// per interval at most, plus a trailing retained one. Publishers share a
+/// topic's quota and can still collide, but each trailing echo comes a full
+/// interval after that publisher's last, so once the topic has been quiet
+/// that long a final state gets stored.
+pub const RETAIN_INTERVAL: Duration = Duration::from_millis(1100);
+
+/// How long until another retained publish fits the quota, given when this
+/// publisher made its last one.
+pub fn retain_wait(last: Option<Instant>, now: Instant) -> Duration {
+    last.map_or(Duration::ZERO, |at| {
+        (at + RETAIN_INTERVAL).saturating_duration_since(now)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use lux_wire::ctl::Frame;
+
+    #[test]
+    fn retained_echoes_are_spaced_by_the_interval() {
+        let now = Instant::now();
+        // Nothing retained yet: due now.
+        assert_eq!(retain_wait(None, now), Duration::ZERO);
+        // Just published: wait out the whole interval.
+        assert_eq!(retain_wait(Some(now), now), RETAIN_INTERVAL);
+        // Part way through, the rest; past it, due again.
+        let later = now + Duration::from_millis(400);
+        assert_eq!(
+            retain_wait(Some(now), later),
+            RETAIN_INTERVAL - Duration::from_millis(400)
+        );
+        assert_eq!(
+            retain_wait(Some(now), now + RETAIN_INTERVAL),
+            Duration::ZERO
+        );
+        assert_eq!(
+            retain_wait(Some(now), now + RETAIN_INTERVAL * 2),
+            Duration::ZERO
+        );
+    }
 
     #[test]
     fn guest_route_reads_the_owner_and_setup_off_the_topic() {

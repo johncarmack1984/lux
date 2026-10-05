@@ -2,7 +2,7 @@ use crate::guest::SharedSetup;
 use crate::lock::LockPolicy;
 use crate::{
     account::{AuthStatus, LuxAccount},
-    buffer::{Buffer, LuxBuffer, UNIVERSE_SIZE},
+    buffer::{Buffer, LuxBuffer},
     channel::LuxChannel,
     channels::LuxChannels,
     devices::{self, DmxDeviceInfo, DmxOutput},
@@ -427,6 +427,9 @@ impl CmdMethods for CmdEndpoint {
         log::trace!("received buffer {:?}", buffer);
         let mut state = app_handle.state::<LuxBuffer>().inner().clone();
         let outgoing = buffer.clone();
+        // Pending before the write, so a remote state taken in between still
+        // puts this edit back on top.
+        crate::nudge::note_local_overlay(&app_handle, &outgoing);
         let result = state.set(buffer, app_handle.clone())?;
         // User input also drives the rig remotely. Publishing lives here at
         // the command layer only — apply paths never publish (loop guard).
@@ -441,9 +444,15 @@ impl CmdMethods for CmdEndpoint {
     ) -> Result<LuxBuffer, String> {
         log::debug!("received channel {} to {}", channel_number, value);
         let mut state = app_handle.state::<LuxBuffer>().inner().clone();
+        let ch = u16::try_from(channel_number).ok();
+        // Pending before the write, as for an overlay; a slot out of range is
+        // never kept.
+        if let Some(ch) = ch {
+            crate::nudge::note_local_edits(&app_handle, [(ch, value)]);
+        }
         let result = state.set_channel(channel_number as usize, value, app_handle.clone())?;
         // set_channel validated the range, so the narrowing always fits.
-        if let Ok(ch) = u16::try_from(channel_number) {
+        if let Some(ch) = ch {
             crate::nudge::publish_input_channel(&app_handle, ch, value);
         }
         Ok(result)
@@ -1254,10 +1263,26 @@ pub fn emit_dmx_devices_changed<R: tauri::Runtime>(app: &AppHandle<R>) {
 /// Apply the consequences of the active setup changing: point the live sACN
 /// output at the new setup's universe, black out the universe so one setup's
 /// levels never bleed onto another's fixtures, and re-broadcast the new patch.
-fn activate(app: &AppHandle, setups: &LuxSetups) -> Result<(), String> {
-    devices::set_active_universe(app, setups.active_universe());
-    let mut buffer = app.state::<LuxBuffer>().inner().clone();
-    buffer.set(vec![0u8; UNIVERSE_SIZE], app.clone())?; // emits BufferSet + renders
+pub(crate) fn activate(app: &AppHandle, setups: &LuxSetups) -> Result<(), String> {
+    let blanked = {
+        // One step as far as the remote path can tell: no echo is reflected or
+        // snapshotted, and no fade tick lands, between forgetting the old
+        // setup and blanking for the new one.
+        let _desk = crate::nudge::desk(app);
+        // A fade belongs to the setup it was recalled on, and nothing this
+        // device knew of the old setup's state describes the new one.
+        scene::stop_fade(app);
+        crate::nudge::forget_setup_state(app);
+        devices::set_active_universe(app, setups.active_universe());
+        let mut buffer = app.state::<LuxBuffer>().inner().clone();
+        // Emits BufferSet and renders, but echoes nothing.
+        buffer.reset_for_new_setup(app.clone())
+    };
+    // Remote surfaces learn the new binding through the presence card, and this
+    // device takes in the new setup's state from its retained echo. That comes
+    // after the blank, so the blank can't wipe it.
+    crate::nudge::active_setup_changed(app);
+    blanked?;
     CmdEvent::PatchSet {
         setup_id: setups.active_id().to_string(),
         fixtures: setups.active_fixtures(),
@@ -1271,8 +1296,6 @@ fn activate(app: &AppHandle, setups: &LuxSetups) -> Result<(), String> {
     }
     .emit(app)
     .map_err(|e| format!("Failed to emit scenes_set event: {e}"))?;
-    // Remote surfaces learn the new binding through the presence card.
-    crate::nudge::presence_changed(app);
     Ok(())
 }
 

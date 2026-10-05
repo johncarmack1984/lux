@@ -113,6 +113,11 @@ fn apply<R: Runtime>(payload: &[u8], app: &AppHandle<R>) -> Result<(), String> {
     let cmd: BufferCommand =
         serde_json::from_slice(payload).map_err(|e| format!("bad payload: {e}"))?;
     log::debug!("IoT buffer command: {:?}", cmd.buffer);
+    // No frame carries a Discord command to the user's other appliers; this
+    // device delivers it, so it stays pending until an echo shows it arrived,
+    // and a live echo can't overwrite it before this device's own goes out.
+    crate::nudge::note_local_overlay(app, &cmd.buffer);
+    crate::nudge::note_local_input(app);
     let mut state = app.state::<LuxBuffer>().inner().clone();
     state.set(cmd.buffer, app.clone()).map(|_| ())
 }
