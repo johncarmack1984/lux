@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.2](https://github.com/johncarmack1984/lux/compare/v1.16.1...v1.16.2) (2026-10-05)
+
+
+### Bug Fixes
+
+* **node:** let install upgrade a running service ([#327](https://github.com/johncarmack1984/lux/issues/327)) ([d243a7e](https://github.com/johncarmack1984/lux/commit/d243a7e9ae5ee8ef10494d1a2636c1e4e05a36ae))
+
 ## [1.16.1](https://github.com/johncarmack1984/lux/compare/v1.16.0...v1.16.1) (2026-10-05)
 
 
