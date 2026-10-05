@@ -89,9 +89,9 @@ pub fn install(opts: Options) -> Result<(), String> {
 
     // 1. The binary itself.
     let me = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
-    if me != Path::new(BIN_PATH) {
-        fs::copy(&me, BIN_PATH).map_err(|e| format!("install {BIN_PATH}: {e}"))?;
-        run("chmod", &["755", BIN_PATH])?;
+    let replaced = me != Path::new(BIN_PATH);
+    if replaced {
+        replace_binary(&me, Path::new(BIN_PATH))?;
         println!("installed {BIN_PATH}");
     }
 
@@ -166,9 +166,15 @@ pub fn install(opts: Options) -> Result<(), String> {
     // 5. Unit file (embedded in the binary, so they can't drift apart).
     fs::write(UNIT_PATH, UNIT).map_err(|e| format!("write {UNIT_PATH}: {e}"))?;
 
-    // 6. Enable + start.
+    // 6. Enable + start. `enable --now` leaves an already-running service
+    //    alone, so after an upgrade restart it onto the new binary.
     run("systemctl", &["daemon-reload"])?;
-    run("systemctl", &["enable", "--now", "lux-node"])?;
+    if replaced {
+        run("systemctl", &["enable", "lux-node"])?;
+        run("systemctl", &["restart", "lux-node"])?;
+    } else {
+        run("systemctl", &["enable", "--now", "lux-node"])?;
+    }
 
     // 7. An always-on box should stay on (opt out with --keep-sleep).
     if !opts.keep_sleep {
@@ -324,6 +330,26 @@ pub fn read_password(opts: &Options) -> Result<String, String> {
     Err("no password: set LUX_NODE_PASSWORD, pass --password-stdin, or run in a terminal".into())
 }
 
+/// Copy `src` to a sibling of `dst`, then rename it over `dst`. Writing into
+/// `dst` directly fails with ETXTBSY while the service is running it; a rename
+/// swaps the directory entry and leaves the running process its old inode.
+fn replace_binary(src: &Path, dst: &Path) -> Result<(), String> {
+    let name = dst
+        .file_name()
+        .ok_or_else(|| format!("{} has no file name", dst.display()))?;
+    let tmp = dst.with_file_name(format!(".{}.new", name.to_string_lossy()));
+    let staged = fs::copy(src, &tmp)
+        .map_err(|e| format!("stage {}: {e}", tmp.display()))
+        .and_then(|_| run("chmod", &["755", &tmp.to_string_lossy()]))
+        .and_then(|()| {
+            fs::rename(&tmp, dst).map_err(|e| format!("install {}: {e}", dst.display()))
+        });
+    if staged.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    staged
+}
+
 fn is_root() -> bool {
     run_out("id", &["-u"]).is_some_and(|out| out.trim() == "0")
 }
@@ -408,6 +434,22 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(resolve_setup(&o, Ok(unique)).unwrap(), ("id1".into(), 2));
+    }
+
+    #[test]
+    fn replace_binary_swaps_in_place_and_cleans_up() {
+        let dir = std::env::temp_dir().join(format!("lux-node-install-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("new");
+        let dst = dir.join("lux-node");
+        fs::write(&src, b"new").unwrap();
+        fs::write(&dst, b"old").unwrap();
+
+        replace_binary(&src, &dst).unwrap();
+
+        assert_eq!(fs::read(&dst).unwrap(), b"new");
+        assert!(!dir.join(".lux-node.new").exists());
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
