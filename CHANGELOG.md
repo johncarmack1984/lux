@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.1](https://github.com/johncarmack1984/lux/compare/v1.16.0...v1.16.1) (2026-10-05)
+
+
+### Bug Fixes
+
+* **ctl:** stop reconnecting devices from reverting the lights ([#324](https://github.com/johncarmack1984/lux/issues/324)) ([6368fe1](https://github.com/johncarmack1984/lux/commit/6368fe1a0cc05a9d7d2857c771a299705863cdce))
+
 ## [1.16.0](https://github.com/johncarmack1984/lux/compare/v1.15.2...v1.16.0) (2026-08-24)
 
 
