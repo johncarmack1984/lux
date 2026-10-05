@@ -44,6 +44,8 @@ on:
     paths:
       - 'apps/desktop/**'
       - 'apps/site/**'
+      # lux-node is a workspace member: rust-test and rust-clippy cover it.
+      - 'apps/node/**'
       - 'packages/**'
       - 'services/**'
       - 'crates/**'
@@ -60,6 +62,8 @@ on:
     paths:
       - 'apps/desktop/**'
       - 'apps/site/**'
+      # lux-node is a workspace member: rust-test and rust-clippy cover it.
+      - 'apps/node/**'
       - 'packages/**'
       - 'services/**'
       - 'crates/**'
