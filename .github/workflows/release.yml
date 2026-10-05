@@ -88,20 +88,23 @@ jobs:
           [ "$lock" = "$want" ] && [ "$plist" = "$want" ] \
             || { echo "::error::release branch stamps out of sync with $want — check the extra-files updaters in release-please-config.json"; exit 1; }
 
-      # A GITHUB_TOKEN branch push creates the release PR's gate run in the
+      # A GITHUB_TOKEN branch push creates the release PR's runs in the
       # action_required state (GitHub holds workflow runs for events the token
       # caused; pull_request branch filters can't exclude a head branch, they
-      # match the base). Approve the held run so the release PR carries a
-      # concluded gate instead of an "awaiting approval" banner — the run
-      # itself is near-free, since desktop.yml's per-job guard skips the work
-      # for this branch and the tag gate below is what actually rules — but ONLY
-      # the branch tip's run: the PR's gate runs share one concurrency group,
-      # so approving a superseded head's run alongside the live one lets the
-      # loser cancel the winner. Stale held runs are deleted instead (their
-      # commit is gone from the branch; they can never matter). Fail-soft
-      # throughout: an unapproved run is cosmetic — merging is not blocked
-      # and the authoritative gate is the ci job at the tag.
-      - name: Approve the release branch's held gate run
+      # match the base): one per workflow that runs on pull requests. Approve
+      # every one held at the branch tip. desktop.yml's run carries the checks
+      # the `main` ruleset requires, so while it is held the release PR can't
+      # merge; the runs themselves are near-free, since desktop.yml's per-job
+      # guard skips the work for this branch and the tag gate below is what
+      # actually rules. The runs appear a few seconds apart, so the step looks
+      # three times. ONLY the tip's runs, though: a PR's runs of one workflow
+      # share a concurrency group, so approving a superseded head's run
+      # alongside the live one lets the loser cancel the winner. Stale held
+      # runs are deleted instead (their commit is gone from the branch; they
+      # can never matter). Fail-soft throughout: a run left held only blocks
+      # the merge until it is approved by hand, and the authoritative gate is
+      # the ci job at the tag.
+      - name: Approve the release branch's held runs
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: release-please--branches--main--components--lux
@@ -112,16 +115,14 @@ jobs:
             exit 0
           fi
           approved=""
-          for i in 1 2 3; do
+          for _ in 1 2 3; do
             sleep 10
-            id=$(gh run list --branch "$BRANCH" --status action_required --limit 10 --json databaseId,headSha \
-              --jq ".[] | select(.headSha==\"$tip\") | .databaseId" | head -1)
-            if [ -n "$id" ]; then
+            for id in $(gh run list --branch "$BRANCH" --status action_required --limit 20 --json databaseId,headSha \
+              --jq ".[] | select(.headSha==\"$tip\") | .databaseId"); do
               gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/$id/approve" >/dev/null \
                 && { approved=1; echo "approved held run $id (tip ${tip:0:7})"; } \
-                || echo "::warning::could not approve held run $id (cosmetic; the tag gate still rules)"
-              break
-            fi
+                || echo "::warning::could not approve held run $id; approve it by hand to unblock the release PR"
+            done
           done
           [ -n "$approved" ] || echo "no held run for the branch tip (nothing newly pushed, or it already ran)"
           gh run list --branch "$BRANCH" --status action_required --limit 10 --json databaseId,headSha \
