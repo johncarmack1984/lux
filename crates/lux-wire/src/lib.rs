@@ -732,6 +732,9 @@ pub mod ctl {
     //! - `…/setup/<setupId>/frame` — live control frames, QoS 0, not retained.
     //! - `…/setup/<setupId>/state` — retained echo of the applier's last-applied
     //!   full buffer (a [`Frame::Buffer`]), so every surface can reflect truth.
+    //!   AWS IoT Core delivers a retained message only to a subscription that
+    //!   names its topic, never through a wildcard, so a listener that needs
+    //!   this echo on connect subscribes [`state_topic`] by name.
     //! - `…/presence/<session>` — retained presence card; an **empty retained
     //!   payload clears it** and is also the connection's Last Will. Presence is
     //!   session-scoped, not setup-scoped, because a connection has exactly one
@@ -815,10 +818,13 @@ pub mod ctl {
     /// color-pick overlays the leading slots, and cross-device races resolve
     /// per-slot last-write-wins at the applier.
     ///
-    /// `src` is the publishing connection's session id. Every peer subscribes
-    /// its whole ctl space, so a publisher receives its own frames back —
-    /// appliers drop frames whose `src` matches their own session instead of
-    /// re-applying them. Optional on the wire so hand-published frames (CLI
+    /// `src` identifies the publisher. The apps and the render node stamp an id
+    /// per process rather than per connection, so their traffic stays
+    /// recognizably their own across reconnects — including a retained echo
+    /// stored from an earlier connection. Publishers receive their own traffic
+    /// back (an app subscribes its whole ctl space, a node its setup's
+    /// topics), so appliers drop frames whose `src` matches their own instead
+    /// of re-applying them. Optional on the wire so hand-published frames (CLI
     /// testing) stay valid; absent means "not mine, apply it".
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(untagged)]
@@ -882,7 +888,7 @@ pub mod ctl {
             }
         }
 
-        /// Stamp the publishing connection's session id (see the enum docs).
+        /// Stamp the publisher's id (see the enum docs).
         pub fn with_src(mut self, session: &str) -> Self {
             match &mut self {
                 Frame::Buffer { src, .. }
@@ -901,7 +907,7 @@ pub mod ctl {
             }
         }
 
-        /// The publishing connection's session id, if stamped.
+        /// The publisher's id, if stamped.
         pub fn src(&self) -> Option<&str> {
             match self {
                 Frame::Buffer { src, .. }

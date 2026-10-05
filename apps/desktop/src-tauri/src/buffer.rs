@@ -130,9 +130,30 @@ impl LuxBuffer {
     ) -> Result<LuxBuffer, String> {
         emit_buffer(snapshot.clone(), &app)?;
         schedule_persist(&app);
-        // Refresh the retained remote-control state echo (no-op when the user
-        // channel is down) — remote surfaces reflect local changes through it.
+        // Refresh the remote-control state echo (no-op when the user channel
+        // is down) — remote surfaces reflect local changes through it.
         crate::nudge::schedule_state_echo(&app);
+        render(&snapshot, &app)?;
+        Ok(self.clone())
+    }
+
+    /// Zero the universe for a newly activated setup: emit, persist and render
+    /// like any write, but publish no state echo. Switching which setup this
+    /// device drives is no change to that setup's state, so the blank must not
+    /// reach its `state` topic. A node there seeds from every echo it hears,
+    /// and would go dark. The device takes in that setup's retained echo
+    /// instead (`nudge::active_setup_changed`) and renders it when it lands.
+    pub fn reset_for_new_setup<R: Runtime>(
+        &mut self,
+        app: tauri::AppHandle<R>,
+    ) -> Result<LuxBuffer, String> {
+        let snapshot = {
+            let mut guard = self.buffer.lock_or_recover();
+            guard.fill(0);
+            guard.clone()
+        };
+        emit_buffer(snapshot.clone(), &app)?;
+        schedule_persist(&app);
         render(&snapshot, &app)?;
         Ok(self.clone())
     }
@@ -140,20 +161,37 @@ impl LuxBuffer {
 
 /// Overwrite the live buffer with an applier's echoed truth (a remote state
 /// echo, full-universe) and reflect it in the UI + persistence **without**
-/// rendering, publishing, or re-echoing. Remote state must never re-enter the
-/// output or publish paths — that asymmetry is what makes echo loops between
-/// devices impossible by construction.
-pub fn reflect_remote_state<R: Runtime>(app: &tauri::AppHandle<R>, incoming: &[u8]) {
+/// publishing or re-echoing. Remote state must never re-enter the publish
+/// paths — that asymmetry is what makes echo loops between devices impossible
+/// by construction.
+///
+/// `render` sends it to the output too, which can't loop (output publishes
+/// nothing). The remote path asks for it once per connection or setup switch,
+/// when the echo replaces what this device only last knew: a USB device holds
+/// its last frame, and after a switch the blank would stay up until the sACN
+/// keepalive. Later echoes reach sACN through the keepalive alone; rendering
+/// each would step a channel another applier is driving back to the echo's
+/// trailing value.
+pub fn reflect_remote_state<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    incoming: &[u8],
+    render_it: bool,
+) {
     let snapshot = {
         let state = app.state::<LuxBuffer>();
         let mut guard = state.buffer.lock_or_recover();
         *guard = normalize(incoming);
         guard.clone()
     };
-    if let Err(e) = emit_buffer(snapshot, app) {
+    if let Err(e) = emit_buffer(snapshot.clone(), app) {
         log::warn!("could not reflect remote state to the UI: {e}");
     }
     schedule_persist(app);
+    if render_it {
+        if let Err(e) = render(&snapshot, app) {
+            log::trace!("reflected state not rendered: {e}");
+        }
+    }
 }
 
 // --- persistence (app_config_dir/buffer.json) --------------------------------

@@ -207,14 +207,23 @@ pub fn remove(scenes: &mut Vec<Scene>, id: uuid::Uuid) -> Result<(), String> {
 /// render, debounced persist, coalesced state echo — sees a new load shape.
 const TICK: Duration = Duration::from_millis(25);
 
-/// Which recall owns the rig. Every [`recall`] bumps the generation; an
-/// in-flight ticker that no longer holds the current one stops at its next
-/// tick. That is the whole cancellation story: **the last recall wins**, with
-/// no channels, no join handles, and no torn frames from two fades writing the
-/// same slot.
+/// Which recall owns the rig. Every [`recall`] (and [`stop_fade`]) bumps the
+/// generation; an in-flight ticker that no longer holds the current one stops
+/// at its next tick. That is the whole cancellation story: **the last recall
+/// wins**, with no channels, no join handles, and no torn frames from two fades
+/// writing the same slot.
 #[derive(Debug, Default)]
 pub struct LuxFade {
     generation: AtomicU64,
+}
+
+/// Stop any fade in flight. A fade belongs to the setup it was recalled on, so
+/// switching setups calls this — otherwise its remaining frames would land on
+/// the new setup's buffer.
+pub fn stop_fade<R: Runtime>(app: &AppHandle<R>) {
+    app.state::<LuxFade>()
+        .generation
+        .fetch_add(1, Ordering::SeqCst);
 }
 
 /// Start recalling `scene`: crossfade every slot it owns from wherever the rig
@@ -237,8 +246,18 @@ pub fn recall<R: Runtime>(app: &AppHandle<R>, scene: &Scene) -> Result<(), Strin
     // A snap has nothing to schedule: apply it on the calling thread so a
     // zero-fade scene is as immediate as pressing Blackout.
     if fade.is_done(0) {
+        let levels = fade.at(0);
+        let _desk = crate::nudge::desk(app);
+        // A setup switch since this recall started stopped it: the scene
+        // belongs to the setup it was recalled on.
+        if app.state::<LuxFade>().generation.load(Ordering::SeqCst) != generation {
+            return Ok(());
+        }
+        // The fade is this device's to deliver: no frame carries it.
+        crate::nudge::note_local_edits(app, levels.iter().copied());
+        crate::nudge::note_local_input(app);
         let mut buffer = app.state::<LuxBuffer>().inner().clone();
-        buffer.apply_levels(&fade.at(0), app.clone())?;
+        buffer.apply_levels(&levels, app.clone())?;
         return Ok(());
     }
 
@@ -247,15 +266,23 @@ pub fn recall<R: Runtime>(app: &AppHandle<R>, scene: &Scene) -> Result<(), Strin
         let started = Instant::now();
         loop {
             tokio::time::sleep(TICK).await;
-            if app.state::<LuxFade>().generation.load(Ordering::SeqCst) != generation {
-                return; // a newer recall (or a blackout) owns the rig now
-            }
             let elapsed = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-            let mut buffer = app.state::<LuxBuffer>().inner().clone();
-            if let Err(e) = buffer.apply_levels(&fade.at(elapsed), app.clone()) {
-                // A missing output is not a reason to abandon the fade: the
-                // buffer is still the truth, and the user may plug in mid-fade.
-                log::trace!("scene fade write failed: {e}");
+            {
+                // Under the desk, so a setup switch's stop can't fall between
+                // this check and the write.
+                let _desk = crate::nudge::desk(&app);
+                if app.state::<LuxFade>().generation.load(Ordering::SeqCst) != generation {
+                    return; // a newer recall (or a blackout) owns the rig now
+                }
+                let levels = fade.at(elapsed);
+                crate::nudge::note_local_edits(&app, levels.iter().copied());
+                crate::nudge::note_local_input(&app);
+                let mut buffer = app.state::<LuxBuffer>().inner().clone();
+                if let Err(e) = buffer.apply_levels(&levels, app.clone()) {
+                    // A missing output is not a reason to abandon the fade: the
+                    // buffer is still the truth, and the user may plug in mid-fade.
+                    log::trace!("scene fade write failed: {e}");
+                }
             }
             if fade.is_done(elapsed) {
                 return;
