@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.17.0](https://github.com/johncarmack1984/lux/compare/v1.16.2...v1.17.0) (2026-10-09)
+
+
+### Features
+
+* **node:** run lux-node on macOS as a launchd daemon ([#330](https://github.com/johncarmack1984/lux/issues/330)) ([2dfa6a2](https://github.com/johncarmack1984/lux/commit/2dfa6a205df332a8fd3ec2056b92458e171d59aa))
+
 ## [1.16.2](https://github.com/johncarmack1984/lux/compare/v1.16.1...v1.16.2) (2026-10-05)
 
 
