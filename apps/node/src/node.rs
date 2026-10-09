@@ -12,6 +12,7 @@
 //! every second, reconnects included (sACN receivers drop a source that goes
 //! quiet). It echoes its state only after a frame changes it.
 
+use std::cell::Cell;
 use std::future::Future;
 use std::time::{Duration, Instant};
 
@@ -38,6 +39,9 @@ const ECHO_WINDOW: Duration = Duration::from_millis(200);
 /// How long after the subscribe ack to wait for the setup's retained echo
 /// before asking again, and after that before concluding there is none.
 const RESTORE_GRACE: Duration = Duration::from_millis(1500);
+/// A failing send is retried at every keepalive, so an outage would log a line
+/// a second; after the first, failures are reported at most this often.
+const SEND_FAILURE_REPORT: Duration = Duration::from_secs(60);
 
 /// What the node holds on the rig. Outlives any one connection, so a reconnect
 /// keeps the look, and a change not yet announced still goes out unless a
@@ -66,16 +70,95 @@ struct Rig {
     /// still read as its own. It holds nothing newer than the universe does,
     /// and seeding from it would undo a change whose echo never got out.
     src: String,
+    /// The run of failed sends under way, if any (see [`track_send`]).
+    send_failures: Cell<Option<FailureRun>>,
+}
+
+/// Consecutive failed sends, counted so they are reported at a bounded rate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FailureRun {
+    /// Failed sends since the run began.
+    total: u64,
+    /// Failed sends since the last report.
+    unreported: u64,
+    /// When the run was last reported.
+    reported_at: Instant,
+}
+
+/// What one send result adds to the log.
+#[derive(Debug, PartialEq, Eq)]
+enum SendReport {
+    /// Nothing new to say.
+    Quiet,
+    /// The first failure of a run.
+    Failed,
+    /// Still failing: this many more failures since the last report.
+    StillFailing(u64),
+    /// Sending works again after this many failures.
+    Recovered(u64),
+}
+
+/// Fold one send result into the run of failures. Pure, so the rate limit is
+/// unit-tested.
+fn track_send(
+    run: Option<FailureRun>,
+    failed: bool,
+    now: Instant,
+) -> (Option<FailureRun>, SendReport) {
+    match (run, failed) {
+        (None, false) => (None, SendReport::Quiet),
+        (Some(run), false) => (None, SendReport::Recovered(run.total)),
+        (None, true) => (
+            Some(FailureRun {
+                total: 1,
+                unreported: 0,
+                reported_at: now,
+            }),
+            SendReport::Failed,
+        ),
+        (Some(run), true) => {
+            let total = run.total.saturating_add(1);
+            let unreported = run.unreported.saturating_add(1);
+            if now.saturating_duration_since(run.reported_at) >= SEND_FAILURE_REPORT {
+                let run = FailureRun {
+                    total,
+                    unreported: 0,
+                    reported_at: now,
+                };
+                (Some(run), SendReport::StillFailing(unreported))
+            } else {
+                let run = FailureRun {
+                    total,
+                    unreported,
+                    ..run
+                };
+                (Some(run), SendReport::Quiet)
+            }
+        }
+    }
 }
 
 impl Rig {
     /// Send the look again, if there is one: receivers hold it only while it
-    /// keeps arriving.
+    /// keeps arriving. A failing send is reported once, then at most every
+    /// [`SEND_FAILURE_REPORT`] while it keeps failing, and again when it
+    /// recovers.
     fn transmit(&self, sink: &SacnSink) {
-        if self.lit {
-            if let Err(e) = sink.render(self.universe.slots()) {
-                log::warn!("sACN render failed: {e}");
+        if !self.lit {
+            return;
+        }
+        let sent = sink.render(self.universe.slots());
+        let (run, report) = track_send(self.send_failures.get(), sent.is_err(), Instant::now());
+        self.send_failures.set(run);
+        match (report, sent) {
+            (SendReport::Failed, Err(e)) => log::warn!("sACN render failed: {e}"),
+            (SendReport::StillFailing(n), Err(e)) => {
+                log::warn!("sACN render still failing ({n} more failed sends): {e}");
             }
+            (SendReport::Recovered(n), _) => {
+                log::info!("sACN render recovered after {n} failed sends");
+            }
+            _ => {}
         }
     }
 
@@ -127,6 +210,7 @@ pub async fn run(
         retained_behind: false,
         last_retained: None,
         src: Uuid::new_v4().simple().to_string()[..8].to_owned(),
+        send_failures: Cell::new(None),
     };
     let mut refresh_token = session.refresh_token;
     let client_id = session.client_id;
@@ -706,6 +790,7 @@ mod tests {
             retained_behind: false,
             last_retained: None,
             src: "node".into(),
+            send_failures: Cell::new(None),
         };
         let held = vec![RemoteApply::Channel { ch: 2, val: 200 }];
         rig.universe.overlay(&[10, 20, 30]); // the seed
@@ -714,5 +799,30 @@ mod tests {
 
         // A scene recall held back changes nothing on a node.
         assert!(!rig.replay(vec![RemoteApply::Scene { id: "sc".into() }]));
+    }
+
+    #[test]
+    fn a_failing_send_is_reported_once_then_once_a_minute_then_on_recovery() {
+        let start = Instant::now();
+        let at = |secs: u64| start + Duration::from_secs(secs);
+
+        let (mut run, report) = track_send(None, true, at(0));
+        assert_eq!(report, SendReport::Failed);
+        // The keepalive retries every second; those retries stay quiet...
+        for secs in 1..60 {
+            let (next, report) = track_send(run, true, at(secs));
+            assert_eq!(report, SendReport::Quiet);
+            run = next;
+        }
+        // ...until a minute has passed, which reports how many went unsaid.
+        let (run, report) = track_send(run, true, at(60));
+        assert_eq!(report, SendReport::StillFailing(60));
+        let (run, report) = track_send(run, true, at(61));
+        assert_eq!(report, SendReport::Quiet);
+        // Recovery reports the whole run and ends it.
+        let (run, report) = track_send(run, false, at(62));
+        assert_eq!(report, SendReport::Recovered(62));
+        assert_eq!(run, None);
+        assert_eq!(track_send(None, false, at(63)), (None, SendReport::Quiet));
     }
 }
