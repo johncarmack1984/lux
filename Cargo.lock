@@ -3708,6 +3708,7 @@ dependencies = [
  "log",
  "lux-engine",
  "lux-wire",
+ "plist",
  "reqwest",
  "rpassword",
  "rumqttc",
