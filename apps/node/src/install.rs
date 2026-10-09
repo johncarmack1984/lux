@@ -160,6 +160,11 @@ pub fn install(opts: Options) -> Result<(), String> {
         replace_binary(&me, Path::new(BIN_PATH))?;
         println!("installed {BIN_PATH}");
     }
+    // The service runs this file, so only root may change it. macOS's copy
+    // clones the source's owner when run as root, which would leave a build's
+    // owner able to rewrite what the daemon runs; rerunning install fixes an
+    // install that predates this.
+    run("chown", &["0:0", BIN_PATH])?;
 
     // 2. Service user + dirs.
     let state_dir = platform.state_dir();
