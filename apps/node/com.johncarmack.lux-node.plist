@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  lux-node, headless lux DMX renderer: the macOS launchd daemon.
+  Install: apps/node/README.md. Config: /etc/lux-node/config.json; the stored
+  session lives in the state dir (/Library/Application Support/lux-node).
+
+  A daemon rather than an agent: macOS exempts launchd daemons from Local
+  Network privacy, and sACN multicast is a local network operation.
+
+  `lux-node install` fills in the program arguments. By default the node runs
+  under /bin/sh, which starts `caffeinate -s -w $$` and then execs the node
+  into its own pid: the keep-awake assertion (on AC power) lives exactly as
+  long as the node, and launchd's SIGTERM reaches the node itself. The
+  keep-sleep install flag runs the node directly instead.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.johncarmack.lux-node</string>
+	<key>ProgramArguments</key>
+	<array>
+		<!-- program arguments: written by lux-node install -->
+	</array>
+	<key>UserName</key>
+	<string>_luxnode</string>
+	<key>GroupName</key>
+	<string>_luxnode</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>5</integer>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>RUST_LOG</key>
+		<string>info</string>
+		<key>XDG_CONFIG_HOME</key>
+		<string>/Library/Application Support/lux-node</string>
+	</dict>
+	<key>StandardOutPath</key>
+	<string>/Library/Logs/lux-node/lux-node.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Library/Logs/lux-node/lux-node.log</string>
+</dict>
+</plist>

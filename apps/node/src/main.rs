@@ -1,8 +1,10 @@
-//! lux-node — headless lux for an always-on Linux box.
+//! lux-node — headless lux for an always-on box (Linux or macOS).
 //!
-//!   sudo lux-node install      one-command setup: binary, user, unit, config,
-//!                              login, enable (idempotent; --keep-sleep to
-//!                              skip masking suspend)
+//!   sudo lux-node install      one-command setup: binary, user, service
+//!                              (systemd unit / launchd daemon), config, login,
+//!                              enable (idempotent; --pair to claim the box
+//!                              from the lux app instead of signing in with a
+//!                              password; --keep-sleep to let the box sleep)
 //!   lux-node login <email>     sign in once; stores the refresh token (0600)
 //!   lux-node pair              claim a headless box from the lux app — prints
 //!                              a code, blocks until approved (no password)

@@ -1,4 +1,5 @@
-//! `sudo lux-node install` — the binary installs itself as a systemd service.
+//! `sudo lux-node install` — the binary installs itself as a system service: a
+//! systemd unit on Linux, a launchd daemon on macOS.
 //!
 //! Idempotent: every step checks before it acts, so re-running upgrades the
 //! binary in place and fixes whatever is missing. All the sysadmin choreography
@@ -10,17 +11,76 @@ use std::fs;
 use std::io::{IsTerminal, Write};
 use std::path::Path;
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 use crate::auth;
 use crate::config::{self, StoredSession};
+use crate::pairing;
 use crate::setups;
 
 const BIN_PATH: &str = "/usr/local/bin/lux-node";
 const ETC_DIR: &str = "/etc/lux-node";
+const CONFIG_PATH: &str = "/etc/lux-node/config.json";
 const STATE_DIR: &str = "/var/lib/lux-node";
 const UNIT_PATH: &str = "/etc/systemd/system/lux-node.service";
 const SERVICE_USER: &str = "lux-node";
 const UNIT: &str = include_str!("../lux-node.service");
+
+// macOS: a launchd daemon, not an agent — macOS exempts launchd daemons from
+// Local Network privacy, and sACN multicast is a local network operation.
+const MAC_STATE_DIR: &str = "/Library/Application Support/lux-node";
+const MAC_LOG_DIR: &str = "/Library/Logs/lux-node";
+const MAC_LOG_FILE: &str = "/Library/Logs/lux-node/lux-node.log";
+/// A hidden role account (plus a group of the same name) the daemon runs as.
+const MAC_SERVICE_USER: &str = "_luxnode";
+/// `sysadminctl` reserves 450–499 for role accounts; Apple's own accounts sit
+/// below it and keep growing into the 300s.
+const MAC_ROLE_ID_FIRST: u32 = 450;
+const MAC_ROLE_ID_LAST: u32 = 499;
+const LAUNCHD_LABEL: &str = "com.johncarmack.lux-node";
+const PLIST_PATH: &str = "/Library/LaunchDaemons/com.johncarmack.lux-node.plist";
+const PLIST: &str = include_str!("../com.johncarmack.lux-node.plist");
+/// The line in [`PLIST`] that install replaces with the program arguments.
+const PLIST_ARGS_SLOT: &str = "\t\t<!-- program arguments: written by lux-node install -->";
+/// How long to wait for a running daemon to leave launchd before starting the
+/// new one: past launchd's default 20 s exit timeout, after which it SIGKILLs.
+const LAUNCHD_STOP_WAIT: Duration = Duration::from_secs(25);
+
+/// Which service manager the install targets. Dispatched at runtime on
+/// `cfg!(target_os)`, so both platforms' paths compile, lint, and test on
+/// either one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Platform {
+    Linux,
+    MacOs,
+}
+
+impl Platform {
+    fn current() -> Result<Self, String> {
+        if cfg!(target_os = "linux") {
+            Ok(Self::Linux)
+        } else if cfg!(target_os = "macos") {
+            Ok(Self::MacOs)
+        } else {
+            Err("lux-node install supports Linux (systemd) and macOS (launchd)".into())
+        }
+    }
+
+    fn state_dir(self) -> &'static str {
+        match self {
+            Self::Linux => STATE_DIR,
+            Self::MacOs => MAC_STATE_DIR,
+        }
+    }
+
+    /// `chown`'s owner argument for the files the service writes.
+    fn owner(self) -> String {
+        match self {
+            Self::Linux => SERVICE_USER.to_owned(),
+            Self::MacOs => format!("{MAC_SERVICE_USER}:{MAC_SERVICE_USER}"),
+        }
+    }
+}
 
 /// Everything the installer needs, so it can run unattended: each field has a
 /// flag and (for the two secrets-adjacent ones) an env var, and only when a
@@ -38,12 +98,16 @@ pub struct Options {
     pub setup_name: Option<String>,
     pub universe: Option<u16>,
     pub keep_sleep: bool,
+    /// Claim the box from the lux app instead of signing in with a password:
+    /// the device session it mints lasts 10 years (a password session, 30
+    /// days), and Sign in with Apple accounts have no password at all.
+    pub pair: bool,
 }
 
 impl Options {
     /// Parse `install`'s args (after the subcommand) and the `LUX_NODE_*`
     /// env vars. Flags: `--email`, `--password-stdin`, `--setup-id`,
-    /// `--setup <name>`, `--universe`, `--keep-sleep`.
+    /// `--setup <name>`, `--universe`, `--keep-sleep`, `--pair`.
     pub fn parse(args: &[String]) -> Result<Self, String> {
         let mut opts = Options {
             email: std::env::var("LUX_NODE_EMAIL")
@@ -72,6 +136,7 @@ impl Options {
                         Some(v.parse().map_err(|e| format!("bad --universe {v}: {e}"))?);
                 }
                 "--keep-sleep" => opts.keep_sleep = true,
+                "--pair" => opts.pair = true,
                 other => return Err(format!("unknown install flag {other}")),
             }
         }
@@ -80,56 +145,80 @@ impl Options {
 }
 
 pub fn install(opts: Options) -> Result<(), String> {
-    if !cfg!(target_os = "linux") {
-        return Err("lux-node install targets Linux (systemd)".into());
-    }
+    let platform = Platform::current()?;
     if !is_root() {
         return Err("run as root: sudo ./lux-node install".into());
     }
 
-    // 1. The binary itself.
+    // 1. The binary itself (a fresh Mac may not have /usr/local/bin yet).
     let me = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
     let replaced = me != Path::new(BIN_PATH);
     if replaced {
+        if let Some(dir) = Path::new(BIN_PATH).parent() {
+            fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
+        }
         replace_binary(&me, Path::new(BIN_PATH))?;
         println!("installed {BIN_PATH}");
     }
+    // The service runs this file, so only root may change it. macOS's copy
+    // clones the source's owner when run as root, which would leave a build's
+    // owner able to rewrite what the daemon runs; rerunning install fixes an
+    // install that predates this.
+    run("chown", &["0:0", BIN_PATH])?;
 
     // 2. Service user + dirs.
-    if !run_ok("id", &["-u", SERVICE_USER]) {
-        run(
-            "useradd",
-            &[
-                "--system",
-                "--home",
-                STATE_DIR,
-                "--shell",
-                "/usr/sbin/nologin",
-                SERVICE_USER,
-            ],
-        )?;
-        println!("created system user {SERVICE_USER}");
+    let state_dir = platform.state_dir();
+    let owner = platform.owner();
+    match platform {
+        Platform::Linux => ensure_linux_user()?,
+        Platform::MacOs => ensure_mac_role_account()?,
     }
     fs::create_dir_all(ETC_DIR).map_err(|e| format!("mkdir {ETC_DIR}: {e}"))?;
-    fs::create_dir_all(STATE_DIR).map_err(|e| format!("mkdir {STATE_DIR}: {e}"))?;
-    run("chown", &["-R", SERVICE_USER, STATE_DIR])?;
+    fs::create_dir_all(state_dir).map_err(|e| format!("mkdir {state_dir}: {e}"))?;
+    run("chown", &["-R", &owner, state_dir])?;
+    if platform == Platform::MacOs {
+        // launchd appends the daemon's stdout/stderr here (no journald).
+        fs::create_dir_all(MAC_LOG_DIR).map_err(|e| format!("mkdir {MAC_LOG_DIR}: {e}"))?;
+        run("chown", &["-R", &owner, MAC_LOG_DIR])?;
+    }
 
     // 3. Sign in as the service identity (reuse a stored session when one
-    //    exists) — sign-in comes before config so the setup picker below can
-    //    ask the sync API instead of making a human type a UUID.
+    //    exists, or claim the box from the app with --pair) — sign-in comes
+    //    before config so the setup picker below can ask the sync API instead
+    //    of making a human type a UUID.
     let env = config::endpoints()?;
     let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    std::env::set_var("XDG_CONFIG_HOME", STATE_DIR);
-    let session_file = format!("{STATE_DIR}/lux-node/session.json");
-    let id_token = if Path::new(&session_file).exists() {
+    std::env::set_var("XDG_CONFIG_HOME", state_dir);
+    let id_token = if config::session_exists()? {
+        if opts.pair {
+            println!(
+                "a session is already stored; --pair skipped (delete {} to pair again)",
+                config::session_path()?.display()
+            );
+        }
         let session = config::load_session()?;
-        runtime
-            .block_on(auth::refresh(
-                &env,
-                session.client_id.as_deref(),
-                &session.refresh_token,
-            ))?
-            .id
+        Some(
+            runtime
+                .block_on(auth::refresh(
+                    &env,
+                    session.client_id.as_deref(),
+                    &session.refresh_token,
+                ))?
+                .id,
+        )
+    } else if opts.pair {
+        // The approver picks the setup in the app, so the grant carries the
+        // binding: it lands in the state dir's node.json, which `run` falls
+        // back to while no /etc config exists.
+        let granted = runtime.block_on(pairing::pair_wait(&env, pairing::stdout_announce))?;
+        config::save_session(&granted.session)?;
+        config::save_node_binding(&granted.setup_id, granted.universe)?;
+        run("chown", &["-R", &owner, state_dir])?;
+        println!(
+            "paired as {}; setup {} on universe {}",
+            granted.session.email, granted.setup_id, granted.universe
+        );
+        None
     } else {
         let email = value_or_prompt(opts.email.clone(), "lux account email", "--email")?;
         let password = read_password(&opts)?;
@@ -144,30 +233,87 @@ pub fn install(opts: Options) -> Result<(), String> {
             refresh_token: refresh,
             client_id: None,
         })?;
-        run("chown", &["-R", SERVICE_USER, STATE_DIR])?;
+        run("chown", &["-R", &owner, state_dir])?;
         println!("signed in as {email}");
-        tokens.id
+        Some(tokens.id)
     };
 
     // 4. Config: pick the setup from the account (name + universe come from
     //    the sync record); a UUID prompt is only the unreachable-API fallback.
-    //    Prompt only when no config exists — rerunning never clobbers.
-    let config_path = format!("{ETC_DIR}/config.json");
-    if !Path::new(&config_path).exists() {
+    //    Prompt only when no binding exists — neither the /etc config nor a
+    //    paired node.json — so rerunning never clobbers or rebinds.
+    let paired = config::node_binding_path()?.exists();
+    if !Path::new(CONFIG_PATH).exists() && !paired {
+        let id_token = id_token.ok_or("no session to list setups with; rerun install")?;
         let setups = runtime.block_on(setups::list(&env, &id_token));
         let (setup_id, universe) = resolve_setup(&opts, setups)?;
         let json = serde_json::json!({ "setupId": setup_id, "universe": universe });
-        fs::write(&config_path, format!("{:#}\n", json))
-            .map_err(|e| format!("write {config_path}: {e}"))?;
+        fs::write(CONFIG_PATH, format!("{:#}\n", json))
+            .map_err(|e| format!("write {CONFIG_PATH}: {e}"))?;
         println!("using setup {setup_id} on universe {universe}");
-        println!("wrote {config_path}");
+        println!("wrote {CONFIG_PATH}");
     }
 
-    // 5. Unit file (embedded in the binary, so they can't drift apart).
-    fs::write(UNIT_PATH, UNIT).map_err(|e| format!("write {UNIT_PATH}: {e}"))?;
+    // 5–6. The service definition (embedded in the binary, so they can't
+    //      drift apart), then start it — onto the new binary after an upgrade.
+    match platform {
+        Platform::Linux => start_systemd(replaced)?,
+        Platform::MacOs => start_launchd(!opts.keep_sleep, replaced)?,
+    }
 
-    // 6. Enable + start. `enable --now` leaves an already-running service
-    //    alone, so after an upgrade restart it onto the new binary.
+    // 7. An always-on box should stay on (opt out with --keep-sleep).
+    if !opts.keep_sleep {
+        match platform {
+            Platform::Linux => {
+                run(
+                    "systemctl",
+                    &[
+                        "mask",
+                        "sleep.target",
+                        "suspend.target",
+                        "hibernate.target",
+                        "hybrid-sleep.target",
+                    ],
+                )?;
+                println!("sleep/suspend masked (rerun with --keep-sleep to skip this)");
+            }
+            // Already done: the daemon's own caffeinate assertion (see PLIST).
+            Platform::MacOs => println!(
+                "the Mac stays awake on AC power while lux-node runs (rerun with --keep-sleep to skip this)"
+            ),
+        }
+    }
+
+    match platform {
+        Platform::Linux => println!("lux-node is running. Watch it: journalctl -u lux-node -f"),
+        Platform::MacOs => println!("lux-node is running. Watch it: tail -f {MAC_LOG_FILE}"),
+    }
+    Ok(())
+}
+
+fn ensure_linux_user() -> Result<(), String> {
+    if !run_ok("id", &["-u", SERVICE_USER]) {
+        run(
+            "useradd",
+            &[
+                "--system",
+                "--home",
+                STATE_DIR,
+                "--shell",
+                "/usr/sbin/nologin",
+                SERVICE_USER,
+            ],
+        )?;
+        println!("created system user {SERVICE_USER}");
+    }
+    Ok(())
+}
+
+/// Write the unit and enable + start it. `enable --now` leaves an
+/// already-running service alone, so after an upgrade restart it onto the new
+/// binary.
+fn start_systemd(replaced: bool) -> Result<(), String> {
+    fs::write(UNIT_PATH, UNIT).map_err(|e| format!("write {UNIT_PATH}: {e}"))?;
     run("systemctl", &["daemon-reload"])?;
     if replaced {
         run("systemctl", &["enable", "lux-node"])?;
@@ -175,24 +321,149 @@ pub fn install(opts: Options) -> Result<(), String> {
     } else {
         run("systemctl", &["enable", "--now", "lux-node"])?;
     }
-
-    // 7. An always-on box should stay on (opt out with --keep-sleep).
-    if !opts.keep_sleep {
-        run(
-            "systemctl",
-            &[
-                "mask",
-                "sleep.target",
-                "suspend.target",
-                "hibernate.target",
-                "hybrid-sleep.target",
-            ],
-        )?;
-        println!("sleep/suspend masked (rerun with --keep-sleep to skip this)");
-    }
-
-    println!("lux-node is running. Watch it: journalctl -u lux-node -f");
     Ok(())
+}
+
+/// Create the hidden role account (and its same-named group) the daemon runs
+/// as, unless the account already exists. `dscl -create` replaces values, so
+/// a run that died partway through is finished by the next one.
+fn ensure_mac_role_account() -> Result<(), String> {
+    if run_ok("id", &["-u", MAC_SERVICE_USER]) {
+        return Ok(());
+    }
+    let users = run_out("dscl", &[".", "-list", "/Users", "UniqueID"])
+        .ok_or("dscl could not list the local users")?;
+    let groups = run_out("dscl", &[".", "-list", "/Groups", "PrimaryGroupID"])
+        .ok_or("dscl could not list the local groups")?;
+    let id = free_role_id(&dscl_ids(&users), &dscl_ids(&groups))
+        .ok_or_else(|| {
+            format!(
+                "no free id in {MAC_ROLE_ID_FIRST}–{MAC_ROLE_ID_LAST} for the {MAC_SERVICE_USER} role account"
+            )
+        })?
+        .to_string();
+
+    let group = format!("/Groups/{MAC_SERVICE_USER}");
+    run("dscl", &[".", "-create", &group])?;
+    for (key, value) in [
+        ("PrimaryGroupID", id.as_str()),
+        ("RealName", "lux-node"),
+        ("Password", "*"),
+    ] {
+        run("dscl", &[".", "-create", &group, key, value])?;
+    }
+    let user = format!("/Users/{MAC_SERVICE_USER}");
+    run("dscl", &[".", "-create", &user])?;
+    for (key, value) in [
+        ("UniqueID", id.as_str()),
+        ("PrimaryGroupID", id.as_str()),
+        ("UserShell", "/usr/bin/false"),
+        ("NFSHomeDirectory", "/var/empty"),
+        ("RealName", "lux-node"),
+        ("Password", "*"),
+        ("IsHidden", "1"),
+    ] {
+        run("dscl", &[".", "-create", &user, key, value])?;
+    }
+    if !run_ok("id", &["-u", MAC_SERVICE_USER]) {
+        return Err(format!(
+            "created {MAC_SERVICE_USER} but it does not resolve yet; rerun install"
+        ));
+    }
+    println!("created role account {MAC_SERVICE_USER} (uid {id})");
+    Ok(())
+}
+
+/// The numeric column of `dscl . -list <dir> <attribute>` output.
+fn dscl_ids(listing: &str) -> Vec<u32> {
+    listing
+        .lines()
+        .filter_map(|line| line.split_whitespace().last()?.parse().ok())
+        .collect()
+}
+
+/// The first role-account id used by neither a user nor a group, so the
+/// account and its group share one number.
+fn free_role_id(uids: &[u32], gids: &[u32]) -> Option<u32> {
+    (MAC_ROLE_ID_FIRST..=MAC_ROLE_ID_LAST).find(|id| !uids.contains(id) && !gids.contains(id))
+}
+
+/// The launchd job: [`PLIST`] with its program arguments filled in.
+/// `keep_awake` runs the node under /bin/sh, which starts `caffeinate -s -w $$`
+/// watching its own pid and then execs the node into that pid — so the
+/// keep-awake assertion (on AC power only) lives exactly as long as the node,
+/// and launchd's SIGTERM reaches the node itself (which then sends E1.31
+/// stream-terminated packets on its way out).
+fn launchd_plist(keep_awake: bool) -> String {
+    let args: Vec<String> = if keep_awake {
+        vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            format!("/usr/bin/caffeinate -s -w $$ & exec {BIN_PATH} run --config {CONFIG_PATH}"),
+        ]
+    } else {
+        vec![
+            BIN_PATH.into(),
+            "run".into(),
+            "--config".into(),
+            CONFIG_PATH.into(),
+        ]
+    };
+    let lines: Vec<String> = args
+        .iter()
+        .map(|arg| format!("\t\t<string>{}</string>", xml_escape(arg)))
+        .collect();
+    PLIST.replace(PLIST_ARGS_SLOT, &lines.join("\n"))
+}
+
+fn xml_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// Write the daemon's plist and start it. A loaded job is left alone unless
+/// the binary or the plist changed (systemd's `enable --now` semantics);
+/// otherwise it is booted out first so the bootstrap starts the new binary
+/// with the new definition — and since bootstrapping over a job that is still
+/// stopping fails, only once it has left launchd.
+fn start_launchd(keep_awake: bool, replaced: bool) -> Result<(), String> {
+    let plist = launchd_plist(keep_awake);
+    let changed = fs::read_to_string(PLIST_PATH).ok().as_deref() != Some(plist.as_str());
+    fs::write(PLIST_PATH, &plist).map_err(|e| format!("write {PLIST_PATH}: {e}"))?;
+    // launchd ignores a daemon plist that isn't root-owned or that anyone
+    // else can write.
+    run("chown", &["root:wheel", PLIST_PATH])?;
+    run("chmod", &["644", PLIST_PATH])?;
+
+    let target = format!("system/{LAUNCHD_LABEL}");
+    let loaded = launchd_loaded(&target);
+    if loaded && !replaced && !changed {
+        return Ok(());
+    }
+    if loaded {
+        // Its exit status isn't the signal (it can answer "in progress" while
+        // the job is still stopping); the job leaving launchd is.
+        run_ok("launchctl", &["bootout", &target]);
+        let deadline = Instant::now() + LAUNCHD_STOP_WAIT;
+        while launchd_loaded(&target) {
+            if Instant::now() >= deadline {
+                return Err(format!(
+                    "{target} did not stop within {} s; rerun install",
+                    LAUNCHD_STOP_WAIT.as_secs()
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+    // `enable` clears a `launchctl disable` override, which would otherwise
+    // refuse the bootstrap.
+    run("launchctl", &["enable", &target])?;
+    run("launchctl", &["bootstrap", "system", PLIST_PATH])
+}
+
+fn launchd_loaded(target: &str) -> bool {
+    run_ok("launchctl", &["print", target])
 }
 
 /// Decide which setup this node applies, from flags first, then the fetched
@@ -386,6 +657,7 @@ mod tests {
             "3",
             "--keep-sleep",
             "--password-stdin",
+            "--pair",
         ]))
         .unwrap();
         assert_eq!(o.email.as_deref(), Some("a@b.com"));
@@ -393,8 +665,93 @@ mod tests {
         assert_eq!(o.universe, Some(3));
         assert!(o.keep_sleep);
         assert!(o.password_stdin);
+        assert!(o.pair);
+        assert!(!Options::parse(&[]).unwrap().pair);
         assert!(Options::parse(&args(&["--nope"])).is_err());
         assert!(Options::parse(&args(&["--email"])).is_err()); // missing value
+    }
+
+    #[test]
+    fn launchd_plist_keeps_awake_only_when_asked() {
+        for keep_awake in [true, false] {
+            let xml = launchd_plist(keep_awake);
+            let plist = plist::Value::from_reader_xml(xml.as_bytes()).expect("well-formed plist");
+            let job = plist.as_dictionary().expect("a dict");
+            let string = |key: &str| job.get(key).and_then(plist::Value::as_string);
+
+            let program: Vec<&str> = job
+                .get("ProgramArguments")
+                .and_then(plist::Value::as_array)
+                .expect("ProgramArguments")
+                .iter()
+                .map(|arg| arg.as_string().expect("string arg"))
+                .collect();
+            let expected: Vec<String> = if keep_awake {
+                vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    format!(
+                        "/usr/bin/caffeinate -s -w $$ & exec {BIN_PATH} run --config {CONFIG_PATH}"
+                    ),
+                ]
+            } else {
+                vec![
+                    BIN_PATH.into(),
+                    "run".into(),
+                    "--config".into(),
+                    CONFIG_PATH.into(),
+                ]
+            };
+            assert_eq!(program, expected);
+
+            assert_eq!(string("Label"), Some(LAUNCHD_LABEL));
+            assert_eq!(string("UserName"), Some(MAC_SERVICE_USER));
+            assert_eq!(string("GroupName"), Some(MAC_SERVICE_USER));
+            assert_eq!(string("StandardOutPath"), Some(MAC_LOG_FILE));
+            assert_eq!(string("StandardErrorPath"), Some(MAC_LOG_FILE));
+            assert_eq!(
+                job.get("KeepAlive").and_then(plist::Value::as_boolean),
+                Some(true)
+            );
+            assert_eq!(
+                job.get("ThrottleInterval")
+                    .and_then(plist::Value::as_signed_integer),
+                Some(5)
+            );
+            // The daemon must read its session from the dir install wrote it to.
+            let env = job
+                .get("EnvironmentVariables")
+                .and_then(plist::Value::as_dictionary)
+                .expect("EnvironmentVariables");
+            assert_eq!(
+                env.get("XDG_CONFIG_HOME").and_then(plist::Value::as_string),
+                Some(MAC_STATE_DIR)
+            );
+        }
+    }
+
+    #[test]
+    fn service_definitions_run_the_installed_paths() {
+        assert!(UNIT.contains(&format!("ExecStart={BIN_PATH} run --config {CONFIG_PATH}")));
+        assert!(MAC_LOG_FILE.starts_with(MAC_LOG_DIR));
+        assert_eq!(Platform::MacOs.owner(), "_luxnode:_luxnode");
+        assert_eq!(Platform::Linux.owner(), SERVICE_USER);
+    }
+
+    #[test]
+    fn dscl_ids_reads_the_number_column() {
+        let listing = "_amavisd                 83\nnobody                   -2\n\n_oahd 441\n";
+        assert_eq!(dscl_ids(listing), vec![83, 441]);
+    }
+
+    #[test]
+    fn role_id_is_free_for_both_the_account_and_its_group() {
+        assert_eq!(free_role_id(&[], &[]), Some(450));
+        // Taken as a uid, then as a gid: skip both.
+        assert_eq!(free_role_id(&[450], &[451]), Some(452));
+        let all: Vec<u32> = (450..=499).collect();
+        assert_eq!(free_role_id(&all, &[]), None);
+        assert_eq!(free_role_id(&[], &all), None);
     }
 
     #[test]
