@@ -425,7 +425,7 @@ jobs:
           cp "$sig" "$out/lux_${VERSION}_universal.app.tar.gz.sig"
           ls -l "$out"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos-bundles
           path: ${{ runner.temp }}/macos
@@ -453,7 +453,7 @@ jobs:
       TAG: ${{ github.event.inputs.tag || needs.release.outputs.tag_name }}
       VERSION: ${{ needs.build-macos.outputs.version }}
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: macos-bundles
           path: ${{ runner.temp }}/macos
@@ -916,7 +916,7 @@ jobs:
             || echo "::warning::could not read the ipa's code signature"
           cp "$ipa" "$RUNNER_TEMP/lux.ipa"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ios-ipa
           path: ${{ runner.temp }}/lux.ipa
@@ -941,7 +941,7 @@ jobs:
     env:
       TAG: ${{ github.event.inputs.tag || needs.release.outputs.tag_name }}
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ios-ipa
           path: ${{ runner.temp }}
@@ -1103,7 +1103,7 @@ jobs:
           xcrun productbuild --sign "$MAS_INSTALLER_IDENTITY" \
             --component "$app" /Applications "$RUNNER_TEMP/lux-mas.pkg"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mas-pkg
           path: ${{ runner.temp }}/lux-mas.pkg
@@ -1129,7 +1129,7 @@ jobs:
     env:
       TAG: ${{ github.event.inputs.tag || needs.release.outputs.tag_name }}
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: mas-pkg
           path: ${{ runner.temp }}
@@ -1237,7 +1237,7 @@ jobs:
       - name: Stage the binary
         run: cp "target/${{ matrix.target }}/release/lux-node" "${{ matrix.asset }}"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}
@@ -1287,7 +1287,7 @@ jobs:
             target/x86_64-apple-darwin/release/lux-node
           lipo -info lux-node-macos
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lux-node-macos
           path: lux-node-macos
@@ -1307,7 +1307,7 @@ jobs:
     env:
       TAG: ${{ needs.release.outputs.tag_name }}
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: lux-node-*
           merge-multiple: true
