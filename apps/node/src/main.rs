@@ -13,6 +13,9 @@
 //!
 //! Config file (default ~/.config/lux-node/config.json):
 //!   { "setupId": "<uuid>", "universe": 1, "interface": null, "priority": 90 }
+//! An optional "output" field picks the DMX transport: "sacn" (the default)
+//! or "enttec" (an Enttec Open DMX USB on this box; the sACN fields are
+//! ignored).
 
 mod auth;
 mod config;
@@ -20,11 +23,15 @@ mod install;
 mod node;
 mod pairing;
 mod setups;
+mod sink;
 
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 
+use lux_engine::enttec::EnttecSink;
 use lux_engine::sacn::SacnSink;
+
+use crate::sink::Output;
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -169,25 +176,37 @@ fn run(explicit_config: Option<PathBuf>) -> Result<(), String> {
     };
     let cfg = config::load_node_config(&config_file)?;
 
-    let interface = match &cfg.interface {
-        Some(ip) => Some(
-            ip.parse::<Ipv4Addr>()
-                .map_err(|e| format!("bad interface {ip}: {e}"))?,
-        ),
-        None => None,
+    let sink = match cfg.output {
+        config::OutputKind::Sacn => {
+            let interface = match &cfg.interface {
+                Some(ip) => Some(
+                    ip.parse::<Ipv4Addr>()
+                        .map_err(|e| format!("bad interface {ip}: {e}"))?,
+                ),
+                None => None,
+            };
+            let name = format!(
+                "lux-node ({})",
+                gethostname::gethostname().to_string_lossy()
+            );
+            log::info!(
+                "lux-node: setup {} -> sACN universe {} at priority {} ({})",
+                cfg.setup_id,
+                cfg.universe,
+                cfg.priority,
+                session.email
+            );
+            Output::Sacn(SacnSink::new(cfg.universe, interface, cfg.priority, &name)?)
+        }
+        config::OutputKind::Enttec => {
+            log::info!(
+                "lux-node: setup {} -> Enttec Open DMX USB ({})",
+                cfg.setup_id,
+                session.email
+            );
+            Output::Enttec(EnttecSink::new()?)
+        }
     };
-    let name = format!(
-        "lux-node ({})",
-        gethostname::gethostname().to_string_lossy()
-    );
-    let sink = SacnSink::new(cfg.universe, interface, cfg.priority, &name)?;
-    log::info!(
-        "lux-node: setup {} -> sACN universe {} at priority {} ({})",
-        cfg.setup_id,
-        cfg.universe,
-        cfg.priority,
-        session.email
-    );
 
     let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     runtime.block_on(node::run(env, cfg, session, sink))

@@ -12,6 +12,8 @@
 
 pub mod auth;
 pub mod ctl;
+#[cfg(feature = "enttec")]
+pub mod enttec;
 pub mod fade;
 pub mod net;
 pub mod sacn;

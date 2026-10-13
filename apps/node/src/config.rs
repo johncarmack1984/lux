@@ -32,6 +32,20 @@ pub fn endpoints() -> Result<Endpoints, String> {
     serde_json::from_str(ENDPOINTS_JSON).map_err(|e| format!("embedded endpoints unreadable: {e}"))
 }
 
+/// Which DMX output the node drives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OutputKind {
+    /// sACN/E1.31 multicast — the default; network DMX nodes like the
+    /// eDMX1 Pro receive it with no per-box configuration.
+    #[default]
+    Sacn,
+    /// An Enttec Open DMX USB (FT232R) plugged into this box, driven directly
+    /// over USB. `universe`/`interface`/`priority` are sACN concepts and are
+    /// ignored in this mode.
+    Enttec,
+}
+
 /// `lux-node.json`: which setup this node applies, and how it transmits.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +62,10 @@ pub struct NodeConfig {
     /// hand on a fader anywhere on the LAN overrides the node.
     #[serde(default = "default_priority")]
     pub priority: u8,
+    /// Where the rendered universe goes. Defaults to sACN, so every config
+    /// written before this field existed keeps its behavior.
+    #[serde(default)]
+    pub output: OutputKind,
 }
 
 fn default_priority() -> u8 {
