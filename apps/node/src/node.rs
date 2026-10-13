@@ -381,142 +381,157 @@ async fn run_connection(
     let mut unrestored: Vec<RemoteApply> = Vec::new();
 
     loop {
-        tokio::select! {
-            _ = keepalive.tick() => rig.transmit(sink),
-            _ = echo_tick.tick() => {
-                if subscribe_owed {
-                    match client.try_subscribe(state_topic.clone(), QoS::AtMostOnce) {
-                        Ok(()) => subscribe_owed = false,
-                        Err(e) => log::debug!("could not subscribe to the state echo again: {e}"),
+        // One poll future lives until it yields an event. Binding
+        // `eventloop.poll()` in the select directly would recreate it every
+        // pass, and a tick winning the race drops it — which is fine once
+        // connected (reads resume from the eventloop's buffer) but fatal
+        // before: the connect inside `poll` is not cancel-safe, so every drop
+        // before CONNACK abandons the handshake and starts over. With the echo
+        // tick every 200 ms and a handshake needing four round trips, a broker
+        // more than ~25 ms away could never come up — silently, because a
+        // cancelled connect is not an `Err` the loop below would see.
+        let event = {
+            let mut poll = std::pin::pin!(eventloop.poll());
+            loop {
+                tokio::select! {
+                    event = poll.as_mut() => break event,
+                    _ = keepalive.tick() => rig.transmit(sink),
+                    _ = echo_tick.tick() => {
+                        if subscribe_owed {
+                            match client.try_subscribe(state_topic.clone(), QoS::AtMostOnce) {
+                                Ok(()) => subscribe_owed = false,
+                                Err(e) => log::debug!("could not subscribe to the state echo again: {e}"),
+                            }
+                        }
+                        if settled {
+                            publish_due_echo(&client, &state_topic, rig);
+                            if rig.restored {
+                                unrestored.clear();
+                            }
+                        } else if acked_at.is_some_and(|at| at.elapsed() >= RESTORE_GRACE) {
+                            if !asked_again {
+                                // Ask once more before concluding there is no stored
+                                // echo: a fresh subscription is sent it again.
+                                asked_again = true;
+                                acked_at = Some(Instant::now());
+                                match client.try_unsubscribe(state_topic.clone()) {
+                                    // Subscribed again on the next tick at the latest:
+                                    // live echoes, scene recalls among them, arrive
+                                    // only through it.
+                                    Ok(()) => subscribe_owed = true,
+                                    Err(e) => log::debug!("could not drop the state subscription: {e}"),
+                                }
+                            } else {
+                                // No retained echo came: nothing has echoed this setup yet.
+                                settled = true;
+                                let replay = std::mem::take(&mut held);
+                                if !rig.restored {
+                                    unrestored.extend(replay.iter().cloned());
+                                }
+                                if rig.replay(replay) {
+                                    rig.lit = true;
+                                    rig.echo_dirty = true;
+                                    rig.transmit(sink);
+                                }
+                            }
+                        }
+                    }
+                    _ = sigterm.recv() => {
+                        return true;
                     }
                 }
-                if settled {
-                    publish_due_echo(&client, &state_topic, rig);
-                    if rig.restored {
-                        unrestored.clear();
-                    }
-                } else if acked_at.is_some_and(|at| at.elapsed() >= RESTORE_GRACE) {
-                    if !asked_again {
-                        // Ask once more before concluding there is no stored
-                        // echo: a fresh subscription is sent it again.
-                        asked_again = true;
-                        acked_at = Some(Instant::now());
-                        match client.try_unsubscribe(state_topic.clone()) {
-                            // Subscribed again on the next tick at the latest:
-                            // live echoes, scene recalls among them, arrive
-                            // only through it.
-                            Ok(()) => subscribe_owed = true,
-                            Err(e) => log::debug!("could not drop the state subscription: {e}"),
+            }
+        };
+        match event {
+            Ok(Event::Incoming(Packet::SubAck(_))) => {
+                if acked_at.is_none() {
+                    log::info!("user channel connected; applying setup {}", cfg.setup_id);
+                    *backoff_secs = 1;
+                    publish_presence(&client, &presence_topic, cfg, &session);
+                }
+                acked_at = Some(Instant::now());
+            }
+            Ok(Event::Incoming(Packet::Publish(publish))) => {
+                match route(&publish.topic, sub) {
+                    Route::Frame { setup_id } if setup_id == cfg.setup_id => {
+                        let Some(apply) = parse_frame(&publish.payload, cfg, &rig.src) else {
+                            continue;
+                        };
+                        if !settled {
+                            held.push(apply);
+                            continue;
                         }
-                    } else {
-                        // No retained echo came: nothing has echoed this setup yet.
-                        settled = true;
-                        let replay = std::mem::take(&mut held);
                         if !rig.restored {
-                            unrestored.extend(replay.iter().cloned());
+                            unrestored.push(apply.clone());
                         }
-                        if rig.replay(replay) {
+                        if rig.apply(apply) {
                             rig.lit = true;
                             rig.echo_dirty = true;
                             rig.transmit(sink);
                         }
                     }
-                }
-            }
-            _ = sigterm.recv() => {
-                return true;
-            }
-            event = eventloop.poll() => match event {
-                Ok(Event::Incoming(Packet::SubAck(_))) => {
-                    if acked_at.is_none() {
-                        log::info!("user channel connected; applying setup {}", cfg.setup_id);
-                        *backoff_secs = 1;
-                        publish_presence(&client, &presence_topic, cfg, &session);
-                    }
-                    acked_at = Some(Instant::now());
-                }
-                Ok(Event::Incoming(Packet::Publish(publish))) => {
-                    match route(&publish.topic, sub) {
-                        Route::Frame { setup_id } if setup_id == cfg.setup_id => {
-                            let Some(apply) = parse_frame(&publish.payload, cfg, &rig.src) else {
-                                continue;
-                            };
-                            if !settled {
-                                held.push(apply);
-                                continue;
-                            }
-                            if !rig.restored {
-                                unrestored.push(apply.clone());
-                            }
-                            if rig.apply(apply) {
+                    Route::State { setup_id } if setup_id == cfg.setup_id => {
+                        let ctx = EchoContext {
+                            retained: publish.retain,
+                            settled,
+                            restored: rig.restored,
+                        };
+                        match read_echo(&publish.payload, &rig.src, ctx) {
+                            EchoAction::Seed(buffer) => {
+                                // Another applier's state: the setup's
+                                // stored echo on connect, or a live one
+                                // after a change made there (a scene
+                                // recall's levels reach the node this
+                                // way). Seeded, never echoed back: an
+                                // applier that echoed what it seeded would
+                                // bounce it off any other applier forever.
+                                rig.universe.overlay(&buffer);
+                                // Frames that came after the stored copy
+                                // go on top: held while settling, or
+                                // applied before a late one turned up.
+                                let replay = if !settled {
+                                    std::mem::take(&mut held)
+                                } else if !rig.restored {
+                                    std::mem::take(&mut unrestored)
+                                } else {
+                                    Vec::new()
+                                };
+                                let replayed = rig.replay(replay);
+                                settled = true;
                                 rig.lit = true;
-                                rig.echo_dirty = true;
+                                rig.restored = true;
+                                rig.echo_dirty = replayed;
                                 rig.transmit(sink);
+                                if publish.retain {
+                                    log::info!(
+                                        "restored the universe from the retained state echo"
+                                    );
+                                } else {
+                                    log::debug!("seeded the universe from a live state echo");
+                                }
                             }
-                        }
-                        Route::State { setup_id }
-                            if setup_id == cfg.setup_id =>
-                        {
-                            let ctx = EchoContext {
-                                retained: publish.retain,
-                                settled,
-                                restored: rig.restored,
-                            };
-                            match read_echo(&publish.payload, &rig.src, ctx) {
-                                EchoAction::Seed(buffer) => {
-                                    // Another applier's state: the setup's
-                                    // stored echo on connect, or a live one
-                                    // after a change made there (a scene
-                                    // recall's levels reach the node this
-                                    // way). Seeded, never echoed back: an
-                                    // applier that echoed what it seeded would
-                                    // bounce it off any other applier forever.
-                                    rig.universe.overlay(&buffer);
-                                    // Frames that came after the stored copy
-                                    // go on top: held while settling, or
-                                    // applied before a late one turned up.
-                                    let replay = if !settled {
-                                        std::mem::take(&mut held)
-                                    } else if !rig.restored {
-                                        std::mem::take(&mut unrestored)
-                                    } else {
-                                        Vec::new()
-                                    };
-                                    let replayed = rig.replay(replay);
-                                    settled = true;
+                            EchoAction::Keep => {
+                                settled = true;
+                                rig.restored = true;
+                                if rig.replay(std::mem::take(&mut held)) {
                                     rig.lit = true;
-                                    rig.restored = true;
-                                    rig.echo_dirty = replayed;
+                                    rig.echo_dirty = true;
                                     rig.transmit(sink);
-                                    if publish.retain {
-                                        log::info!("restored the universe from the retained state echo");
-                                    } else {
-                                        log::debug!("seeded the universe from a live state echo");
-                                    }
                                 }
-                                EchoAction::Keep => {
-                                    settled = true;
-                                    rig.restored = true;
-                                    if rig.replay(std::mem::take(&mut held)) {
-                                        rig.lit = true;
-                                        rig.echo_dirty = true;
-                                        rig.transmit(sink);
-                                    }
-                                }
-                                EchoAction::Ignore => {}
                             }
+                            EchoAction::Ignore => {}
                         }
-                        _ => {}
                     }
+                    _ => {}
                 }
-                Ok(_) => {}
-                Err(e) => {
-                    log::info!("connection error (will reconnect): {e}");
-                    if matches!(e, ConnectionError::ConnectionRefused(_)) {
-                        // Auth-shaped: the caller refreshes the token first.
-                    }
-                    return false;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                log::info!("connection error (will reconnect): {e}");
+                if matches!(e, ConnectionError::ConnectionRefused(_)) {
+                    // Auth-shaped: the caller refreshes the token first.
                 }
+                return false;
             }
         }
     }
