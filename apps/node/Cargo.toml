@@ -16,7 +16,7 @@ publish = false
 workspace = true
 
 [dependencies]
-lux-engine = { path = "../../crates/lux-engine" }
+lux-engine = { path = "../../crates/lux-engine", features = ["enttec"] }
 lux-wire = { path = "../../crates/lux-wire" }
 aws-config.workspace = true
 aws-sdk-cognitoidentityprovider = { version = "1", default-features = false, features = ["rt-tokio"] }

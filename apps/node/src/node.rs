@@ -1,5 +1,5 @@
 //! The node's run loop: one user-channel connection, frames applied to a
-//! plain universe buffer, sACN out.
+//! plain universe buffer, DMX out (sACN multicast or an Enttec Open DMX USB).
 //!
 //! Mirrors the desktop listener's connection shape (`nudge.rs`) minus Tauri:
 //! WSS to IoT Core through the `lux-sync-auth` custom authorizer with a fresh
@@ -17,10 +17,8 @@ use std::future::Future;
 use std::time::{Duration, Instant};
 
 use lux_engine::ctl::{gate, retain_wait, route, RemoteApply, Route};
-use lux_engine::sacn::SacnSink;
 use lux_engine::tls::webpki_pem_bundle;
 use lux_engine::universe::Universe;
-use lux_engine::DmxSink;
 use rumqttc::{
     AsyncClient, ConnectionError, Event, LastWill, MqttOptions, Packet, QoS, SubscribeFilter,
     TlsConfiguration, Transport,
@@ -31,6 +29,7 @@ use uuid::Uuid;
 
 use crate::auth;
 use crate::config::{Endpoints, NodeConfig, StoredSession};
+use crate::sink::Output;
 
 /// sACN keepalive: receivers time a source out after ~2.5s of silence.
 const KEEPALIVE: Duration = Duration::from_secs(1);
@@ -143,7 +142,7 @@ impl Rig {
     /// keeps arriving. A failing send is reported once, then at most every
     /// [`SEND_FAILURE_REPORT`] while it keeps failing, and again when it
     /// recovers.
-    fn transmit(&self, sink: &SacnSink) {
+    fn transmit(&self, sink: &Output) {
         if !self.lit {
             return;
         }
@@ -151,12 +150,12 @@ impl Rig {
         let (run, report) = track_send(self.send_failures.get(), sent.is_err(), Instant::now());
         self.send_failures.set(run);
         match (report, sent) {
-            (SendReport::Failed, Err(e)) => log::warn!("sACN render failed: {e}"),
+            (SendReport::Failed, Err(e)) => log::warn!("DMX send failed: {e}"),
             (SendReport::StillFailing(n), Err(e)) => {
-                log::warn!("sACN render still failing ({n} more failed sends): {e}");
+                log::warn!("DMX send still failing ({n} more failed sends): {e}");
             }
             (SendReport::Recovered(n), _) => {
-                log::info!("sACN render recovered after {n} failed sends");
+                log::info!("DMX send recovered after {n} failed sends");
             }
             _ => {}
         }
@@ -200,7 +199,7 @@ pub async fn run(
     env: Endpoints,
     cfg: NodeConfig,
     session: StoredSession,
-    sink: SacnSink,
+    sink: Output,
 ) -> Result<(), String> {
     let mut rig = Rig {
         universe: Universe::default(),
@@ -220,8 +219,8 @@ pub async fn run(
     // Between connections, where no connection's keepalive is running.
     let mut keepalive = tokio::time::interval(KEEPALIVE);
 
-    let shutdown = |sink: &SacnSink, universe: &Universe| {
-        log::info!("shutting down; sending stream-terminated packets");
+    let shutdown = |sink: &Output, universe: &Universe| {
+        log::info!("shutting down; parking the DMX output");
         sink.terminate(universe.slots());
     };
 
@@ -291,7 +290,7 @@ pub async fn run(
 /// quiet source. `None` when SIGTERM arrives first.
 async fn holding_look<T>(
     work: impl Future<Output = T>,
-    sink: &SacnSink,
+    sink: &Output,
     rig: &Rig,
     keepalive: &mut Interval,
     sigterm: &mut Signal,
@@ -310,7 +309,7 @@ async fn holding_look<T>(
 async fn run_connection(
     env: &Endpoints,
     cfg: &NodeConfig,
-    sink: &SacnSink,
+    sink: &Output,
     rig: &mut Rig,
     sub: &str,
     token: String,

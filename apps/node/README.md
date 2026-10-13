@@ -35,6 +35,8 @@ Download it with curl, not a browser: a browser marks the file as quarantined, a
 
 The node's binding (the setup it applies and the universe it sends on) lives in `node.json` in the state dir after pairing, or in `/etc/lux-node/config.json` after a password install; `/etc/lux-node/config.json` wins when both exist. Optional keys in either: `"interface"` (IPv4 of the NIC to egress multicast from, for multi-homed hosts) and `"priority"` (default 90). Pairing again rewrites `node.json`.
 
+An optional `"output"` key picks the DMX transport: `"sacn"` (the default — E1.31 multicast, zero-config for network nodes like the eDMX1 Pro) or `"enttec"` — an Enttec Open DMX USB plugged into this box, driven directly over USB (pure Rust, no libftdi or D2XX; on Linux the node detaches `ftdi_sio` itself). In enttec mode the sACN keys are ignored, the node repeats the current look on the wire continuously (~40 Hz), and an unplugged/replugged dongle heals without a restart. The service account needs read-write access to the USB device node — one udev rule: `SUBSYSTEM=="usb", ATTR{idVendor}=="0403", ATTR{idProduct}=="6001", MODE="0664", GROUP="plugdev"`, with the service user in `plugdev`.
+
 (No release with the asset yet, or hacking on a checkout? The **node-build** workflow's `lux-node-x86_64-linux` / `lux-node-aarch64-linux` / `lux-node-macos` artifacts produce the same binaries, as do `cargo build --release --target <arch>-unknown-linux-musl -p lux-node` on Linux and `cargo build --release -p lux-node` on a Mac, for that Mac's architecture.)
 
 On an Intel Mac mini running Linux, also enable auto power-on after a power failure (the setpci register varies by generation — verify for the model before poking):
