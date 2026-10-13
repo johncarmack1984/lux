@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.17.1](https://github.com/johncarmack1984/lux/compare/v1.17.0...v1.17.1) (2026-10-13)
+
+
+### Bug Fixes
+
+* **node:** stop render ticks from cancelling the MQTT connect ([#335](https://github.com/johncarmack1984/lux/issues/335)) ([01bdab0](https://github.com/johncarmack1984/lux/commit/01bdab0d116841c902515dd7ac20dc63d6ec4c37))
+
 ## [1.17.0](https://github.com/johncarmack1984/lux/compare/v1.16.2...v1.17.0) (2026-10-09)
 
 
