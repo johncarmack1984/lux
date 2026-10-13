@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.0](https://github.com/johncarmack1984/lux/compare/v1.17.1...v1.18.0) (2026-10-13)
+
+
+### Features
+
+* **node:** drive an Enttec Open DMX USB directly ([#337](https://github.com/johncarmack1984/lux/issues/337)) ([2f44719](https://github.com/johncarmack1984/lux/commit/2f44719a4fa83974707daa4280f340277140d6a7))
+
 ## [1.17.1](https://github.com/johncarmack1984/lux/compare/v1.17.0...v1.17.1) (2026-10-13)
 
 
