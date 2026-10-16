@@ -97,7 +97,13 @@ gethostname = "1.1.0"
 libftd2xx = { version = "0.33.1", features = ["static"] }
 tauri = { version = "~2.11", features = ["tray-icon"] }
 tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
-tauri-plugin-updater = "2"
+# Without the default `zip` feature, which only installs Tauri v1's compressed
+# Windows and Linux bundles: lux ships macOS builds whose updater artifacts are
+# v2 (`createUpdaterArtifacts: true`), and macOS extracts its .app.tar.gz with
+# tar and flate2 either way. Every zip release before 9.0.3 is yanked for
+# security issues, and the plugin still requires zip ^4. The list is the
+# plugin's other defaults; a bump past 2.10 should carry over any it adds.
+tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls"] }
 
 # keyring's Apple Keychain backend requires the data-protection Keychain API on
 # iOS (the only Keychain iOS exposes); keyring's default `v1` feature enables the
