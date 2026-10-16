@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.18.1](https://github.com/johncarmack1984/lux/compare/v1.18.0...v1.18.1) (2026-10-16)
+
+
+### Bug Fixes
+
+* **deps:** build the updater without zip, whose releases before 9.0.3 are yanked ([#340](https://github.com/johncarmack1984/lux/issues/340)) ([7a894e9](https://github.com/johncarmack1984/lux/commit/7a894e98153d9aaa6d22c8845008269f7a78fa88))
+* **deps:** clear 4 RustSec findings (rustls) ([#339](https://github.com/johncarmack1984/lux/issues/339)) ([49b2f8d](https://github.com/johncarmack1984/lux/commit/49b2f8d627f57da01025ddc374203592a60d6e34))
+
 ## [1.18.0](https://github.com/johncarmack1984/lux/compare/v1.17.1...v1.18.0) (2026-10-13)
 
 
