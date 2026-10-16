@@ -111,16 +111,22 @@ lock_versions() {
 # no lock state admits (a requirement elsewhere pins a dependency it needs)
 # is reported and left for a hand, not a reason to abandon the other bumps.
 bump() {
-  local spec="$1" name="${1%%@*}" ver="" avail
+  local spec="$1" name="${1%%@*}" ver="" dry avail
   [[ "$spec" == *@* ]] && ver="v${1#*@}"
+  # The dry run fails outright when no release the requirements admit can be
+  # selected: on 2026-10-16 every zip release before 9.0.3 was yanked, and
+  # the updater plugin requires zip ^4. That finding stays flagged, and the
+  # workflow's last step fails on it by name, so this reports and returns
+  # instead of ending the script under set -e before any of that runs.
+  # --color never: CI sets CARGO_TERM_COLOR=always, and the escape codes
+  # would land in the fields awk matches on.
+  if ! dry="$(cargo update -p "$spec" --dry-run -v --color never 2>&1)"; then
+    echo "::warning::$spec: cargo cannot select a release the requirements admit: $(printf '%s\n' "$dry" | grep -m1 '^error' || printf '%s\n' "$dry" | tail -n 1)"
+    return 0
+  fi
   # "   Unchanged rustls v0.23.43 (available: v0.23.45)" or, when a plain
   # update would already take it, "    Updating rustls v0.23.43 -> v0.23.45".
-  # --color never: CI sets CARGO_TERM_COLOR=always, and the escape codes
-  # would land in the fields awk matches on. awk scans to the end of the
-  # stream: an early exit would close the pipe under cargo, which treats the
-  # broken pipe as a hard error (exit 101).
-  avail="$(cargo update -p "$spec" --dry-run -v --color never 2>&1 \
-    | awk -v n="$name" -v v="$ver" '
+  avail="$(printf '%s\n' "$dry" | awk -v n="$name" -v v="$ver" '
         ($1 == "Unchanged" || $1 == "Updating") && $2 == n && (v == "" || $3 == v) && !found {
           found = $5; sub(/^v/, "", found); sub(/\)$/, "", found)
         }

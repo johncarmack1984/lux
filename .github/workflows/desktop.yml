@@ -57,6 +57,13 @@ on:
       # below is the account's guard against a permissions-less workflow
       # inheriting the write-capable default token.
       - '.github/workflows/**'
+      # The gate's own inputs outside the trees above: cargo-deny's config
+      # and the script its advisories step runs (the deny job), and the
+      # toolchain pin every Rust job builds with. A PR that changes only one
+      # of them would otherwise never get the required checks.
+      - 'deny.toml'
+      - 'scripts/deny-advisories'
+      - 'rust-toolchain.toml'
   push:
     branches: [main]
     paths:
@@ -75,6 +82,13 @@ on:
       # below is the account's guard against a permissions-less workflow
       # inheriting the write-capable default token.
       - '.github/workflows/**'
+      # The gate's own inputs outside the trees above: cargo-deny's config
+      # and the script its advisories step runs (the deny job), and the
+      # toolchain pin every Rust job builds with. A PR that changes only one
+      # of them would otherwise never get the required checks.
+      - 'deny.toml'
+      - 'scripts/deny-advisories'
+      - 'rust-toolchain.toml'
   # Reusable form: release.yml calls this as its gate, so nothing ships from a
   # release run unless the exact release commit passes the same checks as a PR.
   workflow_call:
