@@ -34,7 +34,7 @@ use lux_engine::sacn::SacnSink;
 use crate::sink::Output;
 
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    logger(env_logger::Env::default().default_filter_or("info")).init();
     // rumqttc's rustls has no baked-in crypto provider; install ring as the
     // process default before any TLS happens (same as the Lambda services).
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -43,6 +43,18 @@ fn main() {
         eprintln!("error: {e}");
         std::process::exit(1);
     }
+}
+
+/// The process logger, filtered by `env`. nusb logs every claim failure it
+/// returns at error level (target `nusb::error`), so a dongle held by another
+/// program would log one per reopen attempt, every second; the enttec sink
+/// reports the failure itself, once per outage. That directive goes in before
+/// `env`'s, so `RUST_LOG=nusb::error=error` still brings them back.
+fn logger(env: env_logger::Env<'_>) -> env_logger::Builder {
+    let mut builder = env_logger::Builder::new();
+    builder.filter_module("nusb::error", log::LevelFilter::Off);
+    builder.parse_env(env);
+    builder
 }
 
 fn dispatch() -> Result<(), String> {
@@ -210,4 +222,42 @@ fn run(explicit_config: Option<PathBuf>) -> Result<(), String> {
 
     let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     runtime.block_on(node::run(env, cfg, session, sink))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use log::{Level, Log, Metadata};
+
+    /// The logger as `main` builds it, with `filter` standing in for an unset
+    /// `RUST_LOG` (read from a variable no environment sets).
+    fn built(filter: &str) -> env_logger::Logger {
+        logger(env_logger::Env::new().filter_or("LUX_NODE_TEST_UNSET_LOG", filter)).build()
+    }
+
+    fn logs(logger: &env_logger::Logger, target: &str, level: Level) -> bool {
+        logger.enabled(&Metadata::builder().target(target).level(level).build())
+    }
+
+    #[test]
+    fn nusb_claim_errors_stay_out_of_the_log() {
+        let logger = built("info");
+        assert!(!logs(&logger, "nusb::error", Level::Error));
+        // nusb's other errors are ones it does not hand back, so they still log.
+        assert!(logs(
+            &logger,
+            "nusb::platform::linux_usbfs::device",
+            Level::Error
+        ));
+        assert!(logs(&logger, "lux_engine::enttec", Level::Warn));
+        assert!(logs(&logger, "lux_node::node", Level::Info));
+        assert!(!logs(&logger, "lux_node::node", Level::Debug));
+    }
+
+    #[test]
+    fn rust_log_can_bring_nusb_claim_errors_back() {
+        let logger = built("info,nusb::error=error");
+        assert!(logs(&logger, "nusb::error", Level::Error));
+        assert!(!logs(&logger, "nusb::error", Level::Warn));
+    }
 }
