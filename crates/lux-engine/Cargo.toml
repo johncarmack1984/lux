@@ -21,11 +21,10 @@ uuid = { version = "1.23.4", features = ["v4"] }
 base64 = "0.23"
 webpki-root-certs = "1"
 pem = "4"
-nusb = { version = "0.1", optional = true }
-pollster = { version = "0.4", optional = true }
+nusb = { version = "0.2", optional = true }
 
 [features]
 # The Enttec Open DMX USB sink (pure-Rust USB via nusb — no libftdi, no
 # proprietary D2XX). Off by default: the desktop has its own libftd2xx sink,
 # so only the node pulls this in.
-enttec = ["dep:nusb", "dep:pollster"]
+enttec = ["dep:nusb"]

@@ -25,8 +25,8 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use nusb::transfer::{Control, ControlType, Recipient};
-use nusb::Interface;
+use nusb::transfer::{Bulk, ControlOut, ControlType, Out, Recipient};
+use nusb::{Endpoint, Interface, MaybeFuture};
 
 use crate::DmxSink;
 
@@ -117,6 +117,13 @@ struct Shared {
     wake: Condvar,
 }
 
+/// A claimed FT232R: the interface its control requests go through, and the
+/// bulk OUT endpoint that carries the frames.
+struct Dongle {
+    interface: Interface,
+    out: Endpoint<Bulk, Out>,
+}
+
 /// An Enttec Open DMX USB sender owning one FT232R (the first on the bus).
 pub struct EnttecSink {
     shared: Arc<Shared>,
@@ -177,11 +184,11 @@ impl Drop for EnttecSink {
 fn transmit_loop(shared: &Shared) {
     let mut missing_reported = false;
     while !shared.stop.load(Ordering::Acquire) {
-        let interface = match open_device() {
-            Ok(interface) => {
+        let mut dongle = match open_device() {
+            Ok(dongle) => {
                 log::info!("enttec: FT232R opened and configured for DMX");
                 missing_reported = false;
-                interface
+                dongle
             }
             Err(e) => {
                 if !missing_reported {
@@ -195,7 +202,7 @@ fn transmit_loop(shared: &Shared) {
         shared.connected.store(true, Ordering::Release);
         while !shared.stop.load(Ordering::Acquire) {
             let frame = *lock_or_recover(&shared.frame);
-            if let Err(e) = send_frame(&interface, &frame) {
+            if let Err(e) = send_frame(&mut dongle, &frame) {
                 log::warn!("enttec: frame send failed ({e}); reopening the device");
                 break;
             }
@@ -205,18 +212,24 @@ fn transmit_loop(shared: &Shared) {
 }
 
 /// Find, claim, and configure the first FT232R on the bus for DMX framing.
-fn open_device() -> Result<Interface, String> {
+fn open_device() -> Result<Dongle, String> {
     let info = nusb::list_devices()
+        .wait()
         .map_err(|e| format!("USB enumeration failed: {e}"))?
         .find(|d| d.vendor_id() == VENDOR_ID && d.product_id() == PRODUCT_ID)
         .ok_or("no Enttec Open DMX USB (FTDI 0403:6001) on the bus")?;
     let device = info
         .open()
+        .wait()
         .map_err(|e| format!("could not open the FT232R: {e} (udev permissions?)"))?;
     // Detaches ftdi_sio on Linux; a plain claim elsewhere.
     let interface = device
         .detach_and_claim_interface(0)
+        .wait()
         .map_err(|e| format!("could not claim the FT232R: {e}"))?;
+    let out = interface
+        .endpoint::<Bulk, Out>(ENDPOINT_OUT)
+        .map_err(|e| format!("could not open the FT232R's bulk OUT endpoint: {e}"))?;
 
     let (baud_value, baud_index) =
         baud_params(DMX_BAUD).ok_or("250 kbaud does not divide the FTDI base clock")?;
@@ -231,28 +244,36 @@ fn open_device() -> Result<Interface, String> {
     control(&interface, REQUEST_SET_FLOW_CTRL, 0, CHANNEL_INDEX)?;
     control(&interface, REQUEST_RESET, RESET_PURGE_RX, CHANNEL_INDEX)?;
     control(&interface, REQUEST_RESET, RESET_PURGE_TX, CHANNEL_INDEX)?;
-    Ok(interface)
+    Ok(Dongle { interface, out })
 }
 
 /// One DMX packet: the line break + mark-after-break that frame every packet
 /// (each control round trip spans at least one full-speed USB frame, which
 /// comfortably exceeds the 88 µs/8 µs minima — the same no-sleep shape the
-/// desktop sink has run in production), then the 513 bytes.
-fn send_frame(interface: &Interface, frame: &[u8; FRAME_LEN]) -> Result<(), String> {
-    control(interface, REQUEST_SET_DATA, line_value(true), CHANNEL_INDEX)?;
+/// desktop sink has run in production), then the 513 bytes. A write still
+/// stuck after [`USB_TIMEOUT`] is cancelled and fails the send, so a wedged
+/// chip gets reopened instead of holding the thread.
+fn send_frame(dongle: &mut Dongle, frame: &[u8; FRAME_LEN]) -> Result<(), String> {
     control(
-        interface,
+        &dongle.interface,
+        REQUEST_SET_DATA,
+        line_value(true),
+        CHANNEL_INDEX,
+    )?;
+    control(
+        &dongle.interface,
         REQUEST_SET_DATA,
         line_value(false),
         CHANNEL_INDEX,
     )?;
-    let written = pollster::block_on(interface.bulk_out(ENDPOINT_OUT, frame.to_vec()))
-        .into_result()
-        .map_err(|e| format!("bulk write: {e}"))?;
-    if written.actual_length() != FRAME_LEN {
+    let written = dongle
+        .out
+        .transfer_blocking(frame.to_vec().into(), USB_TIMEOUT);
+    written.status.map_err(|e| format!("bulk write: {e}"))?;
+    if written.actual_len != FRAME_LEN {
         return Err(format!(
             "short frame write: {} of {FRAME_LEN} bytes",
-            written.actual_length()
+            written.actual_len
         ));
     }
     Ok(())
@@ -261,19 +282,19 @@ fn send_frame(interface: &Interface, frame: &[u8; FRAME_LEN]) -> Result<(), Stri
 /// One FTDI vendor control request.
 fn control(interface: &Interface, request: u8, value: u16, index: u16) -> Result<(), String> {
     interface
-        .control_out_blocking(
-            Control {
+        .control_out(
+            ControlOut {
                 control_type: ControlType::Vendor,
                 recipient: Recipient::Device,
                 request,
                 value,
                 index,
+                data: &[],
             },
-            &[],
             USB_TIMEOUT,
         )
-        .map_err(|e| format!("control request {request:#04x}: {e}"))?;
-    Ok(())
+        .wait()
+        .map_err(|e| format!("control request {request:#04x}: {e}"))
 }
 
 /// Sleep that [`EnttecSink::drop`] can interrupt, so shutdown never waits out
