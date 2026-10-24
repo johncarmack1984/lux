@@ -8,8 +8,10 @@
 //! exactly this Cognito user. That holds even if a client calls Cognito's
 //! public CUSTOM_AUTH directly and skips our Function URL: without a valid,
 //! linked Apple token there is no way through. (The nonce binding is enforced
-//! at the Function URL, where the sheet context exists; here a token is a
-//! bearer credential with Apple's own 10-minute expiry.)
+//! at the Function URL, where the sheet context exists.) A token is a bearer
+//! credential until Apple's 10-minute expiry, so Verify also spends it
+//! (`store::spend_apple_token`): each token signs in once, and a replay, here
+//! or through the Function URL, finds it spent.
 //!
 //! Cognito requires the whole event echoed back with `response` filled in.
 
@@ -120,13 +122,27 @@ async fn apple_answer_is_correct(ctx: &Ctx, answer: &str, user_sub: &str) -> boo
         }
     };
     match store::get_link(ctx, claims.sub()).await {
-        Ok(Some(link)) => link.sub == user_sub,
+        Ok(Some(link)) if link.sub == user_sub => {}
+        Ok(Some(_)) => return false,
         Ok(None) => {
             tracing::warn!("challenge answer for an unlinked apple credential");
-            false
+            return false;
         }
         Err(e) => {
             tracing::error!("link lookup failed during verify: {e}");
+            return false;
+        }
+    }
+    // Spent only once the answer is otherwise right, so a wrong guess burns
+    // nothing; a store failure fails closed.
+    match store::spend_apple_token(ctx, answer, claims.exp()).await {
+        Ok(true) => true,
+        Ok(false) => {
+            tracing::warn!("challenge answer is an apple identity token already spent");
+            false
+        }
+        Err(e) => {
+            tracing::error!("spending the challenge answer failed: {e}");
             false
         }
     }

@@ -379,6 +379,62 @@ pub async fn take_web_otc(ctx: &Ctx, otc: &str) -> Result<Option<WebOtc>, String
     }
 }
 
+// --- Spent Apple identity tokens ---------------------------------------------
+//
+// - `pk = APPLETOKEN#<sha256(identity_token)>, sk = SPENT` — an Apple identity
+//   token that has already signed someone in (the Verify trigger) or linked an
+//   account (`/auth/apple/link`), keyed by the hash so the token itself is never
+//   at rest. Apple's identity tokens are bearer credentials until they expire;
+//   this record makes each one good for a single use. Its `ttl` runs past the
+//   token's own expiry, so a token that could still pass verification is never
+//   swept early.
+
+const SPENT_SK: &str = "SPENT";
+
+/// How long a spent token's record outlives the token's `exp`: well past the
+/// verifier's leeway (jsonwebtoken's default, 60 s).
+const SPENT_MARGIN_SECS: u64 = 3600;
+
+fn spent_token_pk(token: &str) -> String {
+    format!("APPLETOKEN#{}", crate::apple::token_fingerprint(token))
+}
+
+/// The record of a spent token, expiring [`SPENT_MARGIN_SECS`] after `exp`.
+fn spent_token_item(token: &str, exp: u64) -> HashMap<String, AttributeValue> {
+    HashMap::from([
+        ("pk".into(), AttributeValue::S(spent_token_pk(token))),
+        ("sk".into(), AttributeValue::S(SPENT_SK.into())),
+        (
+            "ttl".into(),
+            AttributeValue::N(exp.saturating_add(SPENT_MARGIN_SECS).to_string()),
+        ),
+    ])
+}
+
+/// Spend an Apple identity token whose expiry is `exp`: `Ok(true)` when this
+/// call spent it, `Ok(false)` when it was spent before — a replay. The write is
+/// conditional, so of two concurrent uses exactly one wins.
+pub async fn spend_apple_token(ctx: &Ctx, token: &str, exp: u64) -> Result<bool, String> {
+    let put = ctx
+        .ddb
+        .put_item()
+        .table_name(&ctx.table)
+        .set_item(Some(spent_token_item(token, exp)))
+        .condition_expression("attribute_not_exists(pk)")
+        .send()
+        .await;
+    match put {
+        Ok(_) => Ok(true),
+        Err(e)
+            if e.as_service_error()
+                .is_some_and(|se| se.is_conditional_check_failed_exception()) =>
+        {
+            Ok(false)
+        }
+        Err(e) => Err(format!("spent token write failed: {e}")),
+    }
+}
+
 // --- Device pairing (docs/claim-code-pairing.md) -------------------------------
 //
 // Three more disjoint partitions, same LeadingKeys discipline as the links:
@@ -774,4 +830,26 @@ pub async fn redeem_pair(ctx: &Ctx, pair_ref: &str) -> Result<(), String> {
         .await
         .map_err(|e| format!("pair redeem failed: {e}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_spent_token_is_recorded_by_its_hash_until_well_past_its_expiry() {
+        let token = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIwMDEyMzQifQ.c2lnbmF0dXJl";
+        let item = spent_token_item(token, 1_800_000_600);
+        let s = |k: &str| item.get(k).and_then(|v| v.as_s().ok()).cloned();
+        let pk = s("pk").expect("pk");
+        assert_eq!(
+            pk,
+            format!("APPLETOKEN#{}", crate::apple::token_fingerprint(token))
+        );
+        assert!(!pk.contains(token), "the token itself is never at rest");
+        assert_eq!(s("sk").as_deref(), Some(SPENT_SK));
+        let ttl = item.get("ttl").and_then(|v| v.as_n().ok()).cloned();
+        assert_eq!(ttl.as_deref(), Some("1800004200"));
+        assert_eq!(item.len(), 3);
+    }
 }

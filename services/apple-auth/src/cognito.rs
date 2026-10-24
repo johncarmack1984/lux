@@ -31,11 +31,14 @@ pub struct Tokens {
 }
 
 /// Auth-flow failures the caller distinguishes: a missing user means a stale
-/// link (the account was deleted out from under it) and is self-healable;
-/// everything else is internal.
+/// link (the account was deleted out from under it) and is self-healable; a
+/// rejected answer means the Verify trigger refused the credential (bad,
+/// unlinked, or already spent), the caller's to answer with a 401; everything
+/// else is internal.
 #[derive(Debug)]
 pub enum AuthError {
     UserNotFound,
+    Rejected,
     Other(String),
 }
 
@@ -43,6 +46,7 @@ impl std::fmt::Display for AuthError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AuthError::UserNotFound => write!(f, "user not found"),
+            AuthError::Rejected => write!(f, "challenge answer rejected"),
             AuthError::Other(e) => write!(f, "{e}"),
         }
     }
@@ -218,6 +222,8 @@ pub async fn custom_auth(
         .await
         .map_err(|e| match e.as_service_error() {
             Some(se) if se.is_user_not_found_exception() => AuthError::UserNotFound,
+            // Verify answered false and Define failed the auth.
+            Some(se) if se.is_not_authorized_exception() => AuthError::Rejected,
             _ => AuthError::Other(format!("challenge response failed: {e}")),
         })?;
 

@@ -47,6 +47,9 @@ pub struct SiwaKey {
 pub struct AppleIdentity {
     pub sub: String,
     pub email: Option<String>,
+    /// The token's expiry (epoch seconds), so the record of a spent token can
+    /// outlive it ([`crate::store::spend_apple_token`]).
+    pub exp: u64,
 }
 
 /// The identity-token claims we read; signature/issuer/audience/expiry are
@@ -54,6 +57,8 @@ pub struct AppleIdentity {
 #[derive(Debug, Deserialize)]
 struct AppleClaims {
     sub: String,
+    /// Validated by the library; read so a spent token's record outlives it.
+    exp: u64,
     #[serde(default)]
     email: Option<String>,
     /// Apple sends `true` or, on some paths, the string `"true"`.
@@ -381,6 +386,17 @@ impl AppleClaimsView {
     pub fn sub(&self) -> &str {
         &self.0.sub
     }
+
+    /// The token's expiry, epoch seconds.
+    pub fn exp(&self) -> u64 {
+        self.0.exp
+    }
+}
+
+/// What a spent identity token is recorded under: its SHA-256, so the store
+/// never holds a live bearer credential.
+pub fn token_fingerprint(token: &str) -> String {
+    sha256_hex(token)
 }
 
 fn identity(view: AppleClaimsView) -> AppleIdentity {
@@ -393,6 +409,7 @@ fn identity(view: AppleClaimsView) -> AppleIdentity {
     AppleIdentity {
         sub: claims.sub,
         email: claims.email.filter(|_| verified),
+        exp: claims.exp,
     }
 }
 
@@ -753,5 +770,30 @@ PaNjgYD9H87aiu72kVM4feGqzpehRANCAAQE52G8sprGOcAIUFXU8WtoNLLD3Q80
             .await
             .expect("native still verifies");
         assert_eq!(identity.email.as_deref(), Some("user@example.com"));
+    }
+
+    #[tokio::test]
+    async fn a_verified_identity_carries_the_token_expiry() {
+        let claims = TestClaims::default();
+        let identity = auth()
+            .await
+            .verify_identity(&sign(&claims), "raw-nonce")
+            .await
+            .expect("verifies");
+        assert_eq!(identity.exp, claims.exp);
+    }
+
+    #[test]
+    fn a_spent_token_is_recorded_by_its_sha256_never_the_token() {
+        let token = sign(&TestClaims::default());
+        let fingerprint = token_fingerprint(&token);
+        assert_eq!(fingerprint, sha256_hex(&token));
+        assert_eq!(fingerprint.len(), 64);
+        assert!(!token.contains(&fingerprint) && !fingerprint.contains(&token));
+        let other = sign(&TestClaims {
+            sub: "009999.fedcba.4321".into(),
+            ..TestClaims::default()
+        });
+        assert_ne!(token_fingerprint(&other), fingerprint);
     }
 }
