@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.18.2](https://github.com/johncarmack1984/lux/compare/v1.18.1...v1.18.2) (2026-10-24)
+
+
+### Bug Fixes
+
+* **deps:** clear 2 RustSec findings (rustls-webpki, webpki-root-certs) ([#347](https://github.com/johncarmack1984/lux/issues/347)) ([a73f442](https://github.com/johncarmack1984/lux/commit/a73f44203663795fd8add56f3dd1ec6b20fbf0b1))
+* **deps:** clear RUSTSEC-2026-0385 (ctutils 0.4.2 -&gt; 0.4.5) ([#348](https://github.com/johncarmack1984/lux/issues/348)) ([c409634](https://github.com/johncarmack1984/lux/commit/c409634cfc27cbabbe48e09c39c5015a9e3d1045))
+
 ## [1.18.1](https://github.com/johncarmack1984/lux/compare/v1.18.0...v1.18.1) (2026-10-19)
 
 
