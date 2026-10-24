@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.18.3](https://github.com/johncarmack1984/lux/compare/v1.18.2...v1.18.3) (2026-10-24)
+
+
+### Bug Fixes
+
+* **apple-auth:** sign one client secret an hour and reuse it ([#351](https://github.com/johncarmack1984/lux/issues/351)) ([d32b2b1](https://github.com/johncarmack1984/lux/commit/d32b2b153d43b3a03e86e2bddbcc914fa81bc0b8))
+* **apple-auth:** spend each Apple identity token once ([#353](https://github.com/johncarmack1984/lux/issues/353)) ([45b03e2](https://github.com/johncarmack1984/lux/commit/45b03e2bed84ef88d7e5de330742a6d6e97165a6))
+
 ## [1.18.2](https://github.com/johncarmack1984/lux/compare/v1.18.1...v1.18.2) (2026-10-24)
 
 
