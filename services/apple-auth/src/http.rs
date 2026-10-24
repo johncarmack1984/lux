@@ -212,6 +212,11 @@ async fn sign_in(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
     }
     let tokens = match attempt {
         Ok(t) => t,
+        // A token already spent (a replay) lands here: Verify refuses it.
+        Err(cognito::AuthError::Rejected) => {
+            tracing::warn!("custom auth refused the apple identity token");
+            return reply(401, &error("invalid apple identity token"));
+        }
         Err(e) => {
             tracing::error!("custom auth failed for linked user: {e}");
             return reply(500, &error("internal"));
@@ -352,6 +357,19 @@ async fn link(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> {
             return reply(401, &error("invalid apple identity token"));
         }
     };
+    // Linking never reaches the Verify trigger, so the token is spent here: a
+    // replay can't link the credential again.
+    match store::spend_apple_token(ctx, &req.identity_token, identity.exp).await {
+        Ok(true) => {}
+        Ok(false) => {
+            tracing::warn!("link with an apple identity token already spent");
+            return reply(401, &error("invalid apple identity token"));
+        }
+        Err(e) => {
+            tracing::error!("spending the apple identity token failed: {e}");
+            return reply(500, &error("internal"));
+        }
+    }
 
     match store::get_link(ctx, &identity.sub).await {
         Err(e) => {

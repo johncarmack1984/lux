@@ -199,6 +199,11 @@ pub async fn exchange(ctx: &Arc<Ctx>, event: &UrlEvent) -> Result<Value, Error> 
     let tokens = match cognito::custom_auth(ctx, &ctx.client_id, &otc.username, &otc.id_token).await
     {
         Ok(t) => t,
+        // Verify refused the stashed id_token: already spent, or unlinked since.
+        Err(cognito::AuthError::Rejected) => {
+            tracing::warn!("web custom auth refused the apple id_token");
+            return reply(401, &error("invalid apple identity token"));
+        }
         Err(e) => {
             tracing::error!("web custom auth failed: {e}");
             return reply(500, &error("internal"));

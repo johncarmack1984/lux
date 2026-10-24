@@ -56,10 +56,12 @@ resource "aws_iam_role_policy" "lux_apple_auth_ddb" {
           # = device-pairing records (docs/claim-code-pairing.md — this service
           # grows the /auth/device/* routes); APPLEWEB#/APPLEWEBOTC# = the web
           # (browser) sign-in's in-flight state + one-time codes (self-expiring,
-          # single-use — .claude/specs/sign-in-with-apple-web.md).
+          # single-use — .claude/specs/sign-in-with-apple-web.md); APPLETOKEN# =
+          # spent Apple identity tokens, by hash, so each signs in or links once
+          # (self-expiring).
           "dynamodb:LeadingKeys" = [
             "APPLE#*", "APPLELINK#*", "PAIR#*", "PAIRIP#*", "DEVICE#*",
-            "APPLEWEB#*", "APPLEWEBOTC#*",
+            "APPLEWEB#*", "APPLEWEBOTC#*", "APPLETOKEN#*",
           ]
         }
       }
