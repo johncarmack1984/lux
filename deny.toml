@@ -18,6 +18,14 @@ ignore = [
     # Lambdas only VERIFY Cognito JWTs (public-key ops); no private-key RSA
     # runs here. No fixed rsa release exists.
     { id = "RUSTSEC-2023-0071", reason = "verification-only rsa usage; no fixed release" },
+    # crypto-bigint 0.5's timing variability, via jsonwebtoken's rust_crypto
+    # backend -> p256/p384 0.13. Only 0.7.6 is fixed, jsonwebtoken 11.1.0 (the
+    # newest) still requires p256 0.13, and its move to the 0.14 stack is
+    # Keats/jsonwebtoken#536. RS256 verification never touches it; apple-auth's
+    # ES256 client-secret signing does, but only behind a verified sign-in, so
+    # no caller can drive the volume of signatures a timing attack needs. Drop
+    # this once a jsonwebtoken release carries #536.
+    { id = "RUSTSEC-2026-0387", reason = "no jsonwebtoken release off crypto-bigint 0.5 yet; ES256 signing only behind a verified sign-in" },
 ]
 
 [licenses]
