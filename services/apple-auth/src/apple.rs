@@ -8,6 +8,7 @@
 //! issuer, audience, or expiry never touches a user record.
 
 use std::collections::HashMap;
+use std::sync::{Mutex, PoisonError};
 
 use jsonwebtoken::{
     decode, decode_header, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation,
@@ -21,6 +22,13 @@ const APPLE_ISSUER: &str = "https://appleid.apple.com";
 const APPLE_JWKS_URL: &str = "https://appleid.apple.com/auth/keys";
 const APPLE_TOKEN_URL: &str = "https://appleid.apple.com/auth/token";
 const APPLE_REVOKE_URL: &str = "https://appleid.apple.com/auth/revoke";
+
+/// How long a client secret stays valid. Apple accepts up to six months; an
+/// hour keeps a secret that ever leaked short-lived.
+const CLIENT_SECRET_TTL: u64 = 3600;
+/// A cached client secret is signed again once less than this much of its life
+/// is left, so no request to Apple carries one that expires in flight.
+const CLIENT_SECRET_MARGIN: u64 = 300;
 
 /// The Sign in with Apple key (`lux/siwa-key` in Secrets Manager): the `.p8`
 /// private key minted in the developer portal plus its identifiers. Signs the
@@ -77,6 +85,17 @@ pub struct AppleAuth {
     /// Apple's signing keys by `kid`. Fetched lazily, replaced wholesale on a
     /// `kid` miss (Apple rotates keys); one forced refetch, then fail.
     keys: RwLock<HashMap<String, DecodingKey>>,
+    /// Client secrets by (`kid`, `client_id`), each reused until it nears
+    /// expiry. Signing one per request let the number of ES256 signatures
+    /// follow the number of requests, which is what a timing side channel in
+    /// the signer needs (RUSTSEC-2026-0387, crypto-bigint 0.5).
+    secrets: Mutex<HashMap<(String, String), CachedSecret>>,
+}
+
+/// A signed client secret and the `exp` it carries.
+struct CachedSecret {
+    jwt: String,
+    exp: u64,
 }
 
 impl AppleAuth {
@@ -86,6 +105,7 @@ impl AppleAuth {
             services_id,
             http: reqwest::Client::new(),
             keys: RwLock::new(HashMap::new()),
+            secrets: Mutex::new(HashMap::new()),
         }
     }
 
@@ -296,10 +316,25 @@ impl AppleAuth {
         Ok(())
     }
 
-    /// The client secret Apple's `/auth/token` and `/auth/revoke` require: a
-    /// short-lived ES256 JWT signed with the portal-minted `.p8` key, whose
-    /// `sub` is the `client_id` it authenticates.
+    /// The client secret Apple's `/auth/token` and `/auth/revoke` require: an
+    /// ES256 JWT signed with the portal-minted `.p8` key, whose `sub` is the
+    /// `client_id` it authenticates. Valid for [`CLIENT_SECRET_TTL`], and
+    /// reused until less than [`CLIENT_SECRET_MARGIN`] of that is left.
     fn client_secret_for(&self, key: &SiwaKey, client_id: &str) -> Result<String, String> {
+        self.client_secret_at(key, client_id, now_secs())
+    }
+
+    /// [`Self::client_secret_for`] as of `now` (seconds since the epoch).
+    fn client_secret_at(&self, key: &SiwaKey, client_id: &str, now: u64) -> Result<String, String> {
+        // Held across the signing, so concurrent requests that find the
+        // entry stale sign one secret between them.
+        let mut secrets = self.secrets.lock().unwrap_or_else(PoisonError::into_inner);
+        let slot = (key.key_id.clone(), client_id.to_owned());
+        if let Some(cached) = secrets.get(&slot) {
+            if now.saturating_add(CLIENT_SECRET_MARGIN) < cached.exp {
+                return Ok(cached.jwt.clone());
+            }
+        }
         #[derive(Serialize)]
         struct SecretClaims<'a> {
             iss: &'a str,
@@ -310,17 +345,26 @@ impl AppleAuth {
         }
         let mut header = Header::new(Algorithm::ES256);
         header.kid = Some(key.key_id.clone());
-        let now = now_secs();
+        let exp = now.saturating_add(CLIENT_SECRET_TTL);
         let claims = SecretClaims {
             iss: &key.team_id,
             iat: now,
-            exp: now + 300,
+            exp,
             aud: APPLE_ISSUER,
             sub: client_id,
         };
         let signer = EncodingKey::from_ec_pem(key.private_key.as_bytes())
             .map_err(|e| format!("siwa private key unusable: {e}"))?;
-        encode(&header, &claims, &signer).map_err(|e| format!("client secret signing failed: {e}"))
+        let jwt = encode(&header, &claims, &signer)
+            .map_err(|e| format!("client secret signing failed: {e}"))?;
+        secrets.insert(
+            slot,
+            CachedSecret {
+                jwt: jwt.clone(),
+                exp,
+            },
+        );
+        Ok(jwt)
     }
 
     #[cfg(test)]
@@ -622,6 +666,43 @@ PaNjgYD9H87aiu72kVM4feGqzpehRANCAAQE52G8sprGOcAIUFXU8WtoNLLD3Q80
         let header = decode_header(&secret).expect("header parses");
         assert_eq!(header.alg, Algorithm::ES256);
         assert_eq!(header.kid.as_deref(), Some("ABC123DEFG"));
+    }
+
+    #[test]
+    fn client_secret_is_signed_once_and_reused_until_it_nears_expiry() {
+        install_ring();
+        let auth = AppleAuth::new(AUDIENCE.into(), None);
+        let key = SiwaKey {
+            key_id: "ABC123DEFG".into(),
+            team_id: "T3UN6N5K6Z".into(),
+            private_key: EC_PRIVATE_PEM.into(),
+        };
+        let start = 1_800_000_000;
+        let first = auth.client_secret_at(&key, AUDIENCE, start).expect("mints");
+        // Requests through the secret's life reuse it, up to the margin …
+        let last_reuse = start + CLIENT_SECRET_TTL - CLIENT_SECRET_MARGIN - 1;
+        for now in [start + 1, start + 600, last_reuse] {
+            assert_eq!(
+                auth.client_secret_at(&key, AUDIENCE, now).expect("cached"),
+                first
+            );
+        }
+        // … then one signs a new secret, which the next request reuses.
+        let renewed = auth
+            .client_secret_at(&key, AUDIENCE, last_reuse + 1)
+            .expect("re-signs");
+        assert_ne!(renewed, first);
+        assert_eq!(
+            auth.client_secret_at(&key, AUDIENCE, last_reuse + 2)
+                .expect("cached"),
+            renewed
+        );
+        // The web flow's client_id gets a secret of its own.
+        let web = auth
+            .client_secret_at(&key, SERVICES_ID, start)
+            .expect("mints");
+        assert_ne!(web, first);
+        assert_ne!(web, renewed);
     }
 
     #[tokio::test]
