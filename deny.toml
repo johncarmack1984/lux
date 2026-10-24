@@ -22,10 +22,11 @@ ignore = [
     # backend -> p256/p384 0.13. Only 0.7.6 is fixed, jsonwebtoken 11.1.0 (the
     # newest) still requires p256 0.13, and its move to the 0.14 stack is
     # Keats/jsonwebtoken#536. RS256 verification never touches it; apple-auth's
-    # ES256 client-secret signing does, but only behind a verified sign-in, so
-    # no caller can drive the volume of signatures a timing attack needs. Drop
-    # this once a jsonwebtoken release carries #536.
-    { id = "RUSTSEC-2026-0387", reason = "no jsonwebtoken release off crypto-bigint 0.5 yet; ES256 signing only behind a verified sign-in" },
+    # ES256 client-secret signing does. That signing sits behind a verified
+    # sign-in, and since 2026-10-24 apple-auth signs one client secret an hour
+    # per instance and reuses it, so the number of signatures no longer follows
+    # the number of requests. Drop this once a jsonwebtoken release carries #536.
+    { id = "RUSTSEC-2026-0387", reason = "no jsonwebtoken release off crypto-bigint 0.5 yet; apple-auth signs one cached ES256 client secret an hour" },
 ]
 
 [licenses]
