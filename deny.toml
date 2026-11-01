@@ -27,6 +27,16 @@ ignore = [
     # per instance and reuses it, so the number of signatures no longer follows
     # the number of requests. Drop this once a jsonwebtoken release carries #536.
     { id = "RUSTSEC-2026-0387", reason = "no jsonwebtoken release off crypto-bigint 0.5 yet; apple-auth signs one cached ES256 client secret an hour" },
+    # glib 0.18's VariantStrIter unsoundness, via tauri's pinned Linux gtk
+    # stack. glib 0.18 is EOL upstream — gtk-rs/gtk-rs-core#1991 (the 0.18
+    # backport) was closed unmerged: "0.18 is long EOL and there won't be any
+    # new releases" — and no lux product ships Linux (desktop = macOS + iOS;
+    # lux-node and the Lambdas never pull glib), so no shipped binary
+    # contains the crate, and the unsound path is unexercised per the
+    # upstream assessment. Accepted 2026-11-01 in favor of tauri's stock
+    # stack; the private gtk-rs-core backport fork is retired. Clear when
+    # tauri ships on glib 0.20+.
+    { id = "RUSTSEC-2024-0429", reason = "tauri-pinned Linux webview backend only; no lux product ships Linux; unsound path unexercised per upstream assessment" },
 ]
 
 [licenses]
@@ -87,11 +97,11 @@ skip = []
 skip-tree = []
 
 [sources]
-# John's own gtk-rs-core patch branch (the glib 0.18 fix feeding the
-# tao/muda gtk4 campaign) is the one sanctioned git dependency.
-
 # Only crates.io by default; flag anything else for review.
 unknown-registry = "warn"
 unknown-git = "warn"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = ["https://github.com/johncarmack1984/gtk-rs-core"]
+# rumqttc is vendored as a path patch (third_party/rumqttc — see its
+# Cargo.toml header for provenance), so the only git dependencies left are
+# the specta pins, which surface as unknown-git warnings, not failures.
+allow-git = []

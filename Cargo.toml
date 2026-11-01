@@ -93,30 +93,23 @@ incremental = false
 opt-level = "s"
 strip = true
 
-# RUSTSEC-2024-0429: UB in glib's VariantStrIter::impl_get. tauri's Linux gtk
-# stack pins glib 0.18 and there is no tauri release on glib 0.20, so the advisory
-# can't be cleared by a version bump. Patch glib to a fork carrying the backported
-# fix. The branch resolves glib's gtk-rs-core siblings from crates.io, so this
-# single patch doesn't pull git *-sys crates that would duplicate the crates.io
-# ones and collide on `links`. Only the desktop app pulls glib; the Lambdas are
-# unaffected. Upstream PR: gtk-rs/gtk-rs-core#1991. Must be at the workspace root.
+# RUSTSEC-2024-0429 (glib 0.18 VariantStrIter unsoundness, via tauri's Linux
+# gtk stack) is accepted risk since 2026-11-01: tauri's stock gtk stack is used,
+# the unsound path is unexercised per the upstream assessment, and no lux
+# product ships Linux (the desktop builds macOS + iOS; lux-node and the
+# Lambdas never pull glib). Encoded as an ignore in deny.toml — clear both
+# when tauri ships on glib 0.20+. The johncarmack1984/gtk-rs-core patch fork
+# that used to live here is retired and deleted.
 [patch.crates-io]
-glib = { git = "https://github.com/johncarmack1984/gtk-rs-core", branch = "lux/glib-0.18-patch" }
-# glib-macros from the same branch: crates.io 0.18.5 wants proc-macro-crate 2,
-# whose 2.x line pins toml_edit and toml_datetime exactly and holds the whole
-# toml line (jsonptr, system-deps) at toml 0.8.2. The branch requires 3.
-glib-macros = { git = "https://github.com/johncarmack1984/gtk-rs-core", branch = "lux/glib-0.18-patch" }
 
-# rustls-webpki 0.102.8 carries four advisories (a CRL parsing panic, two
-# name-constraint acceptance issues, CRL distribution-point handling), all fixed
-# in 0.103.13. rumqttc 0.25.1 — the latest release, and upstream main — pins
-# `0.102.8`, so no version bump reaches it. It uses the crate in exactly one
-# place, the `#[from] webpki::Error` variant on its error enum, and that type is
-# unchanged across the two lines, so the fork is a one-line version bump with no
-# code change. Certificate verification already ran on the 0.103.x copy that
-# rustls 0.23 resolves; this removes the vulnerable one from the graph rather
-# than changing any validation behaviour. Drop this entry when upstream moves.
-rumqttc = { git = "https://github.com/johncarmack1984/rumqtt", branch = "lux/rumqttc-webpki-0.103" }
+# rumqttc is vendored at third_party/rumqttc: upstream 0.25.1 at
+# bytebeamio/rumqtt rev 7ce4aa08 with the ONE-line rustls-webpki 0.102.8 ->
+# 0.103.13 bump (clears RUSTSEC-2026-0049/-0098/-0099/-0104/-0382; upstream's
+# own bump PR bytebeamio/rumqtt#1037 has been open since 2026-03-23). Vending
+# replaced the johncarmack1984/rumqtt patch fork (deleted 2026-11-01). Drop
+# the vendor and restore the crates.io dependency when upstream releases
+# rumqttc with webpki >= 0.103. Provenance: third_party/rumqttc/Cargo.toml.
+rumqttc = { path = "third_party/rumqttc" }
 
 # specta 2.0.0-rc.26 and the 0.0.13 exporters are merged on specta main but unpublished
 # (crates.io still serves rc.25 / 0.0.12), and ttipc's crates.io release exact-pins rc.25 --
