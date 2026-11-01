@@ -28,6 +28,12 @@ use-native-tls = ["dep:tokio-native-tls", "dep:native-tls"]
 websocket = ["dep:async-tungstenite", "dep:ws_stream_tungstenite", "dep:http"]
 proxy = ["dep:async-http-proxy"]
 
+# cargo-machete false positive: the crate uses webpki only inside thiserror's
+# #[from] derive on the error enum (tls.rs: WebPki(#[from] webpki::Error)),
+# which the scanner cannot see.
+[package.metadata.cargo-machete]
+ignored = ["rustls-webpki"]
+
 [dependencies]
 futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 tokio = { version = "1.36", features = ["rt", "macros", "io-util", "net", "time"] }
