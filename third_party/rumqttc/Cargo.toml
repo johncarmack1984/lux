@@ -1,0 +1,64 @@
+# Vendored from bytebeamio/rumqtt at 7ce4aa083dc3cbbdf0841786903f0c27ea646d35
+# (fork branch lux/rumqttc-webpki-0.103), upstream rumqttc 0.25.1. The ONE
+# change vs upstream: rustls-webpki 0.102.8 -> 0.103.13, which clears the
+# advisory line fixed in 0.103.x (RUSTSEC-2026-0049/-0098/-0099/-0104/-0382).
+# Upstream's own bump PR (bytebeamio/rumqtt#1037) has sat open since
+# 2026-03-23. Workspace-inherited fields are inlined below. publish = false:
+# this is a local patch copy, never publishable as upstream's crate.
+# Drop this directory and restore the crates.io dependency when upstream
+# releases rumqttc with webpki >= 0.103.
+[package]
+name = "rumqttc"
+version = "0.25.1"
+publish = false
+description = "An efficient and robust mqtt client for your connected devices"
+keywords = ["mqtt", "iot", "coap", "http"]
+categories = ["network-programming"]
+rust-version = "1.64.0"
+edition = "2021"
+repository = "https://github.com/bytebeamio/rumqtt"
+license = "Apache-2.0"
+authors = ["tekjar <raviteja@bytebeam.io>"]
+
+[features]
+default = ["use-rustls"]
+use-rustls = ["use-rustls-no-provider", "tokio-rustls/default"]
+use-rustls-no-provider = ["dep:tokio-rustls", "dep:rustls-webpki", "dep:rustls-pemfile", "dep:rustls-native-certs"]
+use-native-tls = ["dep:tokio-native-tls", "dep:native-tls"]
+websocket = ["dep:async-tungstenite", "dep:ws_stream_tungstenite", "dep:http"]
+proxy = ["dep:async-http-proxy"]
+
+# cargo-machete false positive: the crate uses webpki only inside thiserror's
+# #[from] derive on the error enum (tls.rs: WebPki(#[from] webpki::Error)),
+# which the scanner cannot see.
+[package.metadata.cargo-machete]
+ignored = ["rustls-webpki"]
+
+[dependencies]
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
+tokio = { version = "1.36", features = ["rt", "macros", "io-util", "net", "time"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+bytes = "1.5"
+log = "0.4"
+flume = { version = "0.11", default-features = false, features = ["async"] }
+thiserror = "2.0.8"
+
+# Optional
+# rustls
+tokio-rustls = { version = "0.26.0", optional = true, default-features = false }
+rustls-webpki = { version = "0.103.13", optional = true }
+rustls-pemfile = { version = "2.2.0", optional = true }
+rustls-native-certs = { version = "0.8.1", optional = true }
+# websockets
+async-tungstenite = { version = "0.29.0", default-features = false, features = ["tokio-rustls-native-certs"], optional = true }
+ws_stream_tungstenite = { version= "0.15.0", default-features = false, features = ["tokio_io"], optional = true }
+http = { version = "1.0.0", optional = true }
+# native-tls
+tokio-native-tls = { version = "0.3.1", optional = true }
+native-tls = { version = "0.2.12", optional = true }
+# url
+url = { version = "2", default-features = false, optional = true }
+# proxy
+async-http-proxy = { version = "1.2.5", features = ["runtime-tokio", "basic-auth"], optional = true }
+tokio-stream = "0.1.16"
+fixedbitset = "0.5.7"
