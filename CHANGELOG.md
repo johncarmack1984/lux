@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.4](https://github.com/johncarmack1984/lux/compare/v1.18.3...v1.18.4) (2026-11-03)
+
+
+### Bug Fixes
+
+* **deps:** clear 1 RustSec findings (async-executor) ([#362](https://github.com/johncarmack1984/lux/issues/362)) ([9b6457f](https://github.com/johncarmack1984/lux/commit/9b6457fe0e142120e057766e62ba37df8af487e0))
+
 ## [1.18.3](https://github.com/johncarmack1984/lux/compare/v1.18.2...v1.18.3) (2026-10-24)
 
 
