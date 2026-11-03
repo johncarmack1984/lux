@@ -5812,8 +5812,9 @@ dependencies = [
 
 [[package]]
 name = "specta"
-version = "2.0.0-rc.26"
-source = "git+https://github.com/specta-rs/specta?rev=ef21f0544e153b944ff5d1b3afd20472afcf760c#ef21f0544e153b944ff5d1b3afd20472afcf760c"
+version = "2.0.0-rc.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81633014710ece1c7e8ac99e1bc9ad8d4339a2ccbae89ca2aa1095d4262c86b8"
 dependencies = [
  "rustc_version",
  "specta-macros",
@@ -5821,8 +5822,9 @@ dependencies = [
 
 [[package]]
 name = "specta-macros"
-version = "2.0.0-rc.26"
-source = "git+https://github.com/specta-rs/specta?rev=ef21f0544e153b944ff5d1b3afd20472afcf760c#ef21f0544e153b944ff5d1b3afd20472afcf760c"
+version = "2.0.0-rc.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fe882a75f48f76ac091ca2c5aaad7abd4dfdedf649c08e865bb0d62b5a2cb92"
 dependencies = [
  "Inflector",
  "proc-macro2",
@@ -5832,8 +5834,9 @@ dependencies = [
 
 [[package]]
 name = "specta-serde"
-version = "0.0.13"
-source = "git+https://github.com/specta-rs/specta?rev=ef21f0544e153b944ff5d1b3afd20472afcf760c#ef21f0544e153b944ff5d1b3afd20472afcf760c"
+version = "0.0.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a75ee5142f81ca1e0046b16c09d0f5a36c75884802da3f0281f78bfe221e559"
 dependencies = [
  "specta",
  "specta-macros",
@@ -5841,8 +5844,9 @@ dependencies = [
 
 [[package]]
 name = "specta-typescript"
-version = "0.0.13"
-source = "git+https://github.com/specta-rs/specta?rev=ef21f0544e153b944ff5d1b3afd20472afcf760c#ef21f0544e153b944ff5d1b3afd20472afcf760c"
+version = "0.0.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a113bb506b00463cfb54c5819e55ec081bc7d52ef463d7726181e9073cd473a"
 dependencies = [
  "specta",
 ]
@@ -6388,8 +6392,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-typed-ipc"
-version = "0.1.6"
-source = "git+https://github.com/johncarmack1984/tauri-typed-ipc?rev=f9f4e74a38accb5a087d6ee3b72dbdc9d056a87d#f9f4e74a38accb5a087d6ee3b72dbdc9d056a87d"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61d0d2c9b1dbe0b4c7c0013d51e8c3c1fd7dc7186203ec6fb008964e9610b355"
 dependencies = [
  "serde",
  "serde_json",
@@ -6403,8 +6408,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-typed-ipc-macros"
-version = "0.1.6"
-source = "git+https://github.com/johncarmack1984/tauri-typed-ipc?rev=f9f4e74a38accb5a087d6ee3b72dbdc9d056a87d#f9f4e74a38accb5a087d6ee3b72dbdc9d056a87d"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eae3661946096cff38e3b4bde309a45ae520cc6a1c311a6f26b2702b0daaf78d"
 dependencies = [
  "proc-macro-crate 3.5.0",
  "proc-macro2",
