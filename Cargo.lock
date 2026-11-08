@@ -397,11 +397,11 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "aws-cognito-srp"
-version = "0.2.5"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bdc664bab60cfb4f4c7927db8842f47ddb76ab95d8bf7dc3b294e0203351d861"
+checksum = "076cfbccdabb6d1fea04deb37e9e4222274fee8be87b73c8c258f55df24bba77"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "digest 0.11.3",
  "hex",
@@ -3539,9 +3539,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.34"
+version = "0.4.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "lux"
