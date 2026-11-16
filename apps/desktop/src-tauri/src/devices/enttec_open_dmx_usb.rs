@@ -31,8 +31,8 @@ impl Serialize for Buffer {
         S: Serializer,
     {
         let mut seq = serializer.serialize_tuple(BUF_SIZE)?;
-        for i in 0..BUF_SIZE {
-            seq.serialize_element(&self.0[i])?;
+        for byte in &self.0 {
+            seq.serialize_element(byte)?;
         }
         seq.end()
     }
