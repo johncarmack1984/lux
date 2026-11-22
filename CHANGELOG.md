@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.5](https://github.com/johncarmack1984/lux/compare/v1.18.4...v1.18.5) (2026-11-22)
+
+
+### Bug Fixes
+
+* **deps:** clear RUSTSEC-2026-0592 (url 2.5.8 -&gt; 2.5.9) ([#373](https://github.com/johncarmack1984/lux/issues/373)) ([3e54f6f](https://github.com/johncarmack1984/lux/commit/3e54f6f9c2e9efaadee361419c93144549e0ec51))
+
 ## [1.18.4](https://github.com/johncarmack1984/lux/compare/v1.18.3...v1.18.4) (2026-11-03)
 
 
